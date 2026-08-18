@@ -1,7 +1,7 @@
 # janja — Design
 
 **Data:** 2026-08-18
-**Status:** aprovado (aguardando revisão final)
+**Status:** aguardando revisão
 **Repo:** `git@github.com:Leanderson01/janja.git`
 
 ## 1. Objetivo
@@ -137,20 +137,31 @@ amigos.
 Campos marcados com `·` são indexados.
 
 ```
-users          workosId·, username, tag, displayName, avatarUrl, status
+users          workosId·, username, tag, displayName, avatarUrl
 servers        name, iconUrl, ownerId
 serverMembers  serverId·, userId·, nickname, joinedAt
 channels       serverId·, name, type: 'text' | 'voice', position
 messages       channelId·, authorId, content, createdAt, editedAt
-dmChannels     participantIds·
+dmChannels     createdAt
+dmMembers      dmChannelId·, userId·
 friendRequests fromUserId·, toUserId·, status
-friendships    userA·, userB·
+friendships    userA·, userB·   (userA < userB, ordenação canônica)
 voiceStates    channelId·, userId·, muted, deafened, sharing
-presence       userId·, lastSeen, status
+presence       userId·, lastSeen   (online = lastSeen recente; sem status manual no MVP)
 ```
 
 Índice composto único em `users` sobre `(username, tag)` — garante que
 `USER#123` resolve para no máximo um usuário.
+
+DMs usam tabela de junção `dmMembers` em vez de um array `participantIds` no
+próprio canal: índices do Convex sobre campos de array não suportam consulta do
+tipo "contém", então "listar as DMs deste usuário" seria uma varredura completa.
+A tabela de junção resolve com um índice por `userId`, no mesmo padrão de
+`serverMembers`.
+
+`friendships` guarda o par em ordem canônica (`userA` < `userB`), o que torna a
+amizade um único documento em vez de dois, e transforma "somos amigos?" em uma
+consulta pontual por índice.
 
 `voiceStates` é a peça central da voz: toda a UI de presença em canal é uma
 subscription reativa sobre essa tabela.
