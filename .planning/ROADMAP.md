@@ -147,7 +147,18 @@ real, incluindo calls longas — sem travar em estado não-autenticado.
      8-12h, com log local para detectar o bug documentado se ele aparecer.
   5. Usuário sai da conta pelo app e volta à tela de login; o primeiro login de
      um novo usuário gera `username#tag` único, exibido a ele.
-**Plans**: TBD
+**Plans**: 9 plans
+
+Plans:
+- [ ] 02-01 — Schema do Convex (users, presence) + auth.config.ts
+- [ ] 02-02 — Núcleo do OAuth no processo main (PKCE, safeStorage, refresh)
+- [ ] 02-03 — Registro do protocolo janja:// + IPC + preload
+- [ ] 02-04 — Criação do projeto Convex e env vars (checkpoint humano)
+- [ ] 02-05 — Geração de username#tag com retry de colisão (TDD)
+- [ ] 02-06 — Heartbeat de presença
+- [ ] 02-07 — Hook useAuth + adaptador ConvexProviderWithAuth
+- [ ] 02-08 — LoginScreen, AuthGate e AuthWatchdog
+- [ ] 02-09 — Verificação ponta a ponta no Windows (checkpoint humano)
 
 ### Fase 3: Shell da UI
 **Goal**: A estrutura visual do Discord existe e responde à navegação, mesmo
@@ -308,7 +319,7 @@ implementadores distintos).
 |-------|----------------|--------|-----------|
 | 0. Bootstrap do repo | 4/4 | Complete | 2026-08-18 |
 | 1. LiveKit na VPS | 0/2 | Planned | - |
-| 2. Convex + auth WorkOS | 0/TBD | Not started | - |
+| 2. Convex + auth WorkOS | 0/9 | Planned | - |
 | 3. Shell da UI | 0/5 | Planned | - |
 | 4. Servidores e canais | 0/TBD | Not started | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
