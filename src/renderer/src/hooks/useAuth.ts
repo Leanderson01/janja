@@ -19,6 +19,8 @@ export interface AuthUser {
 interface UseAuthReturn {
   user: AuthUser | null
   loading: boolean
+  /** Falha de comunicação com o processo main, ou app mal configurado. */
+  error: string | null
   signIn: () => Promise<{ success: boolean; error?: string }>
   signOut: () => Promise<{ success: boolean; error?: string }>
 }
@@ -26,14 +28,31 @@ interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    window.auth.getUser().then((u) => {
-      setUser(u)
-      setLoading(false)
-    })
+    // `.catch` + `.finally` não são zelo excessivo: sem eles, qualquer rejeição
+    // desta promise deixa `loading` em true para sempre, e o app fica numa tela
+    // "Carregando…" eterna, sem erro visível e sem caminho de saída. Foi
+    // exatamente o que aconteceu quando o clientId do WorkOS não estava
+    // configurado — o handler de IPC lançava, a promise rejeitava, e o app
+    // travava em silêncio.
+    //
+    // Falhar aqui significa "não há sessão utilizável": tratamos como deslogado,
+    // guardamos a causa para a interface poder mostrá-la, e liberamos o loading.
+    window.auth
+      .getUser()
+      .then((u) => setUser(u))
+      .catch((err: unknown) => {
+        console.error('Falha ao consultar a sessão:', err)
+        setUser(null)
+        setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => setLoading(false))
+
     return window.auth.onAuthChange(({ user: u }) => {
       setUser(u)
+      setError(null)
       setLoading(false)
     })
   }, [])
@@ -41,5 +60,5 @@ export function useAuth(): UseAuthReturn {
   const signIn = useCallback(() => window.auth.signIn(), [])
   const signOut = useCallback(() => window.auth.signOut(), [])
 
-  return { user, loading, signIn, signOut }
+  return { user, loading, error, signIn, signOut }
 }

@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth'
 // visual definitivo depois. Aqui só precisa ser funcional/usável para o checkpoint
 // humano final desta fase (02-09). Não importa nada de components/shell/**.
 export function LoginScreen(): React.JSX.Element {
-  const { signIn } = useAuth()
+  const { signIn, error: sessionError } = useAuth()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,6 +30,13 @@ export function LoginScreen(): React.JSX.Element {
           {pending ? 'Abrindo o navegador…' : 'Entrar com Google'}
         </Button>
         {error && <p className="text-sm text-destructive">{error}</p>}
+
+        {/* Erro de sessão vindo do processo main (ex.: app sem MAIN_VITE_WORKOS_CLIENT_ID).
+            Antes isso travava o app numa tela "Carregando…" eterna; agora a pessoa
+            pelo menos lê qual é o problema em vez de encarar uma tela morta. */}
+        {sessionError && (
+          <p className="text-muted-foreground max-w-sm text-center text-xs">{sessionError}</p>
+        )}
       </div>
     </div>
   )
