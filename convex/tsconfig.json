@@ -1,0 +1,36 @@
+{
+  /* Descreve o ambiente em que as funções do Convex rodam. Baseado no template
+   * oficial (node_modules/convex/src/cli/codegen_templates/tsconfig.ts), com uma
+   * única alteração: os arquivos de teste ficam de fora.
+   *
+   * Por quê: o template inclui `./**\/*`, então o `npx convex dev` typechecava
+   * também os `*.test.ts`. Esses testes usam `import.meta.glob`, que é API do
+   * Vite e não existe no runtime do Convex — o deploy falhava com
+   * "Property 'glob' does not exist on type 'ImportMeta'".
+   *
+   * A saída errada seria adicionar os tipos do Vite aqui: passaria a sugerir que
+   * funções do Convex podem usar APIs do Vite, o que é falso, e o erro voltaria
+   * como bug de runtime em vez de erro de compilação.
+   *
+   * Os testes continuam checados — pelo tsconfig.convex.json da raiz, que roda
+   * no `npm run typecheck` e aí sim inclui os tipos do Vite, porque lá eles
+   * executam sob o vitest.
+   */
+  "compilerOptions": {
+    "allowJs": true,
+    "strict": true,
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+
+    "target": "ESNext",
+    "lib": ["ES2023", "dom"],
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": ["./**/*"],
+  "exclude": ["./_generated", "./**/*.test.ts"]
+}
