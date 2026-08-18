@@ -4,3 +4,14 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# Segredos e ambiente — nada disso vai pro repo.
+# Convex escreve .env.local sozinho; a API key do WorkOS mora nele.
+.env
+.env.*
+!.env.example
+
+# Credenciais de infra (token de DNS da Hostinger, chaves do LiveKit)
+infra/**/.env
+infra/**/*.pem
+infra/**/*.key
