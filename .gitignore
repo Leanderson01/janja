@@ -10,6 +10,7 @@ out
 .env
 .env.*
 !.env.example
+!.env.local.example
 
 # Credenciais de infra (token de DNS da Hostinger, chaves do LiveKit)
 infra/**/.env
