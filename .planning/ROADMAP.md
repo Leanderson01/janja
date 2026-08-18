@@ -128,8 +128,8 @@ sobrevive a reboot — sem depender de nenhuma linha de código do app.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-config-livekit-PLAN.md — livekit.yaml, .env.example, docker-compose (Caddy próprio / proxy existente), Caddyfile e script de certificado via certbot
-- [ ] 01-02-runbook-e-deploy-PLAN.md — Runbook de deploy passo a passo (diagnóstico de porta 443, DNS, firewall, deploy, validação) + checkpoint humano de execução na VPS
+- [ ] 01-01-config-livekit-PLAN.md — livekit.yaml (mux de porta UDP única), docker-compose para recurso do Coolify, .env.example, dns-multi.ini.example e script de certificado do TURN via DNS-01
+- [ ] 01-02-runbook-e-deploy-PLAN.md — Runbook: token da Hostinger, DNS, firewall, certificado do TURN, cron de renovação, criação do recurso no Coolify, deploy e os 4 testes de validação + checkpoint humano na VPS
 
 ### Fase 2: Convex + auth WorkOS
 **Goal**: Usuário entra com a conta Google e a sessão se sustenta durante uso
