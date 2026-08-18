@@ -1,0 +1,23 @@
+services:
+  livekit-server:
+    image: livekit/livekit-server:v1.13.5
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    # NÃO declarar "networks:" aqui — usar a rede bridge que o Coolify
+    # já cria pra esta stack. Definir uma rede custom tira o container
+    # dela e causa "504 Gateway Timeout" intermitente (issue conhecida
+    # da própria doc do Coolify) — ver 01-RESEARCH.md §2.
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      # Só as portas que o Traefik NÃO deve mediar. A porta 7880
+      # (API/WebSocket, sinalização WSS) fica de propósito fora daqui:
+      # o domínio é atribuído pela UI do Coolify (ver
+      # DEPLOY-RUNBOOK.md), que gera os labels do Traefik
+      # automaticamente e roteia até o container pela rede interna —
+      # nunca editar esses labels à mão.
+      - "7881:7881"        # ICE/TCP fallback — doc oficial: "cannot be behind load balancer or TLS, must be exposed on the node"
+      - "7882:7882/udp"    # ICE/UDP mux — mapeamento 1:1 com rtc.udp_port em livekit.yaml
+      - "3478:3478/udp"    # TURN/UDP + STUN embutido
+      - "5349:5349"        # TURN/TLS — cert próprio (ver turn-cert-init.sh), não passa pelo Traefik

@@ -1,0 +1,10 @@
+# Copiar para /etc/letsencrypt/dns-multi.ini NA VPS (fora do repo —
+# nunca commitar o token real). Depois de copiar:
+#   chmod 0600 /etc/letsencrypt/dns-multi.ini
+#
+# Gerar o token em: Hostinger hPanel -> configurações da conta -> API
+# (o caminho exato do menu pode variar; procurar por "API" nas
+# configurações da conta). Precisa de permissão de gerenciar zona DNS.
+
+dns_multi_provider = hostinger
+HOSTINGER_API_TOKEN="REPLACE_WITH_REAL_TOKEN"
