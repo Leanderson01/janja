@@ -72,23 +72,43 @@ Nenhum ainda.
   fase.
 - [F1] INFRA-02 precisa ser validado a partir de rede restritiva de verdade
   (hotspot 4G/CGNAT), não só da rede doméstica — modo de falha é silencioso.
-- [Infra] `/home/leo/workspace` parece ser um único repositório git
-  compartilhado por vários projetos não relacionados (ex: `tcc`, `janja`,
-  `discord-v2`), atualmente no branch `phase-10-poc` do projeto `tcc`. Um
-  processo concorrente apagou arquivos untracked de `janja/.planning/` e
-  `janja/docs/` durante o planejamento da Fase 3 (2026-08-18) — provável
-  operação destrutiva de git (`clean`/`checkout`/`reset`) rodando em paralelo
-  nesse repositório compartilhado. Os arquivos foram reconstruídos a partir
-  do contexto da sessão, mas o risco de perda de dados persiste enquanto
-  `janja` não tiver seu próprio `.git` isolado. Recomenda-se rodar `git init`
-  dentro de `janja/` (ou mover para um worktree próprio) antes de continuar
-  o trabalho em paralelo entre fases.
+- [Processo] **Incidente 2026-08-18 — perda de dados durante a Fase 0.** O agente
+  executor rodou o scaffolder do electron-vite com `yes |` para evitar prompts
+  interativos. O `yes` respondeu "y" a todos os prompts, incluindo o de nome do
+  projeto (gerando `package.json` de 34 KB com `"name": "yyyy..."`) e o de
+  "diretório não vazio, sobrescrever?" — apagando `.git`, `docs/`, `.claude/` e
+  parte de `.planning/`. Recuperado por clone do remote, que tinha sido pushado
+  minutos antes. Perda líquida: os 3 planos + research da Fase 0, que existiam
+  apenas em commit local.
+
+  Nota: um agente diagnosticou a causa como "janja não tem .git próprio dentro do
+  umbrella /home/leo/workspace". **Esse diagnóstico está errado** — o janja tinha
+  e tem `.git` próprio, funcionando e sincronizado com o GitHub. A causa foi o
+  `yes |`. Registrado porque a recomendação derivada daquele diagnóstico
+  (`git init` isolado) não teria evitado nada.
+
+  Regras derivadas, obrigatórias daqui em diante:
+  1. Scaffolder interativo NUNCA roda dentro do repo. Gera em diretório
+     temporário vazio, confere, e só então copia para dentro.
+  2. Proibido `yes |`, `--force` ou auto-confirmação cega contra qualquer
+     ferramenta que rode no diretório do projeto.
+  3. Após qualquer scaffold, verificar que `.git`, `.planning/`, `docs/` e
+     `.claude/` continuam existindo antes de seguir.
+  4. `git push` a cada commit de planejamento, não em lote — foi o push
+     antecipado que salvou o projeto.
+
+- [Processo] **Escrita concorrente em arquivos compartilhados.** Três
+  planejadores paralelos editaram `ROADMAP.md` ao mesmo tempo e a entrada da
+  Fase 0 foi sobrescrita e perdida — problema independente do incidente acima.
+  Agentes paralelos escrevem SOMENTE nos próprios diretórios de fase; o
+  orquestrador consolida `ROADMAP.md` e `STATE.md` sequencialmente depois.
 
 ## Session Continuity
 
 Last session: 2026-08-18
-Stopped at: ROADMAP.md e STATE.md criados; REQUIREMENTS.md atualizado com
-traceability completa (59/59 requisitos mapeados); Fase 3 (Shell da UI)
-planejada (5 plans). Próximo passo: `/gsd:plan-phase 0` (e demais fases da
-Onda B, se ainda não planejadas).
+Stopped at: Fases 1 (2 plans) e 3 (5 plans) planejadas e commitadas.
+Fase 0 sendo replanejada após o incidente registrado em Blockers/Concerns.
+Repo sincronizado com origin/main, working tree limpo, cobertura de
+requisitos reverificada em 59/59 após a recuperação.
+Próximo passo: executar Fase 0, depois Fase 3.
 Resume file: None
