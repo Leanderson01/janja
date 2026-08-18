@@ -320,7 +320,16 @@ nativa, nunca só no ambiente de desenvolvimento WSL2):
   4. Se quem compartilha cai ou fecha o app à força, os outros voltam ao
      layout normal sem frame congelado.
   5. Usuário escolhe entre priorizar fluidez ou nitidez ao compartilhar.
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 08-01 — setSharing no Convex, estendendo o mesmo webhook da F7 (TDD)
+- [ ] 08-02 — Núcleo mínimo de captura: desktopCapturer + handler defensivo + restrictOwnAudio
+- [ ] 08-03 — Checkpoint Windows com 3+ máquinas: prova de áudio sem eco (antes de qualquer UI)
+- [ ] 08-04 — Seletor de tela próprio, com miniaturas e tratamento de cancelamento
+- [ ] 08-05 — Alternância de qualidade e sincronização de voiceStates.sharing
+- [ ] 08-06 — Lado receptor: renderização do vídeo e indicadores de quem compartilha
+- [ ] 08-07 — Checkpoint Windows final: SHARE-01..08 completo
 
 ### Fase 9: Polimento e empacotamento
 **Goal**: Uma pessoa não-técnica instala o app com poucos cliques, e o roteiro
@@ -359,7 +368,7 @@ implementadores distintos).
 | 5. Chat em tempo real | 0/TBD | Not started | - |
 | 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/9 | Planned | - |
-| 8. Compartilhamento de tela | 0/TBD | Not started | - |
+| 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 9. Polimento e empacotamento | 0/TBD | Not started | - |
 
 ---
