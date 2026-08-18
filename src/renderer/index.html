@@ -6,8 +6,22 @@
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob:; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com"
     />
+    <!--
+      A CSP padrão do template do electron-vite é `default-src 'self'`, que
+      bloqueia toda conexão externa. Sem ajustar, o WebSocket do Convex é
+      recusado pelo navegador e o app trava numa tela "Carregando…" eterna —
+      sem erro de aplicação, porque a falha é do próprio Chromium.
+
+      connect-src: Convex (dados) e LiveKit (sinalização de voz, F7).
+      img-src https:: avatares vindos do Google e do WorkOS.
+      media-src blob:: tracks de áudio e vídeo do WebRTC.
+
+      A mídia WebRTC em si (UDP/ICE) não passa por CSP — só a sinalização.
+      Manter esta lista explícita em vez de afrouxar para `*`: o renderer
+      exibe conteúdo de terceiros (avatares) e a CSP é a última barreira.
+    -->
   </head>
 
   <body>
