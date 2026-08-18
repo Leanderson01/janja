@@ -2,6 +2,13 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import {
+  registerProtocol,
+  extractCallbackUrl,
+  parseCallbackParams
+} from './auth/deep-link-handler'
+import { handleCallback, getUser } from './auth/auth'
+import { setupAuthIpcHandlers, notifyAuthChange } from './auth/ipc-handlers'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -53,14 +60,47 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  // Registers the `janja://` custom protocol with the OS. Must happen before
+  // app.whenReady() resolves, and only on the primary instance (the one that
+  // actually got the single-instance lock) — see 02-RESEARCH.md §6.
+  registerProtocol()
+
+  app.on('second-instance', (_event, argv) => {
     // A second instance was launched; focus/restore the existing window
-    // instead of letting a new process take over. Parsing the `janja://`
-    // payload out of commandLine belongs to F2, not here.
+    // instead of letting a new process take over.
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
     }
+
+    // On Windows, this `argv` is THE delivery mechanism for the `janja://`
+    // OAuth callback: clicking the "continue" link in the system browser
+    // launches a second instance of the app with `janja://callback?...` as
+    // one of the arguments. The single-instance lock above intercepts that
+    // second launch and hands us its argv here instead of letting a real
+    // second process start.
+    const callbackUrl = extractCallbackUrl(argv)
+    if (!callbackUrl) return
+
+    const { code, state, error } = parseCallbackParams(callbackUrl)
+    if (error) {
+      console.error(`[auth] OAuth callback returned an error: ${error}`)
+      return
+    }
+    if (!code || !state) {
+      console.error('[auth] OAuth callback missing code or state, ignoring')
+      return
+    }
+
+    handleCallback(code, state)
+      .then((user) => {
+        if (mainWindow) notifyAuthChange(mainWindow, user)
+      })
+      .catch((err) => {
+        // Invalid/expired state, or the code exchange itself failing — never
+        // crash the app over a bad callback, just log and let the user retry.
+        console.error('[auth] Failed to handle OAuth callback:', err)
+      })
   })
 
   // This method will be called when Electron has finished
@@ -81,6 +121,24 @@ if (!gotTheLock) {
     ipcMain.on('ping', () => console.log('pong'))
 
     createWindow()
+
+    if (mainWindow) {
+      setupAuthIpcHandlers(mainWindow)
+
+      // Restore an existing (persisted) session on startup, without waiting
+      // for a fresh login. Sent only after the renderer has actually
+      // finished loading, so window.auth.onAuthChange has a listener
+      // attached by the time this fires.
+      mainWindow.webContents.once('did-finish-load', () => {
+        getUser()
+          .then((user) => {
+            if (user && mainWindow) notifyAuthChange(mainWindow, user)
+          })
+          .catch((err) => {
+            console.error('[auth] Failed to restore session on startup:', err)
+          })
+      })
+    }
 
     app.on('activate', function () {
       // On macOS it's common to re-create a window in the app when the
