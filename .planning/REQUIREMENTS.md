@@ -129,17 +129,73 @@
 
 ## Traceability
 
-Preenchido durante a criação do roadmap.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| — | — | Pendente |
+| INFRA-01 | Fase 1 | Pendente |
+| INFRA-02 | Fase 1 | Pendente |
+| INFRA-03 | Fase 1 | Pendente |
+| INFRA-04 | Fase 1 | Pendente |
+| AUTH-01 | Fase 2 | Pendente |
+| AUTH-02 | Fase 2 | Pendente |
+| AUTH-03 | Fase 2 | Pendente |
+| AUTH-04 | Fase 2 | Pendente |
+| AUTH-05 | Fase 2 | Pendente |
+| AUTH-06 | Fase 2 | Pendente |
+| SRV-01 | Fase 4 | Pendente |
+| SRV-02 | Fase 4 | Pendente |
+| SRV-03 | Fase 4 | Pendente |
+| SRV-04 | Fase 4 | Pendente |
+| SRV-05 | Fase 4 | Pendente |
+| SRV-06 | Fase 4 | Pendente |
+| SRV-07 | Fase 4 | Pendente |
+| CHAT-01 | Fase 5 | Pendente |
+| CHAT-02 | Fase 5 | Pendente |
+| CHAT-03 | Fase 5 | Pendente |
+| CHAT-04 | Fase 5 | Pendente |
+| CHAT-05 | Fase 5 | Pendente |
+| CHAT-06 | Fase 5 | Pendente |
+| CHAT-07 | Fase 5 | Pendente |
+| SOCIAL-01 | Fase 6 | Pendente |
+| SOCIAL-02 | Fase 6 | Pendente |
+| SOCIAL-03 | Fase 6 | Pendente |
+| SOCIAL-04 | Fase 6 | Pendente |
+| SOCIAL-05 | Fase 6 | Pendente |
+| SOCIAL-06 | Fase 6 | Pendente |
+| VOICE-01 | Fase 7 | Pendente |
+| VOICE-02 | Fase 7 | Pendente |
+| VOICE-03 | Fase 7 | Pendente |
+| VOICE-04 | Fase 7 | Pendente |
+| VOICE-05 | Fase 7 | Pendente |
+| VOICE-06 | Fase 7 | Pendente |
+| VOICE-07 | Fase 7 | Pendente |
+| VOICE-08 | Fase 7 | Pendente |
+| VOICE-09 | Fase 7 | Pendente |
+| VOICE-10 | Fase 7 | Pendente |
+| VOICE-11 | Fase 7 | Pendente |
+| VOICE-12 | Fase 7 | Pendente |
+| VOICE-13 | Fase 7 | Pendente |
+| VOICE-14 | Fase 7 | Pendente |
+| VOICE-15 | Fase 7 | Pendente |
+| VOICE-16 | Fase 7 | Pendente |
+| VOICE-17 | Fase 7 | Pendente |
+| SHARE-01 | Fase 8 | Pendente |
+| SHARE-02 | Fase 8 | Pendente |
+| SHARE-03 | Fase 8 | Pendente |
+| SHARE-04 | Fase 8 | Pendente |
+| SHARE-05 | Fase 8 | Pendente |
+| SHARE-06 | Fase 8 | Pendente |
+| SHARE-07 | Fase 8 | Pendente |
+| SHARE-08 | Fase 8 | Pendente |
+| APP-01 | Fase 3 | Pendente |
+| APP-02 | Fase 4 | Pendente |
+| APP-03 | Fase 9 | Pendente |
+| APP-04 | Fase 0 | Pendente |
 
 **Coverage:**
 - v1 requirements: 59 total
-- Mapped to phases: 0
-- Unmapped: 59 ⚠️
+- Mapped to phases: 59
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-18*
-*Last updated: 2026-08-18 after features research*
+*Last updated: 2026-08-18 after roadmap creation*
