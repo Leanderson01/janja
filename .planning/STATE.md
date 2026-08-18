@@ -10,12 +10,12 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 2 (Convex + auth) — Fases 0, 1 e 3 concluídas
+Phase: 4 e 6 (prontas para executar) — Fases 0, 1, 2 e 3 concluídas
 Plan: 1 of 5 concluído na Fase 3
 Status: Fase 3 onda 2 em execução
 Last activity: 2026-08-18 — Roadmap criado (10 fases, 59/59 requisitos mapeados)
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 44%
 
 ## Performance Metrics
 

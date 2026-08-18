@@ -353,7 +353,7 @@ implementadores distintos).
 |-------|----------------|--------|-----------|
 | 0. Bootstrap do repo | 4/4 | Complete | 2026-08-18 |
 | 1. LiveKit na VPS | 2/2 | Complete | 2026-08-18 |
-| 2. Convex + auth WorkOS | 2/9 | In progress | - |
+| 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 0/8 | Planned | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
