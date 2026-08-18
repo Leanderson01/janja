@@ -119,7 +119,11 @@ sobrevive a reboot — sem depender de nenhuma linha de código do app.
      (`use_external_ip: true`), alcançáveis de fora da própria VPS.
   4. Depois de reiniciar a VPS, o LiveKit volta a responder sozinho, sem
      intervenção manual.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-config-livekit-PLAN.md — livekit.yaml, .env.example, docker-compose (Caddy próprio / proxy existente), Caddyfile e script de certificado via certbot
+- [ ] 01-02-runbook-e-deploy-PLAN.md — Runbook de deploy passo a passo (diagnóstico de porta 443, DNS, firewall, deploy, validação) + checkpoint humano de execução na VPS
 
 ### Fase 2: Convex + auth WorkOS
 **Goal**: Usuário entra com a conta Google e a sessão se sustenta durante uso
@@ -150,7 +154,14 @@ sem nenhum dado real ainda.
   2. Redimensionar a janela não quebra o layout.
   3. Navegar entre servidor/canal fictícios (dados estáticos) muda a área de
      conversa sem exigir nenhum backend.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 03-01-fundacao-layout-e-dados-mock-PLAN.md — Dados mockados + contexto de seleção + esqueleto de 4 regiões + barra de servidores
+- [ ] 03-02-sidebar-de-canais-PLAN.md — Sidebar de canais (categorias, badge de não lidas, voz aninhada) + rodapé de controles de voz
+- [ ] 03-03-area-de-conversa-PLAN.md — Área de conversa (chat mockado, divisor de não lidas, visão de voz + placeholder de screenshare)
+- [ ] 03-04-lista-de-membros-PLAN.md — Lista de membros agrupada por status com overlay de voz
+- [ ] 03-05-verificacao-e-janela-minima-PLAN.md — Tamanho mínimo de janela + verificação humana do shell completo
 
 ### Fase 4: Servidores e canais
 **Goal**: Usuário cria e administra um servidor com convite, canais e controle
@@ -290,9 +301,9 @@ implementadores distintos).
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. Bootstrap do repo | 0/TBD | Not started | - |
-| 1. LiveKit na VPS | 0/TBD | Not started | - |
+| 1. LiveKit na VPS | 0/2 | Planned | - |
 | 2. Convex + auth WorkOS | 0/TBD | Not started | - |
-| 3. Shell da UI | 0/TBD | Not started | - |
+| 3. Shell da UI | 0/5 | Planned | - |
 | 4. Servidores e canais | 0/TBD | Not started | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
 | 6. Amigos e DMs | 0/TBD | Not started | - |

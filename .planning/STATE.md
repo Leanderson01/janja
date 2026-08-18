@@ -54,6 +54,10 @@ diretamente o roadmap:
   aceite da fase, não um follow-up — evita usuário-fantasma após crash.
 - [F9]: `uiohook-napi` (push-to-talk, VOICE-11) é dependência nativa
   implementada em F7 mas com risco de empacotamento verificado só em F9.
+- [F3]: Larguras de coluna do shell (rail 72px, sidebar/membros 240px) são
+  fixas, sem componente de resize arrastável — Discord real não permite
+  arrastar essas bordas, e usar `Resizable` do shadcn introduziria risco de
+  API sem ganho de UX. Ver `.planning/phases/03-shell-da-ui/03-RESEARCH.md`.
 
 ### Pending Todos
 
@@ -68,11 +72,23 @@ Nenhum ainda.
   fase.
 - [F1] INFRA-02 precisa ser validado a partir de rede restritiva de verdade
   (hotspot 4G/CGNAT), não só da rede doméstica — modo de falha é silencioso.
+- [Infra] `/home/leo/workspace` parece ser um único repositório git
+  compartilhado por vários projetos não relacionados (ex: `tcc`, `janja`,
+  `discord-v2`), atualmente no branch `phase-10-poc` do projeto `tcc`. Um
+  processo concorrente apagou arquivos untracked de `janja/.planning/` e
+  `janja/docs/` durante o planejamento da Fase 3 (2026-08-18) — provável
+  operação destrutiva de git (`clean`/`checkout`/`reset`) rodando em paralelo
+  nesse repositório compartilhado. Os arquivos foram reconstruídos a partir
+  do contexto da sessão, mas o risco de perda de dados persiste enquanto
+  `janja` não tiver seu próprio `.git` isolado. Recomenda-se rodar `git init`
+  dentro de `janja/` (ou mover para um worktree próprio) antes de continuar
+  o trabalho em paralelo entre fases.
 
 ## Session Continuity
 
 Last session: 2026-08-18
 Stopped at: ROADMAP.md e STATE.md criados; REQUIREMENTS.md atualizado com
-traceability completa (59/59 requisitos mapeados). Próximo passo:
-`/gsd:plan-phase 0`.
+traceability completa (59/59 requisitos mapeados); Fase 3 (Shell da UI)
+planejada (5 plans). Próximo passo: `/gsd:plan-phase 0` (e demais fases da
+Onda B, se ainda não planejadas).
 Resume file: None
