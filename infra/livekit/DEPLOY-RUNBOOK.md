@@ -246,51 +246,45 @@ ainda sem deploy feito.
 
 ---
 
-## 8. Corrigir `keys` no checkout do Coolify (placeholder → valores reais) — **[uma vez, mas RECONFERIR a cada redeploy]**
+## 8. ~~Corrigir `keys` no checkout do Coolify~~ — **eliminado**
 
-> **Esta é a armadilha mais fácil de esquecer deste runbook — leia com
-> atenção.** O `livekit.yaml` deste repositório **não interpola variáveis de
-> ambiente**. Ele é montado estático dentro do container. Isso significa que
-> o Coolify clona o repositório com o placeholder
-> `REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET` ainda no lugar, e alguém
-> precisa trocar isso manualmente **no checkout que está na VPS**, não só na
-> sua cópia local.
->
-> **E pior: se o Coolify re-clonar o repositório num redeploy futuro** (push
-> novo no repo, ou clique em "Redeploy" manual), **esse arquivo volta para o
-> placeholder do git.** A autenticação da API do LiveKit quebra
-> silenciosamente até alguém perceber. **Sempre confira este passo depois de
-> qualquer redeploy, antes de assumir que a autenticação está funcionando.**
+Este passo existia porque o `livekit.yaml` era montado estático e as chaves
+precisavam ser editadas à mão no checkout que o Coolify clona. Isso tinha um
+modo de falha ruim: **qualquer redeploy re-clonava o repositório e revertia a
+edição**, derrubando a autenticação sem nenhum erro visível — o sintoma seria
+"ninguém consegue entrar em call", meses depois, sem pista da causa.
 
-1. Depois que o Coolify clonar o repositório (o primeiro deploy no passo 10
-   ainda vai subir com o placeholder — isso é esperado neste ponto),
-   localize o diretório de trabalho da aplicação na VPS. Padrão do Coolify:
-   ```
-   ls /data/coolify/applications/
-   ```
-   Identifique o UUID correspondente a este recurso (o nome/domínio ajuda a
-   reconhecer) e entre nele.
-2. Edite o `livekit.yaml` dentro desse checkout (não o do seu clone local —
-   é uma cópia separada que o Coolify gerencia):
-   ```
-   sudo nano /data/coolify/applications/<uuid>/infra/livekit/livekit.yaml
-   ```
-   (o subcaminho exato depois do UUID pode variar — se não achar
-   `infra/livekit/livekit.yaml` ali, rode
-   `sudo find /data/coolify/applications/<uuid> -name livekit.yaml`
-   para localizar.)
-3. Substitua a linha `REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET` pelos
-   dois valores reais gerados no passo 6.
-4. Salve e reinicie o serviço (UI do Coolify → **Restart**) para o
-   container remontar o arquivo editado.
+Resolvido na origem: o `livekit-server` aceita a variável de ambiente
+`LIVEKIT_KEYS` no formato `"chave: segredo"`. O bloco `keys:` foi removido do
+`livekit.yaml`, o `docker-compose.yml` passa a env var, e o valor é definido
+nas env vars da stack no Coolify — que **sobrevivem a redeploy**.
 
-**Resultado esperado:** o arquivo no checkout da VPS mostra os valores reais
-(não o texto `REPLACE_WITH_API_KEY`). O teste de validação do passo 11a
-confirma que isso funcionou de fato (autenticação da API aceita).
+Não há nada a fazer neste passo. Vá para o 9, que agora define essa variável.
 
 ---
 
 ## 9. Variáveis de ambiente e domínio na UI do Coolify — **[uma vez]**
+
+### 9.1 — Variável de ambiente das chaves
+
+Na página do recurso, seção **Environment Variables**, adicione:
+
+| Nome | Valor |
+|---|---|
+| `LIVEKIT_KEYS` | `<API_KEY>: <API_SECRET>` |
+
+O formato importa: os dois valores do passo 6 **na mesma linha**, separados
+por dois-pontos e um espaço. Exemplo de forma (não de valor):
+`22f8fd…: 8844…`
+
+Marque como secreta/build-time conforme a UI oferecer. Esta é a variável mais
+sensível do projeto — quem a tem entra em qualquer canal de voz sem passar
+por login.
+
+Se a variável não estiver definida, o container falha ao subir com uma
+mensagem explícita em vez de subir sem autenticação — proposital.
+
+### 9.2 — Domínio
 
 1. Na página do recurso criado no passo 7, localize a seção de domínio do
    serviço `livekit-server`.

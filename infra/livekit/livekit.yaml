@@ -41,16 +41,19 @@ turn:
   # constar em firewall nem em `ports:` do compose (confirmado: não
   # aparece na tabela oficial de portas expostas). Ver 01-RESEARCH.md §4.
 
-keys:
-  # SUBSTITUIR pelos mesmos valores definidos nas env vars da stack no
-  # Coolify (LIVEKIT_API_KEY / LIVEKIT_API_SECRET) — ver
-  # DEPLOY-RUNBOOK.md. Este arquivo é montado estático no container,
-  # não lê variável de ambiente diretamente. Gerar com:
-  # openssl rand -hex 32 (rodar 2x, um valor por variável).
-  # ATENÇÃO: se o Coolify re-clonar este repositório num redeploy
-  # futuro, este valor placeholder volta — conferir sempre depois de
-  # um redeploy (ver DEPLOY-RUNBOOK.md).
-  REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET
+# NÃO existe bloco `keys:` aqui, e isso é intencional.
+#
+# As chaves chegam pela variável de ambiente LIVEKIT_KEYS, no formato
+# "chave: segredo", definida nas env vars da stack no Coolify.
+#
+# Por que não no arquivo: este YAML é montado estático a partir do
+# checkout que o Coolify faz do repositório. Qualquer edição manual aqui
+# seria revertida silenciosamente no próximo redeploy — a autenticação
+# quebraria sem erro visível, e só apareceria como "ninguém consegue
+# entrar em call". Env var do Coolify sobrevive a redeploy; arquivo
+# editado à mão no checkout, não.
+#
+# Gerar os valores com `openssl rand -hex 32` (duas vezes).
 
 logging:
   level: info

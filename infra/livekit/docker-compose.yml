@@ -7,6 +7,11 @@ services:
     # já cria pra esta stack. Definir uma rede custom tira o container
     # dela e causa "504 Gateway Timeout" intermitente (issue conhecida
     # da própria doc do Coolify) — ver 01-RESEARCH.md §2.
+    environment:
+      # Formato "chave: segredo". Definido nas env vars da stack no
+      # Coolify, nunca neste arquivo nem no livekit.yaml — env var
+      # sobrevive a redeploy, edição manual no checkout não.
+      LIVEKIT_KEYS: ${LIVEKIT_KEYS:?defina LIVEKIT_KEYS nas env vars do Coolify}
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
