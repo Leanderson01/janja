@@ -195,7 +195,17 @@ de acesso — e vê quem está nele.
      consegue ler nem escrever em nenhum canal dele.
   5. Usuário vê a lista de membros do servidor, cada um com status
      online/offline.
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 04-01 — Schema (servers, serverMembers, invites, channels) + helper de autorização
+- [ ] 04-02 — Convites: gerar, revogar, entrar por código (TDD)
+- [ ] 04-03 — Canais de texto e voz (TDD, com teste direto de SRV-06)
+- [ ] 04-04 — Membros e presença (TDD)
+- [ ] 04-05 — Navegação real de servidores + diálogo de criar/entrar
+- [ ] 04-06 — Canais reais na sidebar + diálogos de canal e convite
+- [ ] 04-07 — Lista de membros sobre dado real
+- [ ] 04-08 — Verificação humana no Windows (checkpoint)
 
 ### Fase 5: Chat em tempo real
 **Goal**: Um canal de texto se comporta como um chat de verdade: rápido,
@@ -331,7 +341,7 @@ implementadores distintos).
 | 1. LiveKit na VPS | 2/2 | Complete | 2026-08-18 |
 | 2. Convex + auth WorkOS | 2/9 | In progress | - |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
-| 4. Servidores e canais | 0/TBD | Not started | - |
+| 4. Servidores e canais | 0/8 | Planned | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
 | 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/TBD | Not started | - |
