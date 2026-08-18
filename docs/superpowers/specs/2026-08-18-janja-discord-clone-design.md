@@ -30,7 +30,7 @@ registrados, monetização.
 
 | Camada | Escolha | Por quê |
 |---|---|---|
-| Shell | Electron + `electron-vite` | Único caminho para capturar áudio de sistema junto com a tela |
+| Shell | Electron >= 43.4.0 + `electron-vite` | Único caminho para capturar áudio de sistema junto com a tela. A versão mínima não é arbitrária: `restrictOwnAudio` era ignorado antes da 43.4.0 |
 | Linguagem | TypeScript | Convex gera tipos do schema; sem TS metade do valor da ferramenta se perde |
 | UI | React + Tailwind + shadcn/ui | Componentes headless, estilo controlado por nós — necessário para imitar o Discord |
 | Backend/estado | Convex | Reatividade por subscription resolve chat, presença e voice states sem WebSocket próprio |
@@ -83,6 +83,11 @@ Consequências que valem o design:
 O único estado que vive no LiveKit é *quem está falando agora* (evento
 `ActiveSpeakers`): efêmero demais para justificar escrita no banco.
 
+**O princípio sozinho é incompleto.** Se nada além do cliente escreve em
+`voiceStates`, um crash do app deixa a linha órfã e a pessoa aparece no canal
+para sempre. O LiveKit precisa atuar como *reconciliador* sem virar fonte da
+verdade — detalhado em §6.
+
 ### Estrutura do repositório
 
 ```
@@ -100,16 +105,24 @@ compartilhar entre alvos.
 
 ## 4. Autenticação
 
-O fluxo, passo a passo:
+Segue o exemplo oficial `@workos-inc/authkit-electron`, baseado em custom
+protocol. O fluxo, passo a passo:
 
-1. Renderer solicita login via IPC ao main.
-2. Main sobe servidor HTTP efêmero em `http://127.0.0.1:<porta-aleatória>`
-   (padrão RFC 8252, OAuth 2.0 for Native Apps).
-3. Main chama `shell.openExternal(authkitUrl)` — abre o **navegador do sistema**.
+1. App registra o scheme `janja://` via `app.setAsDefaultProtocolClient`.
+   Em desenvolvimento isso exige passar o caminho do executável e os argumentos
+   explicitamente, senão o registro aponta para o binário do Electron e o
+   redirect nunca chega ao app.
+2. Renderer solicita login via IPC ao main.
+3. Main chama `shell.openExternal(authkitUrl)` — abre o **navegador do sistema**,
+   com PKCE (`code_challenge`) e `state` de alta entropia.
 4. Usuário autentica no Google via WorkOS AuthKit.
-5. WorkOS redireciona ao loopback com o código; o servidor efêmero captura e encerra.
-6. Main troca o código por tokens e persiste o refresh token no `safeStorage`
-   do Electron (criptografia do OS, não `localStorage`).
+5. WorkOS redireciona para `janja://callback?code=...`; o SO entrega ao app pelo
+   evento `open-url` (macOS) ou `second-instance` (Windows). Como o alvo é
+   Windows, o caminho relevante é `second-instance` — o que **exige
+   `requestSingleInstanceLock`**, senão uma segunda instância é criada e o
+   código de autorização se perde.
+6. Main valida o `state`, troca o código por tokens com o `code_verifier` do
+   PKCE, e persiste o refresh token no `safeStorage` do Electron.
 7. Main entrega o access token ao renderer via IPC.
 8. Renderer alimenta o Convex através de `ConvexProviderWithAuth` com um hook
    `useAuth` customizado.
@@ -117,6 +130,35 @@ O fluxo, passo a passo:
 O passo 3 não é preferência: **o Google recusa autenticação dentro de
 `BrowserWindow` do Electron** (`disallowed_useragent`). Não existe caminho
 embutido.
+
+### Por que custom protocol e não loopback
+
+O loopback HTTP em `127.0.0.1` (RFC 8252) é o padrão que Google e IETF
+recomendam para apps nativos, e é imune a sequestro de scheme. Foi descartado
+porque **não existe biblioteca pronta para ele nesta stack**: o exemplo oficial
+da WorkOS usa custom protocol, então o loopback exigiria implementar PKCE,
+`state`, porta aleatória e proteção de socket no Windows à mão — superfície de
+segurança onde errar é caro. Num app privado com 10 usuários conhecidos, o risco
+de sequestro de scheme é menor que o risco de errar uma implementação
+criptográfica própria.
+
+### Tratamento de falha do `safeStorage`
+
+No Windows, `safeStorage` usa DPAPI atrelada à credencial de login do SO.
+Reinstalar o Windows, trocar de máquina ou resetar a senha da conta torna o blob
+criptografado **permanentemente ilegível** — é design de segurança, não bug.
+Toda leitura fica em `try/catch` e a falha cai no fluxo de login, nunca em
+exceção não tratada. Usar as APIs assíncronas (`encryptStringAsync` /
+`decryptStringAsync`), e nunca chamar antes de `app.whenReady()`.
+
+### Expiração de token
+
+O access token do WorkOS expira em 5 minutos por padrão. Existe bug documentado
+(`get-convex/convex-backend#259`) em que o cliente Convex trava permanentemente
+em `isAuthenticated: false` após a expiração, mesmo com o token renovado. Uma
+call de 30 minutos atravessa isso várias vezes. Mitigação: elevar o TTL para
+8-12 horas no dashboard do WorkOS, e instrumentar log local quando
+`isAuthenticated` cair inesperadamente para detectar o bug em uso real.
 
 ### Ponto de integração conhecido
 
@@ -177,12 +219,43 @@ subscription reativa sobre essa tabela.
 4. Action insere a linha em `voiceStates`.
 5. Renderer conecta em `wss://livekit.usesenju.com`, sala = `channelId`.
 
+### Sair de canal de voz — dois caminhos
+
+O caminho feliz é o cliente chamar `leaveVoiceChannel()`. O caminho real exige
+reconciliação: crash, `Alt+F4`, Windows Update ou queda de rede nunca executam o
+cleanup do cliente, e a linha em `voiceStates` fica órfã para sempre.
+
+Webhooks do LiveKit (`participant_left`, `participant_connection_aborted`,
+`room_finished`) apontam para uma HTTP action do Convex em `convex/http.ts`, que
+apaga a linha correspondente. Assim o LiveKit corrige o estado sem ser
+consultado como fonte da verdade.
+
+Detalhe que quebra em silêncio: a verificação de assinatura
+(`WebhookReceiver.receive`) exige o **corpo bruto** da requisição
+(`await request.text()`). Chamar `request.json()` antes invalida o HMAC.
+
 ### Compartilhar tela com áudio
 
-No main, `setDisplayMediaRequestHandler` com `audio: 'loopback'` — API do
-Electron que no Windows entrega o áudio do sistema junto com o vídeo via WASAPI
-loopback. O stream resultante gera duas tracks publicadas no LiveKit (vídeo da
-tela e áudio do sistema), independentes da track do microfone.
+No main, `setDisplayMediaRequestHandler` com `audio: { restrictOwnAudio: true }`
+e `'loopback'` — API do Electron que no Windows entrega o áudio do sistema junto
+com o vídeo via WASAPI loopback. O stream resultante gera duas tracks publicadas
+no LiveKit (vídeo da tela e áudio do sistema), independentes da track do
+microfone.
+
+Duas restrições que vêm da pesquisa de armadilhas:
+
+- **`restrictOwnAudio` só funciona a partir do Electron 43.4.0.** Sem ele, o
+  loopback captura o áudio da própria call — o WASAPI grava tudo que sai pelo
+  dispositivo de saída — e os participantes ouvem a própria voz de volta com
+  atraso. Fone de ouvido não resolve.
+- **O handler precisa chamar `callback()` em todos os caminhos**, incluindo
+  lista de fontes vazia, cancelamento do usuário e exceção. Se não chamar, a
+  Promise no renderer nunca resolve e o compartilhamento trava pelo resto da
+  sessão (bugs abertos no Electron, sem correção definitiva).
+
+Limitação do SO a documentar: janelas com `WDA_EXCLUDEFROMCAPTURE` (conteúdo
+DRM, gerenciadores de senha) aparecem pretas ao serem compartilhadas. Não é bug
+do app.
 
 ## 7. Infraestrutura — LiveKit na VPS
 
@@ -191,10 +264,24 @@ tela e áudio do sistema), independentes da track do microfone.
 
 | Recurso | Requisito |
 |---|---|
-| Portas | 443/TCP (WSS + TURN/TLS), 7881/TCP (fallback WebRTC sobre TCP), 50000-60000/UDP (mídia RTP) |
-| IP | Público e estável, com `use_external_ip` habilitado |
+| Portas | 443/TCP (WSS), 5349/TCP (TURN/TLS), 7881/TCP (fallback WebRTC sobre TCP), 50000-60000/UDP (mídia RTP) |
+| IP | Público e estável, com `use_external_ip: true` |
 | TLS | Certificado válido via Caddy — WebRTC exige WSS, certificado self-signed não serve |
+| TURN | `turn.enabled: true`, `tls_port: 5349`, `domain` casando com o certificado |
 | Stack | Docker Compose: `livekit/livekit-server` + Caddy |
+
+**TURN não é opcional.** Sem ele, quem entrar de rede corporativa, universitária
+ou 4G com CGNAT restritivo conecta a sinalização normalmente — o app parece
+conectado — mas nenhum áudio flui, sem erro visível. Sinalização (WSS) e mídia
+(UDP/ICE) são camadas independentes: a primeira atravessa quase qualquer rede, a
+segunda não. TURN sobre TLS na 5349 parece tráfego HTTPS e atravessa quase tudo.
+
+**`use_external_ip: true` é obrigatório em VPS**: sem ele os candidatos ICE
+anunciam o IP privado da interface e nenhum cliente externo alcança a mídia.
+
+Diagnóstico: `chrome://webrtc-internals` funciona no Chromium do Electron e
+mostra os candidatos ICE e qual par foi selecionado. Validar F1 a partir de um
+hotspot 4G, não só da rede de casa.
 
 **Dimensionamento:** o SFU encaminha pacotes sem transcodificar, então 10
 participantes é carga trivial para 2 vCPU. O consumo estimado de ~200 GB/mês
@@ -252,6 +339,11 @@ em paralelo ao bootstrap.
 |---|---|---|
 | Áudio de sistema não testável no ambiente de dev (WSL2) | Alta | Máquina Windows nativa disponível; F8 é validada exclusivamente lá |
 | Ponte `useAuth` entre WorkOS/IPC e Convex | Média | Escape hatch documentado do Convex; superfície pequena |
+| Cliente Convex trava em `isAuthenticated: false` após expiração de token (bug conhecido) | Alta | TTL de 8-12h no WorkOS; log local; reload silencioso da janela como último recurso |
+| Eco do próprio áudio da call no screenshare | Alta | Electron >= 43.4.0 com `restrictOwnAudio`; teste com 3 máquinas antes de fechar F8 |
+| Usuário-fantasma em canal de voz após crash | Alta | Webhooks do LiveKit reconciliando `voiceStates`; critério de aceite de F7 |
+| Mídia bloqueada por CGNAT ou firewall restritivo | Média | TURN/TLS habilitado desde F1; validar de hotspot 4G |
+| `safeStorage` ilegível após troca de máquina ou reinstalação do Windows | Baixa | Leitura em `try/catch` caindo no login; nunca exceção não tratada |
 | Porta 443 ocupada na VPS | Baixa | Config atrás de proxy existente; resolvido em F1 |
 | Qualidade de voz sob upload doméstico ruim | Média | SFU exige apenas 1 upload por cliente; simulcast no screenshare se necessário |
 
