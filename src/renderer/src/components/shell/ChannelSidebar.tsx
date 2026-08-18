@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import { Hash, MicOff, Volume2 } from 'lucide-react'
 
 import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
+import { UserPanel } from '@/features/auth/UserPanel'
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -82,6 +83,7 @@ export function ChannelSidebar(): React.JSX.Element {
       </ScrollArea>
 
       <VoiceControlBar />
+      <UserPanel />
     </div>
   )
 }
