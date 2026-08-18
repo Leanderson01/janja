@@ -24,7 +24,46 @@ const CLIENT_ID = import.meta.env.MAIN_VITE_WORKOS_CLIENT_ID
 const REDIRECT_URI = 'janja://callback'
 const PKCE_STATE_TTL_MS = 10 * 60 * 1000 // 10 minutos
 
-const workos = createWorkOS({ clientId: CLIENT_ID })
+// Inicialização preguiçosa e deliberada.
+//
+// `createWorkOS` lança se o clientId vier vazio. Chamando no nível do módulo,
+// um `.env.local` sem MAIN_VITE_WORKOS_CLIENT_ID derruba o app inteiro no
+// carregamento, com um popup de "Uncaught Exception" e um stack trace do
+// node_modules — nenhuma pista do que fazer. Quem instalar o app e esquecer
+// de configurar veria exatamente isso.
+//
+// Adiando para o primeiro uso, a falha acontece dentro de um handler de IPC,
+// onde vira uma mensagem legível na interface em vez de um crash na inicialização.
+// A tipagem passa por esta função porque `createWorkOS` tem sobrecargas: com
+// clientId ela devolve `PublicWorkOS` (sem os métodos que exigem API key), e é
+// justamente essa a garantia em tempo de compilação de que nenhuma chave
+// secreta é necessária. `ReturnType<typeof createWorkOS>` escolheria a
+// sobrecarga errada e apagaria essa garantia.
+function createPublicClient() {
+  return createWorkOS({ clientId: CLIENT_ID })
+}
+
+let workosClient: ReturnType<typeof createPublicClient> | null = null
+
+export class AuthNotConfiguredError extends Error {
+  constructor() {
+    super(
+      'MAIN_VITE_WORKOS_CLIENT_ID não está definida. Crie um arquivo .env.local na ' +
+        'raiz do projeto com essa variável (veja .env.local.example) e reinicie o app.'
+    )
+    this.name = 'AuthNotConfiguredError'
+  }
+}
+
+export function isAuthConfigured(): boolean {
+  return typeof CLIENT_ID === 'string' && CLIENT_ID.length > 0
+}
+
+function workos(): ReturnType<typeof createPublicClient> {
+  if (!isAuthConfigured()) throw new AuthNotConfiguredError()
+  workosClient ??= createPublicClient()
+  return workosClient
+}
 
 // Estado do fluxo em andamento — vive só em memória do processo main, nunca em disco;
 // é descartado assim que o callback chega ou expira.
@@ -37,7 +76,7 @@ let cachedAccessToken: string | null = null
 let cachedUser: AuthUser | null = null
 
 export async function getSignInUrl(): Promise<string> {
-  const { url, state, codeVerifier } = await workos.userManagement.getAuthorizationUrlWithPKCE({
+  const { url, state, codeVerifier } = await workos().userManagement.getAuthorizationUrlWithPKCE({
     provider: 'authkit',
     redirectUri: REDIRECT_URI
   })
@@ -60,7 +99,7 @@ export async function handleCallback(code: string, receivedState: string): Promi
   const { codeVerifier } = pendingLogin
   pendingLogin = null
 
-  const auth = await workos.userManagement.authenticateWithCodeAndVerifier({ code, codeVerifier })
+  const auth = await workos().userManagement.authenticateWithCodeAndVerifier({ code, codeVerifier })
   const user = toAuthUser(auth.user)
   cachedAccessToken = auth.accessToken
   cachedUser = user
@@ -111,7 +150,7 @@ export async function getAccessToken(forceRefreshToken = false): Promise<string 
     return null
   }
   try {
-    const refreshed = await workos.userManagement.authenticateWithRefreshToken({
+    const refreshed = await workos().userManagement.authenticateWithRefreshToken({
       refreshToken: session.refreshToken
     })
     cachedAccessToken = refreshed.accessToken
@@ -143,5 +182,5 @@ export function getLogoutUrl(): string | null {
   if (!cachedAccessToken) return null
   const { sid } = decodeJwtPayload(cachedAccessToken) as { sid?: string }
   if (!sid) return null
-  return workos.userManagement.getLogoutUrl({ sessionId: sid })
+  return workos().userManagement.getLogoutUrl({ sessionId: sid })
 }
