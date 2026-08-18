@@ -318,9 +318,9 @@ implementadores distintos).
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 0. Bootstrap do repo | 4/4 | Complete | 2026-08-18 |
-| 1. LiveKit na VPS | 0/2 | Planned | - |
+| 1. LiveKit na VPS | 2/2 | Complete | 2026-08-18 |
 | 2. Convex + auth WorkOS | 0/9 | Planned | - |
-| 3. Shell da UI | 0/5 | Planned | - |
+| 3. Shell da UI | 4/5 | In progress | - |
 | 4. Servidores e canais | 0/TBD | Not started | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
 | 6. Amigos e DMs | 0/TBD | Not started | - |
