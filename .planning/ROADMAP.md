@@ -306,7 +306,7 @@ implementadores distintos).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 0. Bootstrap do repo | 0/4 | Planned | - |
+| 0. Bootstrap do repo | 4/4 | Complete | 2026-08-18 |
 | 1. LiveKit na VPS | 0/2 | Planned | - |
 | 2. Convex + auth WorkOS | 0/TBD | Not started | - |
 | 3. Shell da UI | 0/5 | Planned | - |

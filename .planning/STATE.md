@@ -10,12 +10,12 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 0 of 9 (Bootstrap do repo)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
+Phase: 3 of 9 (Shell da UI) — Fase 0 concluída, Fase 1 aguardando deploy na VPS
+Plan: 1 of 5 concluído na Fase 3
+Status: Fase 3 onda 2 em execução
 Last activity: 2026-08-18 — Roadmap criado (10 fases, 59/59 requisitos mapeados)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 12%
 
 ## Performance Metrics
 
