@@ -349,7 +349,12 @@ limpa, do zero, incluindo os módulos nativos empacotados.
   3. O roteiro fixo completo (login com Google, criar/entrar em servidor,
      trocar mensagens, entrar em canal de voz com 10 pessoas, compartilhar
      tela com áudio) passa de ponta a ponta numa instalação limpa.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 09-01 — postinstall do binário do Electron, asarUnpack do módulo nativo, NSIS, checagem de vazamento de segredo
+- [ ] 09-02 — AUTH-07: página de conclusão de login via HTTP action do Convex, e correção do throw em escopo de módulo do convex-client
+- [ ] 09-03 — Checkpoints: config no WorkOS, instalador em máquina limpa, e regressão final com 10 pessoas
 
 ## Progress
 
@@ -369,7 +374,7 @@ implementadores distintos).
 | 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/9 | Planned | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
-| 9. Polimento e empacotamento | 0/TBD | Not started | - |
+| 9. Polimento e empacotamento | 0/3 | Planned | - |
 
 ---
 *Roadmap created: 2026-08-18*
