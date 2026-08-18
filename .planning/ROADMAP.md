@@ -102,7 +102,13 @@ produto.
   2. App abre uma janela Electron vazia (shell), sem crash.
   3. Abrir o app uma segunda vez não cria uma nova janela: a instância existente
      ganha foco (`requestSingleInstanceLock` ativo desde o primeiro commit).
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 00-01-scaffold-seguro-do-app-PLAN.md — Scaffold electron-vite react-ts gerado em diretório temporário fora do repo e copiado com verificação de integridade; Electron pinado em 43.4.0 exato
+- [ ] 00-02-tailwind-e-shadcn-PLAN.md — Tailwind v4 + shadcn/ui no renderer, com components.json manual (o CLI do shadcn não detecta electron.vite.config.ts)
+- [ ] 00-03-instancia-unica-e-hardening-PLAN.md — requestSingleInstanceLock + second-instance, contextIsolation/nodeIntegration explícitos, doc de dev no WSL2
+- [ ] 00-04-verificacao-final-PLAN.md — Reverificação de integridade do repo + checkpoint humano dos 3 critérios de sucesso
 
 ### Fase 1: LiveKit na VPS
 **Goal**: A infraestrutura de mídia está no ar, alcançável de qualquer rede, e
@@ -300,7 +306,7 @@ implementadores distintos).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 0. Bootstrap do repo | 0/TBD | Not started | - |
+| 0. Bootstrap do repo | 0/4 | Planned | - |
 | 1. LiveKit na VPS | 0/2 | Planned | - |
 | 2. Convex + auth WorkOS | 0/TBD | Not started | - |
 | 3. Shell da UI | 0/5 | Planned | - |
