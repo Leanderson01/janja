@@ -1,0 +1,65 @@
+# Config estático do livekit-server, montado read-only no container pela
+# stack gerenciada pelo Coolify (ver docker-compose.yml). Domínio
+# hardcoded como livekit.usesenju.com — este arquivo não interpola
+# variáveis de ambiente, então qualquer troca de domínio exige editar
+# aqui também (mesma ressalva vale pro par de chaves em `keys`, abaixo).
+
+port: 7880
+
+rtc:
+  # Mux de porta única em vez de rtc.port_range_start/port_range_end
+  # (o range de 50000-60000 do deploy "cloud VM padrão" da doc oficial).
+  # Necessário porque este container roda na rede bridge que o Coolify
+  # cria pra cada stack (não network_mode: host) — o Traefik do Coolify
+  # só enxerga containers nessa rede, e host networking tiraria o
+  # container dela, quebrando o roteamento de domínio por completo.
+  # Publicar um range de 10 mil portas UDP individualmente no Docker
+  # geraria ~10 mil regras DNAT; um mux de porta única evita isso.
+  # Oficialmente suportado (config-sample.yaml: "port_range_start & end
+  # must not be set for this config to take effect"). Se a CPU virar
+  # gargalo no futuro, considerar um range pequeno tipo 7882-7883 (uma
+  # porta por vCPU) — nunca o range de 10 mil. Ver 01-RESEARCH.md §3.
+  udp_port: 7882
+  tcp_port: 7881
+  use_external_ip: true
+
+turn:
+  enabled: true
+  domain: livekit.usesenju.com
+  tls_port: 5349
+  udp_port: 3478
+  # Certificado PRÓPRIO do TURN, obtido via DNS-01 (certbot-dns-multi +
+  # Hostinger, ver turn-cert-init.sh) — independente do certificado que
+  # o Traefik/Coolify gerencia pra porta 443. NUNCA extrair do acme.json
+  # do Coolify: é regenerado a cada renovação e o formato interno não é
+  # um contrato estável. Ver 01-RESEARCH.md §5.
+  cert_file: /etc/letsencrypt/live/livekit.usesenju.com/fullchain.pem
+  key_file: /etc/letsencrypt/live/livekit.usesenju.com/privkey.pem
+  # relay_range_start/relay_range_end (default 1024-30000) fica com o
+  # valor padrão de propósito: é comunicação interna entre o processo
+  # TURN embutido e o SFU, dentro do mesmo container — não precisa
+  # constar em firewall nem em `ports:` do compose (confirmado: não
+  # aparece na tabela oficial de portas expostas). Ver 01-RESEARCH.md §4.
+
+keys:
+  # SUBSTITUIR pelos mesmos valores definidos nas env vars da stack no
+  # Coolify (LIVEKIT_API_KEY / LIVEKIT_API_SECRET) — ver
+  # DEPLOY-RUNBOOK.md. Este arquivo é montado estático no container,
+  # não lê variável de ambiente diretamente. Gerar com:
+  # openssl rand -hex 32 (rodar 2x, um valor por variável).
+  # ATENÇÃO: se o Coolify re-clonar este repositório num redeploy
+  # futuro, este valor placeholder volta — conferir sempre depois de
+  # um redeploy (ver DEPLOY-RUNBOOK.md).
+  REPLACE_WITH_API_KEY: REPLACE_WITH_API_SECRET
+
+logging:
+  level: info
+
+# webhook:
+#   preenchido em F7 (voz) — aponta pra HTTP action do Convex que
+#   reconcilia voiceStates em participant_left/participant_connection_aborted/
+#   room_finished. Ver PITFALLS.md Pitfall 3. Corpo bruto (request.text()),
+#   nunca request.json() antes de validar assinatura.
+#   api_key: REPLACE_WITH_API_KEY
+#   urls:
+#     - https://<convex-deployment>.convex.site/livekit/webhook
