@@ -182,8 +182,10 @@ Campos marcados com `·` são indexados.
 users          workosId·, username, tag, displayName, avatarUrl
 servers        name, iconUrl, ownerId
 serverMembers  serverId·, userId·, nickname, joinedAt
+invites        code·, serverId·, createdBy, revoked
 channels       serverId·, name, type: 'text' | 'voice', position
 messages       channelId·, authorId, content, createdAt, editedAt
+channelReadState channelId·, userId·, lastReadMessageId
 dmChannels     createdAt
 dmMembers      dmChannelId·, userId·
 friendRequests fromUserId·, toUserId·, status
@@ -207,6 +209,15 @@ consulta pontual por índice.
 
 `voiceStates` é a peça central da voz: toda a UI de presença em canal é uma
 subscription reativa sobre essa tabela.
+
+`invites` existe porque o requisito "entrar em servidor por convite" era
+impossível de implementar sem ela — o schema anterior tinha `servers` e
+`serverMembers` e nada que representasse um convite. Um código reutilizável e
+revogável por servidor, sem expiração nem limite de usos: para 10 amigos fixos,
+gerenciar múltiplos convites ativos é trabalho sem beneficiário.
+
+`channelReadState` guarda o último `messageId` lido por usuário por canal, e
+sustenta tanto o divisor de não-lidas quanto o badge de contagem no sidebar.
 
 ## 6. Voz e compartilhamento de tela
 
@@ -253,6 +264,12 @@ Duas restrições que vêm da pesquisa de armadilhas:
   Promise no renderer nunca resolve e o compartilhamento trava pelo resto da
   sessão (bugs abertos no Electron, sem correção definitiva).
 
+**O Electron não tem picker nativo de tela.** Diferente do browser, que exibe o
+seletor do próprio sistema, `desktopCapturer.getSources()` devolve apenas a
+lista de fontes com thumbnails. A UI de escolher qual tela ou janela compartilhar
+é construída do zero dentro do app, e roda dentro do
+`setDisplayMediaRequestHandler`. É trabalho de F8, não detalhe.
+
 Limitação do SO a documentar: janelas com `WDA_EXCLUDEFROMCAPTURE` (conteúdo
 DRM, gerenciadores de senha) aparecem pretas ao serem compartilhadas. Não é bug
 do app.
@@ -298,10 +315,41 @@ chat em tempo real; amigos por `USER#123`; DMs; call de voz com mute, deafen e
 indicador de fala; compartilhamento de tela com áudio do sistema; presença
 online/offline; instalador Windows.
 
+Adicionados após a pesquisa de features, todos classificados como table stakes:
+seleção de dispositivo de entrada e saída de áudio; estados de conexão de voz e
+indicador de qualidade por participante; controle de transmissão do microfone
+(VAD com limiar ajustável e push-to-talk); divisor de mensagens não lidas e
+badge de contagem por canal.
+
+### Decisões de comportamento
+
+**Mute e deafen:** deafen implica mute. Dar unmute enquanto ensurdecido também
+remove o deafen — o estado "falando sem ouvir ninguém" é válido tecnicamente e
+confuso na prática. Os outros participantes veem apenas o ícone de mute; deafen
+é estado local e privado.
+
+**Qualidade de conexão:** usar os quatro níveis qualitativos do LiveKit
+(`Excellent`/`Good`/`Poor`/`Lost`) como barras de sinal. Ping numérico em
+milissegundos exigiria `getStats()` de baixo nível com polling manual, e resolve
+a mesma pergunta do usuário ("minha conexão está ruim?") com muito mais trabalho.
+
+**Transmissão do microfone:** VAD com limiar ajustável é o caminho padrão e não
+tem dependência nativa — é Web Audio API sobre a track local. Push-to-talk exige
+`uiohook-napi` no processo main, porque o `globalShortcut` do Electron não expõe
+`keydown` e `keyup` separados. Essa dependência é um módulo nativo e afeta o
+empacotamento em F9.
+
+**Supressão de ruído:** usar `echoCancellation`, `noiseSuppression` e
+`autoGainControl` nativos do WebRTC, setados explicitamente em
+`AudioCaptureOptions` — não vêm ligados por padrão. Krisp fica fora: cobra
+licença e contraria a constraint de nenhum serviço pago novo.
+
 **Fora do MVP** — nenhum destes altera a arquitetura, todos são adição posterior:
 roles e permissões granulares, reações, threads, upload de arquivos, vídeo de
 webcam, busca de mensagens, notificações push, edição e deleção de mensagens,
-markdown rico.
+markdown rico, supressão de ruído por Krisp, ping numérico em milissegundos,
+volume individual por participante, status ausente automático, limite de
+usuários por canal de voz, mover usuário entre canais, rich presence.
 
 ## 9. Fases e paralelismo
 

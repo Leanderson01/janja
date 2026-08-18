@@ -20,18 +20,18 @@ forma estável o bastante para o grupo abandonar o Discord.
 
 ### Active
 
-- [ ] Login com Google, sessão persistente entre reinícios do app
-- [ ] Identidade pública no formato `USER#123` (username + tag de 4 dígitos)
-- [ ] Criar servidores e entrar em servidores por convite
-- [ ] Canais de texto e canais de voz dentro de um servidor
-- [ ] Chat em tempo real nos canais de texto
-- [ ] Adicionar amigos por `USER#123`
-- [ ] Mensagens diretas entre amigos
-- [ ] Entrar/sair de canal de voz com áudio para até 10 pessoas
-- [ ] Mute, deafen e indicador visual de quem está falando
-- [ ] Compartilhar tela com áudio do sistema junto
-- [ ] Presença online/offline dos usuários
-- [ ] Instalador Windows que pessoa não-técnica consegue rodar
+Detalhamento completo com IDs rastreáveis em `.planning/REQUIREMENTS.md` (59 requisitos).
+Resumo por área:
+
+- [ ] **Infraestrutura** — LiveKit em `livekit.usesenju.com` com TLS, TURN e IP externo, alcançável de rede restritiva
+- [ ] **Autenticação** — login Google via `janja://`, sessão persistente e resiliente a call longa
+- [ ] **Identidade** — `USER#123` único por usuário
+- [ ] **Servidores** — criar, convidar por código reutilizável e revogável, canais de texto e voz
+- [ ] **Chat** — tempo real, histórico paginado, não-lidas e indicador de digitação
+- [ ] **Amigos e DMs** — busca por `USER#123`, pedido/aceite, conversa direta
+- [ ] **Voz** — 10 pessoas estáveis, mute/deafen, VAD com limiar e push-to-talk, seleção de dispositivo, estado e qualidade de conexão
+- [ ] **Compartilhamento de tela** — picker próprio, áudio de sistema sem eco, recuperação quando quem compartilha cai
+- [ ] **Aplicativo** — layout Discord, presença, instalador Windows, instância única
 
 ### Out of Scope
 
