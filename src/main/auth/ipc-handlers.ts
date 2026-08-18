@@ -4,7 +4,7 @@
 
 import { ipcMain, shell, type BrowserWindow } from 'electron'
 import { AUTH_CHANNELS, type AuthIpcResult, type AuthUser } from './types'
-import { getSignInUrl, getUser, getAccessToken, clearSession, getLogoutUrl } from './auth'
+import { getSignInUrl, getUser, getAccessToken, clearSession } from './auth'
 
 export function setupAuthIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle(AUTH_CHANNELS.SIGN_IN, async (): Promise<AuthIpcResult> => {
@@ -22,9 +22,18 @@ export function setupAuthIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle(AUTH_CHANNELS.SIGN_OUT, async (): Promise<AuthIpcResult> => {
     try {
-      const logoutUrl = getLogoutUrl()
+      // Logout apenas local, por decisão de produto.
+      //
+      // Encerrar também a sessão hospedada do WorkOS exigiria abrir o navegador
+      // (`getLogoutUrl()` + `shell.openExternal`), e isso deixava uma aba órfã
+      // toda vez que alguém saísse — incômodo garantido, em troca de um cenário
+      // raro neste app: trocar de conta.
+      //
+      // Consequência aceita: a sessão do WorkOS continua válida, então entrar de
+      // novo não pede escolha de conta e volta direto. Em máquina pessoal isso é
+      // conveniência; em máquina compartilhada seria um problema, e aí o caminho
+      // é reintroduzir o logout completo (getLogoutUrl continua exportado).
       await clearSession()
-      if (logoutUrl) await shell.openExternal(logoutUrl)
       notifyAuthChange(mainWindow, null)
       return { success: true }
     } catch (error) {
