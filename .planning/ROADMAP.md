@@ -227,7 +227,17 @@ privado com eles, fora de qualquer servidor.
   3. Lista de amigos mostra status online/offline de cada um.
   4. Usuário abre uma conversa direta com um amigo e troca mensagens com ele.
   5. Usuário remove uma amizade existente.
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 06-01 — Schema (5 tabelas) + busca por USER#123
+- [ ] 06-02 — Pedidos de amizade: enviar, aceitar, recusar (TDD)
+- [ ] 06-03 — Lista de amigos com presença + remoção
+- [ ] 06-04 — Canal e mensagens de DM (TDD)
+- [ ] 06-05 — Listagem e paginação de DMs
+- [ ] 06-06 — Navegação Home + painel de amigos
+- [ ] 06-07 — Conversa direta
+- [ ] 06-08 — Verificação com duas contas no Windows (checkpoint)
 
 ### Fase 7: Voz
 **Goal**: Dez pessoas ficam num canal de voz por tempo real de uso (30+ min)
@@ -323,7 +333,7 @@ implementadores distintos).
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 0/TBD | Not started | - |
 | 5. Chat em tempo real | 0/TBD | Not started | - |
-| 6. Amigos e DMs | 0/TBD | Not started | - |
+| 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/TBD | Not started | - |
 | 8. Compartilhamento de tela | 0/TBD | Not started | - |
 | 9. Polimento e empacotamento | 0/TBD | Not started | - |
