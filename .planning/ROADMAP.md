@@ -223,7 +223,15 @@ navegável, e claro sobre o que já foi lido.
      sidebar mostra a contagem de não lidas por canal.
   5. Indicação de "fulano está digitando" aparece durante a digitação e some
      sozinha depois de um tempo sem eventos.
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 05-01 — Schema (messages, channelReadState, typing) + envio e listagem (TDD)
+- [ ] 05-02 — Não lidas no backend: abrir canal, divisor e contagem (TDD)
+- [ ] 05-03 — Digitando no backend, sem TTL de servidor por decisão (TDD)
+- [ ] 05-04 — Lista de mensagens, âncora de scroll e badge de não lidas
+- [ ] 05-05 — Indicador de digitando
+- [ ] 05-06 — Verificação com duas contas no Windows, com método de medir os 500 ms
 
 ### Fase 6: Amigos e DMs
 **Goal**: Usuário encontra amigos pela identidade única do app e conversa em
@@ -370,7 +378,7 @@ implementadores distintos).
 | 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 0/8 | Planned | - |
-| 5. Chat em tempo real | 0/TBD | Not started | - |
+| 5. Chat em tempo real | 0/6 | Planned | - |
 | 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/9 | Planned | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
