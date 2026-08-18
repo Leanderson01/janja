@@ -327,10 +327,13 @@ nativa, nunca só no ambiente de desenvolvimento WSL2):
 completo (login → servidor → chat → voz → screenshare) funciona numa instalação
 limpa, do zero, incluindo os módulos nativos empacotados.
 **Depends on**: Fase 0 até Fase 8 (todas)
-**Requirements**: APP-03
+**Requirements**: APP-03, AUTH-07
 **Success Criteria** (o que precisa ser verdade):
   1. Instalador Windows roda com poucos cliques numa máquina limpa, sem exigir
      conhecimento técnico nem passos manuais de configuração.
+  1b. Ao concluir o login, a aba do navegador mostra uma página de confirmação
+     dizendo que pode ser fechada, em vez de deixar o usuário olhando para a
+     página interna do provedor de autenticação sem saber se deu certo.
   2. Push-to-talk (VOICE-11) continua funcionando no executável empacotado —
      `uiohook-napi` compilado e embutido corretamente para a arquitetura alvo,
      não só validado em modo dev.

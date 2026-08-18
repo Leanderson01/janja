@@ -112,3 +112,25 @@ Repo sincronizado com origin/main, working tree limpo, cobertura de
 requisitos reverificada em 59/59 após a recuperação.
 Próximo passo: executar Fase 0, depois Fase 3.
 Resume file: None
+
+## Decisão registrada — 2026-08-18
+
+**AUTH-07: página de conclusão de login no navegador.**
+
+Após o login, a aba do navegador fica parada na página interna do provedor de
+autenticação. Não há como fechá-la a partir do app: a aba foi aberta pelo sistema
+operacional a pedido do `shell.openExternal`, não por script, e navegadores
+bloqueiam `window.close()` nesse caso por design. Comportamento idêntico ao de
+Discord, Slack e Spotify.
+
+O que **é** possível, e foi decidido fazer: servir uma página própria de conclusão,
+que confirma o sucesso do login e instrui a fechar a aba.
+
+**Caminho técnico sem infraestrutura nova:** uma HTTP action do Convex, servindo
+HTML em `VITE_CONVEX_SITE_URL`. O redirect URI cadastrado no WorkOS passa a
+apontar para essa página, que dispara o `janja://callback` e exibe a confirmação.
+HTTP actions do Convex já fazem parte da stack — a Fase 7 depende delas para o
+webhook de reconciliação do LiveKit.
+
+**Alocado à Fase 9** (polimento), não à Fase 2: é melhoria de acabamento, não
+bloqueia nenhum fluxo, e a Fase 2 já cumpre AUTH-01..06.

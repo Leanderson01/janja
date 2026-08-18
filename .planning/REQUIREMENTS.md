@@ -20,6 +20,7 @@
 - [ ] **AUTH-04**: Sessão permanece funcional durante uma call de 30+ minutos, sem travar em estado não-autenticado
 - [ ] **AUTH-05**: Usuário consegue sair da conta pelo app
 - [ ] **AUTH-06**: Primeiro login gera identidade pública `username#tag` única
+- [ ] **AUTH-07**: Após o login, a aba do navegador exibe confirmação de conclusão e instrução para fechá-la
 
 ### Servidores e canais
 
@@ -141,6 +142,7 @@
 | AUTH-04 | Fase 2 | Pendente |
 | AUTH-05 | Fase 2 | Pendente |
 | AUTH-06 | Fase 2 | Pendente |
+| AUTH-07 | Fase 9 | Pendente |
 | SRV-01 | Fase 4 | Pendente |
 | SRV-02 | Fase 4 | Pendente |
 | SRV-03 | Fase 4 | Pendente |
@@ -192,8 +194,8 @@
 | APP-04 | Fase 0 | Pendente |
 
 **Coverage:**
-- v1 requirements: 59 total
-- Mapped to phases: 59
+- v1 requirements: 60 total
+- Mapped to phases: 60
 - Unmapped: 0 ✓
 
 ---
