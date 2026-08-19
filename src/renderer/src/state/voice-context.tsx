@@ -1,11 +1,32 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAction, useMutation } from 'convex/react'
-import { ConnectionState, Room, RoomEvent } from 'livekit-client'
+import {
+  ConnectionState,
+  Room,
+  RoomEvent,
+  Track,
+  isAudioTrack,
+  type RemoteTrack
+} from 'livekit-client'
 
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
+import { createVadMonitor, type VadMonitor } from '../lib/vad'
+import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
+
 import { useSelection } from './selection-context'
+
+// VOICE-16: cancelamento de eco, supressão de ruído e ganho automático
+// nunca vêm ligados por padrão — sempre explícitos em toda chamada que
+// habilita o microfone, ligado ou desligado (Plano 07-03 §Decisions #3).
+// Centralizado aqui porque o Plano 07-05 introduz um segundo call-site
+// (VAD ligando/desligando a track) além do join original.
+const AUDIO_CAPTURE_OPTIONS = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true
+}
 
 // VOICE-01/03/06/07: ponte real entre a INTENÇÃO de estar num canal de voz
 // (`joinedVoiceChannelId`, que já mora em SelectionContext desde a Fase 3) e
@@ -22,6 +43,21 @@ export type VoiceConnectionState =
 export type VoiceContextValue = {
   room: Room
   connectionState: VoiceConnectionState
+  /**
+   * Relê `loadVoicePreferences()` e reconfigura o VAD ativo (para, inicia
+   * ou só ajusta o limiar) sem reconectar à sala. Chamado pelo painel de
+   * configurações (Plano 07-05, Task 3) sempre que o usuário muda o modo
+   * ou arrasta o slider de limiar; não faz nada se não há canal conectado.
+   */
+  applyVoicePreferences: () => void
+  /**
+   * Sincroniza o mute MANUAL (botão do rodapé) com o VAD: enquanto
+   * `muted` for `true`, o monitor de VAD não reabre o microfone ao
+   * detectar fala — sem isto, mutar manualmente com VAD ativo seria
+   * revertido no próximo momento em que a pessoa falasse. Chamado por
+   * `VoiceControlBar` a cada toggle de mute/deafen, nunca pelo próprio VAD.
+   */
+  setManualMute: (muted: boolean) => void
 }
 
 const VoiceContext = createContext<VoiceContextValue | undefined>(undefined)
@@ -51,6 +87,115 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // seus callbacks, nunca durante o render.
   const activeChannelRef = useRef<Id<'channels'> | null>(null)
 
+  // Monitor de VAD ativo (Plano 07-05), ou `null` quando o modo atual é
+  // 'ptt' ou não há canal conectado. Nunca reaproveitado de uma sessão
+  // anterior sobre uma track nova — sempre parado explicitamente antes de
+  // um novo `start`.
+  const vadMonitorRef = useRef<VadMonitor | null>(null)
+
+  // Espelha o mute MANUAL (botão do rodapé) — ver `setManualMute` no valor
+  // do contexto. Resetado a cada novo join bem-sucedido (nova intenção =
+  // sempre destravado, mesma linha de base do resto da reconciliação
+  // mínima documentada no Plano 07-03).
+  const manualMuteRef = useRef(false)
+
+  function stopVadMonitor(): void {
+    vadMonitorRef.current?.stop()
+    vadMonitorRef.current = null
+  }
+
+  // Liga o VAD sobre a `MediaStreamTrack` do microfone publicado agora. Se
+  // não houver track de microfone publicada (ex.: chamado fora de ordem),
+  // não faz nada — quem chama é responsável por só invocar isto depois de
+  // `setMicrophoneEnabled` já ter resolvido.
+  function startVadMonitor(prefs: VoicePreferences): void {
+    const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+    const mediaStreamTrack = micPublication?.track?.mediaStreamTrack
+    if (!mediaStreamTrack) return
+
+    vadMonitorRef.current = createVadMonitor(mediaStreamTrack, {
+      threshold: prefs.vadThreshold,
+      onSpeakingChange: (speaking) => {
+        // Mute manual sempre vence: se o usuário mutou pelo botão do
+        // rodapé, o VAD detectar fala não deve reabrir o microfone —
+        // só desligar continua permitido (harmless, já estaria desligado).
+        if (speaking && manualMuteRef.current) return
+        // Transmissão automática do VAD — nunca passa pela mutation
+        // `setMuted` do Convex, que reflete só o mute manual do botão
+        // (07-05-PLAN.md Task 2). Comanda a track diretamente.
+        void room.localParticipant.setMicrophoneEnabled(speaking, AUDIO_CAPTURE_OPTIONS)
+      }
+    })
+  }
+
+  // Relê a preferência salva e reconfigura o VAD ativo sem reconectar à
+  // sala — chamado pelo painel de configurações (Task 3) e internamente ao
+  // completar um novo join (abaixo). Não faz nada se não há canal
+  // conectado agora.
+  function applyVoicePreferences(): void {
+    if (activeChannelRef.current === null) return
+
+    const prefs = loadVoicePreferences()
+    stopVadMonitor()
+
+    if (prefs.mode === 'vad') {
+      // A track existe mas começa desabilitada — o VAD é quem liga/desliga
+      // a partir daqui, nunca o usuário diretamente enquanto este modo
+      // estiver ativo.
+      void room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+      startVadMonitor(prefs)
+    }
+    // modo 'ptt': não inicia o VAD — o Plano 07-06 assume o controle da
+    // track nesse modo.
+  }
+
+  function setManualMute(muted: boolean): void {
+    manualMuteRef.current = muted
+  }
+
+  // Elementos `<audio>` de participantes remotos: TODO elemento precisa ser
+  // criado via `track.attach()` do próprio SDK (nunca `new Audio()` manual)
+  // — é a única forma de `switchActiveDevice('audiooutput', ...)` (Task 3)
+  // alcançar essa track depois (07-RESEARCH.md §3, lacuna de doc). Sem isto
+  // o áudio remoto nunca toca: `RemoteAudioTrack.setVolume`/`setSinkId` só
+  // afetam elementos já anexados via `attach()`, e nenhum plano anterior
+  // desta fase chamava `attach()` — VoiceControlBar só ajustava volume de
+  // tracks que nunca chegavam a tocar.
+  useEffect(() => {
+    const container = document.createElement('div')
+    container.style.display = 'none'
+    container.setAttribute('data-voice-remote-audio', 'true')
+    document.body.appendChild(container)
+
+    function attachAudioTrack(track: RemoteTrack): void {
+      if (!isAudioTrack(track)) return
+      const element = track.attach()
+      container.appendChild(element)
+    }
+
+    function detachAudioTrack(track: RemoteTrack): void {
+      if (!isAudioTrack(track)) return
+      track.detach().forEach((el) => el.remove())
+    }
+
+    // Higiene para hot-reload/remontagem: cobre participantes cujas tracks
+    // já estavam inscritas antes deste efeito registrar os listeners.
+    room.remoteParticipants.forEach((participant) => {
+      participant.trackPublications.forEach((publication) => {
+        if (publication.track) attachAudioTrack(publication.track)
+      })
+    })
+
+    room.on(RoomEvent.TrackSubscribed, attachAudioTrack)
+    room.on(RoomEvent.TrackUnsubscribed, detachAudioTrack)
+
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, attachAudioTrack)
+      room.off(RoomEvent.TrackUnsubscribed, detachAudioTrack)
+      container.remove()
+    }
+  }, [room])
+
   // Listeners do Room: registrados uma única vez, na vida do `Room`.
   // `setJoinedVoiceChannelId` é o setter cru de um `useState` de
   // SelectionProvider — estável por toda a vida do componente, não precisa
@@ -69,6 +214,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // a um canal do qual o app já caiu.
       if (activeChannelRef.current !== null) {
         activeChannelRef.current = null
+        stopVadMonitor()
         setJoinedVoiceChannelId(null)
       }
     }
@@ -81,6 +227,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       room.off(RoomEvent.Disconnected, handleDisconnected)
       // Higiene de hot-reload/fechamento do app — best-effort, não é o
       // mecanismo principal de saída (isso é o webhook do Plano 07-02).
+      stopVadMonitor()
       void room.disconnect()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,6 +252,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
         if (activeChannelRef.current !== null) {
           activeChannelRef.current = null
+          // Parar o monitor de VAD da sessão anterior antes de desconectar
+          // — nunca reaproveitado sobre a track da próxima sessão, sempre
+          // reiniciado do zero em cada nova conexão (07-05-PLAN.md Task 2).
+          stopVadMonitor()
           try {
             await leaveVoiceChannelMutation({})
           } catch (err) {
@@ -124,12 +275,16 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // VOICE-16: cancelamento de eco, supressão de ruído e ganho
             // automático nunca vêm ligados por padrão — precisam ser
             // setados explicitamente aqui, sempre.
-            await room.localParticipant.setMicrophoneEnabled(true, {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            })
+            await room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
             activeChannelRef.current = target
+            // Nova intenção de join = sempre destravado (mesma linha de
+            // base da reconciliação mínima do Plano 07-03).
+            manualMuteRef.current = false
+            // Aplica a preferência de transmissão salva (VAD por padrão) à
+            // track recém-publicada. Em modo VAD, a track existe mas
+            // começa desabilitada — o VAD é quem liga/desliga a partir
+            // daqui (07-05-PLAN.md Task 2).
+            applyVoicePreferences()
           } catch (err) {
             console.error('[voice] falha ao entrar no canal de voz', err)
             // A intenção não pôde ser cumprida — devolve a UI para o estado
@@ -141,7 +296,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinedVoiceChannelId])
 
-  const value: VoiceContextValue = { room, connectionState }
+  const value: VoiceContextValue = {
+    room,
+    connectionState,
+    applyVoicePreferences,
+    setManualMute
+  }
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
 }

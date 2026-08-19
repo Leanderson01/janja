@@ -8,6 +8,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
+import { VoiceSettingsPopover } from './VoiceSettingsPopover'
+
 import { api } from '../../../../../convex/_generated/api'
 
 // Rodapé fixo de controles de voz (Plano 03-02). A partir da Fase 7 (Plano
@@ -27,9 +29,14 @@ import { api } from '../../../../../convex/_generated/api'
 // reconectar a uma linha de `voiceStates` pré-existente ainda não limpa pelo
 // webhook (ver 07-03-SUMMARY.md); o Plano 07-04 fecha essa lacuna quando
 // adicionar a query de participantes.
+//
+// Plano 07-05 acrescenta o botão de engrenagem (`VoiceSettingsPopover`) e
+// `setManualMute(next)` em todo caminho que muta manualmente: sem isso, um
+// monitor de VAD em andamento reabriria o microfone assim que a pessoa
+// voltasse a falar, ignorando o mute manual.
 export function VoiceControlBar(): React.JSX.Element {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
-  const { room, connectionState } = useVoice()
+  const { room, connectionState, setManualMute } = useVoice()
 
   const setMutedMutation = useMutation(api.voice.setMuted)
   const setDeafenedMutation = useMutation(api.voice.setDeafened)
@@ -101,6 +108,10 @@ export function VoiceControlBar(): React.JSX.Element {
       console.error('[voice] setMuted falhou', err)
       return
     }
+    // Plano 07-05: sincroniza o mute manual com o VAD ANTES de tocar na
+    // track — sem isso, um monitor de VAD já em andamento poderia reabrir
+    // o microfone no instante seguinte se a pessoa estivesse falando.
+    setManualMute(next)
     // VOICE-16: mesmo neste caminho de toggle (que na prática só
     // muta/desmuta a track já publicada com as opções do join — ver
     // `setTrackEnabled` do SDK, que reusa a track existente via
@@ -133,6 +144,10 @@ export function VoiceControlBar(): React.JSX.Element {
     // Ativar deafen implica mute (design §8) — a mutation já aplicou isso no
     // servidor; aqui refletimos no microfone real e no ícone.
     if (next && !muted) {
+      // Mesma sincronização de VOICE-05 acima: sem isto, VAD ativo
+      // reabriria o microfone na próxima fala mesmo com o usuário
+      // ensurdecido (que implica mutado).
+      setManualMute(true)
       await room.localParticipant.setMicrophoneEnabled(false)
       setMutedState(true)
     }
@@ -193,6 +208,8 @@ export function VoiceControlBar(): React.JSX.Element {
         </TooltipTrigger>
         <TooltipContent>{deafened ? 'Desativar surdina' : 'Ensurdecer'}</TooltipContent>
       </Tooltip>
+
+      {hasIntention && <VoiceSettingsPopover disabled={!isReady} />}
 
       {hasIntention && (
         <Tooltip>
