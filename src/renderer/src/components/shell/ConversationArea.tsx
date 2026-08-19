@@ -1,11 +1,13 @@
 import { useMutation, useQuery } from 'convex/react'
 import { useRef } from 'react'
+import { toast } from 'sonner'
 
 import { CallStage, VoiceParticipantGrid } from '@/components/shell/CallStage'
 import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
 import { TypingIndicator } from '@/components/shell/TypingIndicator'
+import { readableConvexError } from '@/lib/convex-error'
 import { resolveMainView } from '@/lib/stage-view'
 import { useSelection } from '@/state/selection-context'
 
@@ -28,10 +30,28 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
   const setTyping = useMutation(api.typing.setTyping)
   const lastTypingCallRef = useRef(0)
 
+  // Falha de envio PRECISA aparecer. Antes era `.catch(() => {})`: quem perdia a
+  // rede via a mensagem sumir do campo e nunca chegar na lista, sem nenhuma
+  // explicação — o pior tipo de defeito, o que parece que o app comeu a mensagem.
+  //
+  // Continua `void`/`.catch` em vez de handler `async`: o contrato de `onSend` do
+  // MessageInput é síncrono (`(content: string) => void`), e mudar isso mexeria
+  // no composer inteiro por um motivo que não existe.
+  //
+  // Sem toast de SUCESSO de propósito: a mensagem enviada já se prova aparecendo
+  // na lista, e um toast por mensagem seria ruído constante.
   function handleSend(content: string): void {
-    sendMessage({ channelId, content }).catch(() => {})
+    sendMessage({ channelId, content }).catch((err: unknown) => {
+      toast.error('Não foi possível enviar a mensagem. Tente de novo.', {
+        description: readableConvexError(err)
+      })
+    })
   }
 
+  // A assimetria com `handleSend` acima é deliberada, não esquecimento: falhar em
+  // avisar "está digitando" não é algo que o usuário precise saber, nada se perde,
+  // e numa rede ruim isto dispararia um toast a cada 2s — o remédio seria pior que
+  // a doença. Este `.catch(() => {})` fica silencioso.
   function handleTyping(): void {
     const now = Date.now()
     if (now - lastTypingCallRef.current < TYPING_THROTTLE_MS) return

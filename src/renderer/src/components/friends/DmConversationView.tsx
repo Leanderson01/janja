@@ -1,8 +1,9 @@
-import { useState } from 'react'
 import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
+import { toast } from 'sonner'
 
 import { MessageInput } from '@/components/shell/MessageInput'
 import { Button } from '@/components/ui/button'
+import { readableConvexError } from '@/lib/convex-error'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -30,14 +31,20 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
   )
 
   const sendDmMessage = useMutation(api.dms.sendDmMessage)
-  const [sendError, setSendError] = useState<string | null>(null)
 
+  // Mesmo tratamento do canal de servidor (`ConversationArea.tsx`): falha de
+  // envio vira toast, com a frase do Convex na descrição.
+  //
+  // Isto substituiu um `<p>` de erro inline acima do composer, que tinha dois
+  // problemas: empurrava o campo de texto para baixo ao aparecer, e só sumia no
+  // próximo envio bem-sucedido — um erro de 3 minutos atrás continuava na tela.
+  // O toast some sozinho e não mexe no layout.
   function handleSend(content: string): void {
-    sendDmMessage({ dmChannelId, content })
-      .then(() => setSendError(null))
-      .catch((err: unknown) => {
-        setSendError(err instanceof Error ? err.message : String(err))
+    sendDmMessage({ dmChannelId, content }).catch((err: unknown) => {
+      toast.error('Não foi possível enviar a mensagem. Tente de novo.', {
+        description: readableConvexError(err)
       })
+    })
   }
 
   if (otherUser === undefined) {
@@ -81,7 +88,6 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
         </div>
       </div>
 
-      {sendError ? <p className="px-4 pt-2 text-xs text-destructive">{sendError}</p> : null}
       <MessageInput onSend={handleSend} />
     </div>
   )

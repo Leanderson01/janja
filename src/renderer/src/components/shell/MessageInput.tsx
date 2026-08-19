@@ -32,23 +32,23 @@ export function MessageInput({ onSend, onTyping }: MessageInputProps): React.JSX
     setContent('')
   }
 
-  // Enter envia, Shift+Enter quebra linha — e a guarda de IME NAO e enfeite.
+  // Enter envia, Shift+Enter quebra linha — e a guarda de IME NÃO é enfeite.
   //
-  // Quem digita em japones, chines ou coreano compoe a palavra dentro do campo:
-  // o teclado abre uma lista de candidatos e o Enter que CONFIRMA o candidato e
+  // Quem digita em japonês, chinês ou coreano compõe a palavra dentro do campo:
+  // o teclado abre uma lista de candidatos e o Enter que CONFIRMA o candidato é
   // fisicamente o mesmo Enter que enviaria a mensagem. Sem
   // `event.nativeEvent.isComposing`, a mensagem sai no meio da palavra e o
-  // usuario nao tem como escrever uma frase inteira. Nao existe heuristica de
-  // texto que substitua esse sinal: quem sabe que uma composicao esta ativa e o
-  // navegador, e `isComposing` e como ele conta.
+  // usuário não tem como escrever uma frase inteira. Não existe heurística de
+  // texto que substitua esse sinal: quem sabe que uma composição está ativa é o
+  // navegador, e `isComposing` é como ele conta.
   //
-  // O `keyCode !== 229` e redundante no Chromium (o unico runtime deste app),
+  // O `keyCode !== 229` é redundante no Chromium (o único runtime deste app),
   // mas cobre o caso conhecido de `compositionend` disparar ANTES do `keydown`
-  // em alguns IMEs — nesse instante `isComposing` ja voltou a ser `false` e o
-  // 229 e o unico sinal que resta. Uma linha custa menos que a duvida.
+  // em alguns IMEs — nesse instante `isComposing` já voltou a ser `false` e o
+  // 229 é o único sinal que resta. Uma linha custa menos que a dúvida.
   //
-  // Se alguem for "simplificar" isto seis meses depois: o teste
-  // `MessageInput.test.tsx` derruba a simplificacao.
+  // Se alguém for "simplificar" isto seis meses depois: o teste
+  // `MessageInput.test.tsx` derruba a simplificação.
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
     if (
       event.key === 'Enter' &&
@@ -71,9 +71,9 @@ export function MessageInput({ onSend, onTyping }: MessageInputProps): React.JSX
         className="min-h-11 max-h-40"
         rows={1}
       />
-      {/* Desabilitado com o campo vazio (ou so espacos): `submit()` ja ignora
-          esse caso, entao um botao sempre habilitado era um estado morto —
-          clicavel e sem efeito nenhum. */}
+      {/* Desabilitado com o campo vazio (ou só espaços): `submit()` já ignora
+          esse caso, então um botão sempre habilitado era um estado morto —
+          clicável e sem efeito nenhum. */}
       <Button
         type="button"
         size="icon"
