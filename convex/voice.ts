@@ -156,6 +156,27 @@ export const setDeafened = mutation({
   },
 })
 
+/**
+ * SHARE-05 (Plano 08-01): marca/desmarca que este usuário está compartilhando tela.
+ *
+ * Reaproveita `requireOwnVoiceState` — o mesmo helper de `setMuted`/`setDeafened`, que
+ * por sua vez usa `requireIdentity` de `lib/membership.ts`. A identidade é sempre a do
+ * chamador autenticado: esta mutation NUNCA aceita um `userId` do cliente, senão
+ * qualquer membro poderia marcar outra pessoa como compartilhando.
+ *
+ * Lançar (em vez de fazer upsert) quando não há linha é deliberado: compartilhar tela
+ * só existe dentro de um canal de voz já conectado (design §6), e um upsert aqui
+ * criaria uma linha de `voiceStates` sem `channelId` real para colocar nela.
+ */
+export const setSharing = mutation({
+  args: { sharing: v.boolean() },
+  handler: async (ctx, { sharing }) => {
+    const state = await requireOwnVoiceState(ctx)
+    await ctx.db.patch(state._id, { sharing })
+    return null
+  },
+})
+
 // VOICE-04 (Pitfall 3, PITFALLS.md): antídoto do usuário-fantasma. As duas mutations
 // abaixo só existem para serem chamadas pela rota de webhook do LiveKit
 // (`convex/http.ts`), nunca pelo cliente — daí `internalMutation`. Nada além delas (e
