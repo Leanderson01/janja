@@ -299,3 +299,196 @@ describe('friends.rejectFriendRequest', () => {
     expect(friendships).toHaveLength(0)
   })
 })
+
+describe('friends.listFriends', () => {
+  test('rejeita sem identidade autenticada', async () => {
+    const t = convexTest(schema, modules)
+    await insertUser(t, 'workos_ana', 'ana', '0001')
+
+    await expect(t.query(anyApi.friends.listFriends, {})).rejects.toThrow()
+  })
+
+  test('amigo aparece na lista independente de quem é userA no par canônico', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const [userA, userB] = anaId < brunoId ? [anaId, brunoId] : [brunoId, anaId]
+    await t.run((ctx) => ctx.db.insert('friendships', { userA, userB, createdAt: Date.now() }))
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const asBruno = t.withIdentity({ subject: 'workos_bruno' })
+
+    const anaFriends = await asAna.query(anyApi.friends.listFriends, {})
+    expect(anaFriends).toHaveLength(1)
+    expect(anaFriends[0].userId).toBe(brunoId)
+    expect(anaFriends[0].username).toBe('bruno')
+
+    const brunoFriends = await asBruno.query(anyApi.friends.listFriends, {})
+    expect(brunoFriends).toHaveLength(1)
+    expect(brunoFriends[0].userId).toBe(anaId)
+    expect(brunoFriends[0].username).toBe('ana')
+  })
+
+  test('presença: amigo com heartbeat recente aparece online, sem heartbeat ou com heartbeat antigo aparece offline', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+
+    // Ana é amiga de Bruno (heartbeat recente) e de Carla (heartbeat antigo).
+    await t.run(async (ctx) => {
+      const [pairAB0, pairAB1] = anaId < brunoId ? [anaId, brunoId] : [brunoId, anaId]
+      await ctx.db.insert('friendships', {
+        userA: pairAB0,
+        userB: pairAB1,
+        createdAt: Date.now()
+      })
+      const [pairAC0, pairAC1] = anaId < carlaId ? [anaId, carlaId] : [carlaId, anaId]
+      await ctx.db.insert('friendships', {
+        userA: pairAC0,
+        userB: pairAC1,
+        createdAt: Date.now()
+      })
+
+      await ctx.db.insert('presence', { userId: brunoId, lastSeen: Date.now() })
+      await ctx.db.insert('presence', { userId: carlaId, lastSeen: Date.now() - 200_000 })
+    })
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const friends = await asAna.query(anyApi.friends.listFriends, {})
+
+    const brunoEntry = friends.find((f) => f.userId === brunoId)
+    const carlaEntry = friends.find((f) => f.userId === carlaId)
+    expect(brunoEntry?.online).toBe(true)
+    expect(carlaEntry?.online).toBe(false)
+  })
+
+  test('amigo sem nenhum registro em presence aparece offline', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const [userA, userB] = anaId < brunoId ? [anaId, brunoId] : [brunoId, anaId]
+    await t.run((ctx) => ctx.db.insert('friendships', { userA, userB, createdAt: Date.now() }))
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const friends = await asAna.query(anyApi.friends.listFriends, {})
+    expect(friends).toHaveLength(1)
+    expect(friends[0].online).toBe(false)
+  })
+})
+
+describe('friends.listIncomingFriendRequests', () => {
+  test('rejeita sem identidade autenticada', async () => {
+    const t = convexTest(schema, modules)
+    await insertUser(t, 'workos_ana', 'ana', '0001')
+
+    await expect(t.query(anyApi.friends.listIncomingFriendRequests, {})).rejects.toThrow()
+  })
+
+  test('retorna só os pedidos onde eu sou o destinatário, nunca os que eu enviei', async () => {
+    const t = convexTest(schema, modules)
+    await insertUser(t, 'workos_ana', 'ana', '0001')
+    await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const asCarla = t.withIdentity({ subject: 'workos_carla' })
+
+    // Ana envia um pedido para Bruno (não deve aparecer na lista de Ana).
+    await asAna.mutation(anyApi.friends.sendFriendRequest, { username: 'bruno', tag: '0002' })
+    // Carla envia um pedido para Ana (deve aparecer na lista de Ana).
+    await asCarla.mutation(anyApi.friends.sendFriendRequest, { username: 'ana', tag: '0001' })
+
+    const incoming = await asAna.query(anyApi.friends.listIncomingFriendRequests, {})
+    expect(incoming).toHaveLength(1)
+    expect(incoming[0].fromUserId).toBe(carlaId)
+    expect(incoming[0].username).toBe('carla')
+  })
+})
+
+describe('friends.removeFriendship', () => {
+  test('rejeita sem identidade autenticada', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+
+    await expect(
+      t.mutation(anyApi.friends.removeFriendship, { friendUserId: anaId })
+    ).rejects.toThrow()
+  })
+
+  test('friendUserId que não é amigo lança erro, nenhuma escrita acontece', async () => {
+    const t = convexTest(schema, modules)
+    await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+
+    await expect(
+      asAna.mutation(anyApi.friends.removeFriendship, { friendUserId: brunoId })
+    ).rejects.toThrow(/não são amigos/i)
+
+    const friendships = await t.run((ctx) => ctx.db.query('friendships').collect())
+    expect(friendships).toHaveLength(0)
+  })
+
+  test('AUTORIZAÇÃO: terceiro usuário não consegue remover amizade alheia', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    await insertUser(t, 'workos_carla', 'carla', '0003')
+    const [userA, userB] = anaId < brunoId ? [anaId, brunoId] : [brunoId, anaId]
+    await t.run((ctx) => ctx.db.insert('friendships', { userA, userB, createdAt: Date.now() }))
+
+    const asCarla = t.withIdentity({ subject: 'workos_carla' })
+
+    // Carla passando o id de Ana ou Bruno não forma o par canônico dela com
+    // nenhum dos dois — a amizade continua intacta.
+    await expect(
+      asCarla.mutation(anyApi.friends.removeFriendship, { friendUserId: anaId })
+    ).rejects.toThrow(/não são amigos/i)
+    await expect(
+      asCarla.mutation(anyApi.friends.removeFriendship, { friendUserId: brunoId })
+    ).rejects.toThrow(/não são amigos/i)
+
+    const friendships = await t.run((ctx) => ctx.db.query('friendships').collect())
+    expect(friendships).toHaveLength(1)
+  })
+
+  test('amizade existente é removida chamada por qualquer um dos dois lados (bidirecional)', async () => {
+    // Lado A: Ana remove.
+    const t1 = convexTest(schema, modules)
+    const anaId1 = await insertUser(t1, 'workos_ana', 'ana', '0001')
+    const brunoId1 = await insertUser(t1, 'workos_bruno', 'bruno', '0002')
+    const [userA1, userB1] = anaId1 < brunoId1 ? [anaId1, brunoId1] : [brunoId1, anaId1]
+    await t1.run((ctx) =>
+      ctx.db.insert('friendships', { userA: userA1, userB: userB1, createdAt: Date.now() })
+    )
+    const asAna1 = t1.withIdentity({ subject: 'workos_ana' })
+    const asBruno1 = t1.withIdentity({ subject: 'workos_bruno' })
+
+    await asAna1.mutation(anyApi.friends.removeFriendship, { friendUserId: brunoId1 })
+
+    const friendshipsAfter1 = await t1.run((ctx) => ctx.db.query('friendships').collect())
+    expect(friendshipsAfter1).toHaveLength(0)
+    expect(await asAna1.query(anyApi.friends.listFriends, {})).toHaveLength(0)
+    expect(await asBruno1.query(anyApi.friends.listFriends, {})).toHaveLength(0)
+
+    // Lado B: Bruno remove.
+    const t2 = convexTest(schema, modules)
+    const anaId2 = await insertUser(t2, 'workos_ana', 'ana', '0001')
+    const brunoId2 = await insertUser(t2, 'workos_bruno', 'bruno', '0002')
+    const [userA2, userB2] = anaId2 < brunoId2 ? [anaId2, brunoId2] : [brunoId2, anaId2]
+    await t2.run((ctx) =>
+      ctx.db.insert('friendships', { userA: userA2, userB: userB2, createdAt: Date.now() })
+    )
+    const asAna2 = t2.withIdentity({ subject: 'workos_ana' })
+    const asBruno2 = t2.withIdentity({ subject: 'workos_bruno' })
+
+    await asBruno2.mutation(anyApi.friends.removeFriendship, { friendUserId: anaId2 })
+
+    const friendshipsAfter2 = await t2.run((ctx) => ctx.db.query('friendships').collect())
+    expect(friendshipsAfter2).toHaveLength(0)
+    expect(await asAna2.query(anyApi.friends.listFriends, {})).toHaveLength(0)
+    expect(await asBruno2.query(anyApi.friends.listFriends, {})).toHaveLength(0)
+  })
+})

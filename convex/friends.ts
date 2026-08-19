@@ -1,7 +1,8 @@
 import { v } from 'convex/values'
-import { mutation } from './_generated/server'
-import type { MutationCtx } from './_generated/server'
+import { mutation, query } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
+import { isOnline } from './members'
 
 // Ciclo de vida do pedido de amizade (SOCIAL-01/02/03). `friendRequests` não
 // tem campo `status` por decisão de schema (06-RESEARCH.md §2): a existência
@@ -12,7 +13,7 @@ import type { Doc, Id } from './_generated/dataModel'
 // id vindo de argumento — mesmo padrão de `ensureUser`/`heartbeat`
 // (convex/users.ts, convex/presence.ts), repetido aqui porque é específico
 // deste arquivo (não vale a pena promover para convex/lib/ por 3 usos).
-async function getCallerUser(ctx: MutationCtx): Promise<Doc<'users'>> {
+async function getCallerUser(ctx: MutationCtx | QueryCtx): Promise<Doc<'users'>> {
   const identity = await ctx.auth.getUserIdentity()
   if (!identity) throw new Error('Não autenticado')
 
@@ -128,5 +129,105 @@ export const rejectFriendRequest = mutation({
     assertIsRecipient(request, caller)
 
     await ctx.db.delete(request._id)
+  }
+})
+
+// Lista de amigos (SOCIAL-04), com presença. "Online" nunca é redefinido
+// aqui: reaproveita `isOnline`/`ONLINE_THRESHOLD_MS` de `convex/members.ts`
+// (hard constraint deste plano) — uma segunda definição do limiar é como um
+// amigo aparece online numa lista e offline em outra.
+export const listFriends = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await getCallerUser(ctx)
+
+    // "Todas as amizades de X" é a união de duas queries indexadas (X como
+    // userA via prefixo de `by_pair`, X como userB via `by_userB`) — nunca
+    // um `.filter()` de tabela inteira (06-RESEARCH.md §2).
+    const asUserA = await ctx.db
+      .query('friendships')
+      .withIndex('by_pair', (q) => q.eq('userA', me._id))
+      .collect()
+    const asUserB = await ctx.db
+      .query('friendships')
+      .withIndex('by_userB', (q) => q.eq('userB', me._id))
+      .collect()
+
+    const friendIds = [...asUserA.map((f) => f.userB), ...asUserB.map((f) => f.userA)]
+
+    const now = Date.now()
+    return await Promise.all(
+      friendIds.map(async (friendId) => {
+        const [friend, presence] = await Promise.all([
+          ctx.db.get(friendId),
+          ctx.db
+            .query('presence')
+            .withIndex('by_user', (q) => q.eq('userId', friendId))
+            .unique()
+        ])
+        return {
+          userId: friendId,
+          username: friend?.username ?? '???',
+          tag: friend?.tag ?? '????',
+          displayName: friend?.displayName ?? '???',
+          avatarUrl: friend?.avatarUrl,
+          online: isOnline(presence?.lastSeen, now)
+        }
+      })
+    )
+  }
+})
+
+// Pedidos de amizade recebidos, pendentes de resposta (SOCIAL-04/06 dependem
+// de saber quem me pediu amizade). Só o que eu recebi — nunca o que eu enviei
+// — via índice `by_to`, nunca `.filter()`.
+export const listIncomingFriendRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await getCallerUser(ctx)
+    const requests = await ctx.db
+      .query('friendRequests')
+      .withIndex('by_to', (q) => q.eq('toUserId', me._id))
+      .collect()
+
+    return await Promise.all(
+      requests.map(async (request) => {
+        const fromUser = await ctx.db.get(request.fromUserId)
+        return {
+          requestId: request._id,
+          fromUserId: request.fromUserId,
+          username: fromUser?.username ?? '???',
+          tag: fromUser?.tag ?? '????',
+          displayName: fromUser?.displayName ?? '???',
+          avatarUrl: fromUser?.avatarUrl
+        }
+      })
+    )
+  }
+})
+
+// Remoção de amizade (SOCIAL-06). Autorizada implicitamente pelo par
+// canônico: só quem é `userA` ou `userB` do par calculado a partir do
+// próprio chamador consegue localizar (e portanto apagar) o documento — um
+// terceiro nunca forma esse par, logo `friendship` vem `null` e a mutation
+// lança antes de tocar no banco.
+export const removeFriendship = mutation({
+  args: { friendUserId: v.id('users') },
+  handler: async (ctx, args) => {
+    const me = await getCallerUser(ctx)
+    const [userA, userB] = canonicalPair(me._id, args.friendUserId)
+
+    const friendship = await ctx.db
+      .query('friendships')
+      .withIndex('by_pair', (q) => q.eq('userA', userA).eq('userB', userB))
+      .unique()
+    if (!friendship) {
+      throw new Error('Vocês não são amigos')
+    }
+
+    // dmChannels/dmMembers/dmMessages associados não são apagados — histórico
+    // de conversa permanece mesmo depois de desfazer a amizade (decisão
+    // registrada em 06-RESEARCH.md; nenhum SOCIAL-0x pede apagar histórico).
+    await ctx.db.delete(friendship._id)
   }
 })

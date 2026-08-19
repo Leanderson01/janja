@@ -11,6 +11,8 @@
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 import { anyApi } from "convex/server";
 import type * as channels from "../channels.js";
+import type * as dms from "../dms.js";
+import type * as friends from "../friends.js";
 import type * as invites from "../invites.js";
 import type * as lib_inviteCode from "../lib/inviteCode.js";
 import type * as lib_membership from "../lib/membership.js";
@@ -30,6 +32,8 @@ import type * as users from "../users.js";
  */
 const fullApi: ApiFromModules<{
   channels: typeof channels;
+  dms: typeof dms;
+  friends: typeof friends;
   invites: typeof invites;
   "lib/inviteCode": typeof lib_inviteCode;
   "lib/membership": typeof lib_membership;
