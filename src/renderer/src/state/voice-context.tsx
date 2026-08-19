@@ -211,6 +211,13 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
   const joinVoiceChannel = useAction(api.voiceToken.joinVoiceChannel)
   const leaveVoiceChannelMutation = useMutation(api.voice.leaveVoiceChannel)
+  // SHARE-05 (Plano 08-05): espelha no Convex o que o LiveKit acabou de
+  // publicar/despublicar. `useMutation` devolve uma referência memoizada por
+  // `[cliente convex, nome da function]` (convex/react), então é seguro
+  // fechar sobre ela no efeito de listeners com deps `[]` logo abaixo —
+  // mesma premissa que `leaveVoiceChannelMutation` já usa na fila de
+  // transições.
+  const setSharingMutation = useMutation(api.voice.setSharing)
 
   // Um único `Room` para a vida inteira do provider (= vida do app montado).
   // `useState` com inicializador preguiçoso garante uma única instância
@@ -631,20 +638,56 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       setConnectionState(state as VoiceConnectionState)
     }
 
+    // SHARE-05 (Plano 08-05): `voiceStates.sharing` no Convex é escrito SÓ
+    // daqui — dos dois handlers de track local abaixo, nunca de
+    // `startScreenShare`/`stopScreenShare`. A razão é a regra arquitetural
+    // da fase: o LiveKit não é fonte da verdade, mas a publicação REAL da
+    // track é o único fato observável de "esta pessoa está compartilhando
+    // agora". Escrever a partir do clique deixaria `sharing: true` no
+    // Convex se `setScreenShareEnabled` falhasse (ou se o usuário
+    // cancelasse o seletor), e `sharing` órfão é falha silenciosa: ninguém
+    // vê erro, só um indicador que nunca some. Escrever a partir do evento
+    // também cobre de graça a despublicação que o próprio SDK dispara
+    // sozinho (Windows revogando a captura, tela desconectada).
+    //
+    // Nunca lança para fora: um erro aqui vira log. O caso conhecido e
+    // ESPERADO é a linha de `voiceStates` já não existir (`setSharing`
+    // lança nesse caso, ver 08-01) — daí a guarda por `activeChannelRef`
+    // abaixo, que cobre a saída deliberada do canal.
+    function syncSharingToConvex(sharing: boolean): void {
+      // Saindo (ou já fora) do canal: `activeChannelRef` é zerado de forma
+      // SÍNCRONA na fila de transições, antes de `leaveVoiceChannel`
+      // apagar a linha e de `room.disconnect()` despublicar as tracks. Sem
+      // esta guarda, todo `leave` com compartilhamento ativo dispararia um
+      // `setSharing(false)` contra uma linha já apagada — erro no console
+      // sem defeito real, exatamente o ruído que o plano manda evitar. Não
+      // há `sharing` órfão nesse caminho: a linha inteira deixou de
+      // existir.
+      if (activeChannelRef.current === null) return
+      void setSharingMutation({ sharing }).catch((err) => {
+        console.error('[screenshare] setSharing(%s) falhou', sharing, err)
+      })
+    }
+
     // SHARE-02: `isSharing` segue a publicação REAL da track de tela, não o
     // clique. Só a track de VÍDEO (`Track.Source.ScreenShare`) manda: a de
     // áudio (`ScreenShareAudio`) é publicada/despublicada na mesma operação
     // e usá-la também faria o estado oscilar duas vezes por
     // início/parada — e ela pode legitimamente não existir (usuário sem
     // áudio de sistema disponível) sem que o compartilhamento tenha falhado.
+    // O mesmo filtro governa a escrita no Convex: uma linha de
+    // `voiceStates` por pessoa, um `sharing` por pessoa, uma track que o
+    // define.
     function handleLocalTrackPublished(publication: LocalTrackPublication): void {
       if (publication.source !== Track.Source.ScreenShare) return
       setIsSharing(true)
+      syncSharingToConvex(true)
     }
 
     function handleLocalTrackUnpublished(publication: LocalTrackPublication): void {
       if (publication.source !== Track.Source.ScreenShare) return
       setIsSharing(false)
+      syncSharingToConvex(false)
     }
 
     function handleDisconnected(): void {
@@ -653,6 +696,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // `LocalTrackUnpublished`, porque uma queda abrupta não
       // necessariamente emite o evento de despublicação — sem isto o botão
       // ficaria preso em "compartilhando" depois de sair do canal.
+      //
+      // Deliberadamente SEM `setSharing` no Convex (Plano 08-05): a linha
+      // inteira de `voiceStates` já deixou de existir — por
+      // `leaveVoiceChannel` quando a saída é nossa, pelo webhook de
+      // `participant_left` (07-02) quando o app morreu. Chamar `setSharing`
+      // aqui só encontraria linha apagada e lançaria. O caso em que o app
+      // morre COM a tela no ar é do webhook `track_unpublished` (08-01),
+      // não deste handler.
       setIsSharing(false)
 
       // Fala e qualidade de conexão nunca sobrevivem a uma desconexão —

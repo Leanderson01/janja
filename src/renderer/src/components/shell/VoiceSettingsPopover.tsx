@@ -21,6 +21,11 @@ import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useVoice } from '@/state/voice-context'
 import { createVadMonitor, type VadMonitor } from '@/lib/vad'
+import {
+  loadScreenSharePreferences,
+  saveScreenSharePreferences,
+  type ScreenShareQuality
+} from '@/lib/screenshare-preferences'
 import { loadVoicePreferences, saveVoicePreferences, type VoiceMode } from '@/lib/voice-preferences'
 
 import { MicTestPanel } from './MicTestPanel'
@@ -31,6 +36,14 @@ import { MicTestPanel } from './MicTestPanel'
 // `voice-preferences.ts` (localStorage, estado de MÁQUINA — nunca Convex,
 // 07-RESEARCH.md §7) e aplica em runtime chamando `applyVoicePreferences()`
 // / `room.switchActiveDevice(...)`, nunca reconectando a sala (VOICE-13).
+//
+// Plano 08-05 acrescenta a qualidade do compartilhamento de tela
+// (`screenshare-preferences.ts`, chave própria de localStorage). Mora aqui, e
+// não no rodapé ao lado do botão de compartilhar, por falta física de espaço:
+// a coluna do `ChannelSidebar` é fixa em 240px e o rodapé já carrega cinco
+// botões de ícone — dois botões de texto ("Fluida"/"Nítida") não cabem sem
+// comer o nome do canal conectado. O gatilho deste popover é o botão
+// imediatamente vizinho ao de compartilhar.
 export function VoiceSettingsPopover({
   disabled,
   hasVoiceIntention = true
@@ -50,6 +63,12 @@ export function VoiceSettingsPopover({
 
   const [open, setOpen] = useState(false)
   const [prefs, setPrefs] = useState(() => loadVoicePreferences())
+  // SHARE-08 (Plano 08-05): preferência SEPARADA de `voice-preferences`, em
+  // outra chave de `localStorage` — qualidade de vídeo do compartilhamento
+  // não é preferência de voz, e misturar as duas faria uma migração futura
+  // de uma resetar a outra. Estado local só para redesenhar o toggle: quem
+  // lê o valor de verdade é `startScreenShare()`, a cada início.
+  const [screenSharePrefs, setScreenSharePrefs] = useState(() => loadScreenSharePreferences())
 
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([])
@@ -174,6 +193,15 @@ export function VoiceSettingsPopover({
     setPrefs(next)
   }
 
+  // Não chama nada em `useVoice()` de propósito: a escolha vale para a
+  // PRÓXIMA vez que compartilhar. Aplicar agora exigiria republicar a track
+  // (`setScreenShareEnabled(false)` seguido de `true`), o que derrubaria a
+  // imagem de quem já está assistindo — preço alto demais para um toggle.
+  function handleScreenShareQualityChange(quality: ScreenShareQuality): void {
+    const next = saveScreenSharePreferences({ quality })
+    setScreenSharePrefs(next)
+  }
+
   function handleModeChange(mode: VoiceMode): void {
     const next = saveVoicePreferences({ mode })
     setPrefs(next)
@@ -252,6 +280,47 @@ export function VoiceSettingsPopover({
           >
             {prefs.soundsEnabled ? 'Ligado' : 'Desligado'}
           </Button>
+        </div>
+
+        {/* SHARE-08 (Plano 08-05): sempre visível e sempre habilitado, mesmo
+            padrão dos dois blocos acima. Habilitado inclusive DURANTE um
+            compartilhamento — trocar aqui não reinicia a track no ar, só
+            muda a qualidade do próximo compartilhamento (ver
+            `handleScreenShareQualityChange`). */}
+        <div className="space-y-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Qualidade do compartilhamento de tela
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={screenSharePrefs.quality === 'fluida' ? 'default' : 'outline'}
+              className="flex-1"
+              aria-pressed={screenSharePrefs.quality === 'fluida'}
+              onClick={() => handleScreenShareQualityChange('fluida')}
+            >
+              Fluida
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={screenSharePrefs.quality === 'nitida' ? 'default' : 'outline'}
+              className="flex-1"
+              aria-pressed={screenSharePrefs.quality === 'nitida'}
+              onClick={() => handleScreenShareQualityChange('nitida')}
+            >
+              Nítida
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {screenSharePrefs.quality === 'fluida'
+              ? '720p a 30 fps — prioriza movimento, exige menos upload.'
+              : '1080p a 15 fps — prioriza nitidez, para texto e código.'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Vale a partir do próximo compartilhamento.
+          </p>
         </div>
 
         {!hasVoiceIntention && (

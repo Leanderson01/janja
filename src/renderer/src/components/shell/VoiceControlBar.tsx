@@ -182,9 +182,19 @@ export function VoiceControlBar(): React.JSX.Element {
   }
 
   // SHARE-01/02 (Plano 08-02): um único botão de alternância. Sem
-  // confirmação e sem seletor de tela — o processo main concede sempre a
-  // primeira tela nesta versão; o seletor é o Plano 08-04, que troca só o
-  // lado do main, sem mexer aqui.
+  // confirmação e sem seletor aqui — quem pergunta qual tela/janela
+  // compartilhar é o `ScreenSharePicker` (Plano 08-04), disparado pelo
+  // processo main.
+  //
+  // A qualidade ("Fluida"/"Nítida", SHARE-08) NÃO tem controle neste rodapé:
+  // mora no popover de configurações de voz, o botão de engrenagem logo ao
+  // lado (Plano 08-05). Motivo em `VoiceSettingsPopover.tsx` — a coluna é
+  // fixa em 240px e não sobra largura para dois botões de texto.
+  //
+  // `voiceStates.sharing` no Convex também não é escrito daqui: quem
+  // escreve é o listener de `LocalTrackPublished`/`LocalTrackUnpublished`
+  // em `voice-context.tsx`, porque a track publicada é o fato, e o clique é
+  // só a intenção.
   //
   // Não é `async`: `startScreenShare`/`stopScreenShare` nunca rejeitam (todo
   // erro, cancelamento incluso, já vira log dentro delas), e `isSharing` vem
