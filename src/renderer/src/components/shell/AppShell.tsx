@@ -1,6 +1,7 @@
 import { ChannelSidebar } from '@/components/shell/ChannelSidebar'
 import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
+import { ScreenSharePicker } from '@/components/shell/ScreenSharePicker'
 import { ServerRail } from '@/components/shell/ServerRail'
 import { DmConversationView } from '@/components/friends/DmConversationView'
 import { DmSidebar } from '@/components/friends/DmSidebar'
@@ -71,6 +72,12 @@ export function AppShell(): React.JSX.Element {
       <VoiceProvider>
         <TooltipProvider>
           <ShellBody />
+          {/* SHARE-01 (Plano 08-04): uma única instância por app, não por
+              canal — quem dispara o seletor é o processo main, que não sabe
+              (nem precisa saber) qual canal de voz está ativo. Montado aqui
+              dentro do VoiceProvider por vizinhança de assunto; não consome
+              o contexto de voz. */}
+          <ScreenSharePicker />
         </TooltipProvider>
       </VoiceProvider>
     </SelectionProvider>
