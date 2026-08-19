@@ -7,6 +7,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
+import { MemberName } from './MemberName'
+import { MemberSectionHeader } from './MemberSectionHeader'
+
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 
@@ -119,23 +122,20 @@ function MemberRow({
   return (
     <div className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent/50">
       <MemberAvatar member={member} voiceState={voiceState} />
-      <span className="truncate text-sm">
-        {member.username}
-        <span className="text-muted-foreground">#{member.tag}</span>
-      </span>
+      <MemberName username={member.username} tag={member.tag} />
     </div>
   )
 }
 
 function MemberGroup({
-  title,
+  label,
   members,
   voiceStateByUserId,
   joinedVoiceChannelId,
   speakingUserIds,
   dimmed = false
 }: {
-  title: string
+  label: string
   members: ServerMember[]
   voiceStateByUserId: Map<Id<'users'>, VoiceParticipant>
   joinedVoiceChannelId: Id<'channels'> | null
@@ -144,9 +144,7 @@ function MemberGroup({
 }): React.JSX.Element {
   return (
     <div className={dimmed ? 'opacity-60' : undefined}>
-      <h3 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
+      <MemberSectionHeader label={label} count={members.length} />
       <div className="flex flex-col gap-0.5">
         {members.map((member) => (
           <MemberRow
@@ -188,7 +186,7 @@ export function MemberList(): React.JSX.Element {
         <div className="flex flex-col gap-4 p-3">
           {onlineMembers.length > 0 ? (
             <MemberGroup
-              title={`ONLINE — ${onlineMembers.length}`}
+              label="ONLINE"
               members={onlineMembers}
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
@@ -197,7 +195,7 @@ export function MemberList(): React.JSX.Element {
           ) : null}
           {offlineMembers.length > 0 ? (
             <MemberGroup
-              title={`OFFLINE — ${offlineMembers.length}`}
+              label="OFFLINE"
               members={offlineMembers}
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
