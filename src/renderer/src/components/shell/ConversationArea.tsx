@@ -1,15 +1,24 @@
 import { useMutation, useQuery } from 'convex/react'
 import { MicOff, MonitorUp } from 'lucide-react'
+import { useRef } from 'react'
 
 import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
+import { TypingIndicator } from '@/components/shell/TypingIndicator'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { mockMembers, mockVoiceParticipants } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
+
+// Throttle de escrita de "estou digitando" (CHAT-07): no máximo 1 mutation a
+// cada ~2s por usuário digitando, independente da velocidade de digitação —
+// mesma folga 2x-3x que TYPING_TTL_MS do TypingIndicator usa como referência
+// (05-RESEARCH.md §7). Evita escrever no banco a cada tecla (PITFALLS.md,
+// Performance Traps).
+const TYPING_THROTTLE_MS = 2000
 
 function initialsFor(username: string): string {
   return username.slice(0, 2).toUpperCase()
@@ -75,9 +84,18 @@ function VoiceChannelView({ channelId }: { channelId: string }): React.JSX.Eleme
 // da lista (mesmo padrão de remount por `key` já usado desde a Fase 3).
 function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   const sendMessage = useMutation(api.messages.sendMessage)
+  const setTyping = useMutation(api.typing.setTyping)
+  const lastTypingCallRef = useRef(0)
 
   function handleSend(content: string): void {
     sendMessage({ channelId, content }).catch(() => {})
+  }
+
+  function handleTyping(): void {
+    const now = Date.now()
+    if (now - lastTypingCallRef.current < TYPING_THROTTLE_MS) return
+    lastTypingCallRef.current = now
+    setTyping({ channelId }).catch(() => {})
   }
 
   return (
@@ -85,7 +103,8 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
       <div className="flex-1 min-h-0">
         <MessageList channelId={channelId} />
       </div>
-      <MessageInput onSend={handleSend} />
+      <TypingIndicator channelId={channelId} />
+      <MessageInput onSend={handleSend} onTyping={handleTyping} />
     </>
   )
 }

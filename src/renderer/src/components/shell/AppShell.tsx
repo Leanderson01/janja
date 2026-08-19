@@ -7,6 +7,7 @@ import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
+import { VoiceProvider } from '@/state/voice-context'
 
 // Layout de 4 regiões da Fase 3 (RESEARCH.md §3): rail e sidebar fixos à
 // esquerda, área de conversa elástica no centro, lista de membros fixa à
@@ -67,9 +68,11 @@ function ShellBody(): React.JSX.Element {
 export function AppShell(): React.JSX.Element {
   return (
     <SelectionProvider>
-      <TooltipProvider>
-        <ShellBody />
-      </TooltipProvider>
+      <VoiceProvider>
+        <TooltipProvider>
+          <ShellBody />
+        </TooltipProvider>
+      </VoiceProvider>
     </SelectionProvider>
   )
 }
