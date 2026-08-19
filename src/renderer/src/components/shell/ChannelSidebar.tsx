@@ -1,31 +1,34 @@
-import { Fragment } from 'react'
-import { Hash, MicOff, Volume2 } from 'lucide-react'
+import { useState } from 'react'
+import { useQuery } from 'convex/react'
+import { Hash, Plus, UserPlus, Volume2 } from 'lucide-react'
 
+import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
+import { InviteDialog } from '@/components/shell/InviteDialog'
 import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
 import { UserPanel } from '@/features/auth/UserPanel'
-import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { mockChannels, mockMembers, mockVoiceParticipants, type Channel } from '@/data/mock-data'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 
-import type { Id } from '../../../../../convex/_generated/dataModel'
+import { api } from '../../../../../convex/_generated/api'
+import type { Doc } from '../../../../../convex/_generated/dataModel'
 
-// Sidebar de canais (Plano 03-02) — substitui o stub do Plano 03-01. Lê
-// `mockChannels`/`mockMembers`/`mockVoiceParticipants` de mock-data.ts (não
-// duplica fixtures) e `useSelection()` para navegação de canal de
-// texto/join-leave de canal de voz. `VoiceControlBar` (mesmo plano) fica
-// como rodapé fixo, fora da área rolável.
+// Sidebar de canais (Plano 03-02) — a partir do plano 04-06 lê canais reais
+// via `api.channels.listChannels` em vez de `mock-data.ts`. `VoiceControlBar`
+// (mesmo plano da Fase 3) segue como rodapé fixo, fora da área rolável.
 //
-// A partir do plano 04-05, `selectedServerId`/`selectedChannelId` do
-// SelectionProvider são ids reais do Convex — nunca vão bater com os ids
-// mockados abaixo, então este componente passa a renderizar "sem canais"
-// até o plano 04-06 trocar `mockChannels` por `api.channels.listChannels`.
-// Isso é esperado (estado vazio, não crash), não uma regressão deste plano.
+// Agrupamento fixo em duas seções (TEXTO/VOZ) — o modelo real de canal desta
+// fase não tem `category` (era um campo só do mock). Badge de não lidas por
+// canal (F5) e lista de participantes de voz aninhados sob o canal (F7) não
+// são renderizados aqui: os campos que os alimentariam
+// (`channel.unreadCount`, `voiceStates`) não existem no backend desta fase —
+// reintroduzidos com dado real quando F5/F7 chegarem.
 export function ChannelSidebar(): React.JSX.Element {
   const {
+    servers,
     selectedServerId,
     selectedChannelId,
     setSelectedChannelId,
@@ -33,76 +36,135 @@ export function ChannelSidebar(): React.JSX.Element {
     setJoinedVoiceChannelId
   } = useSelection()
 
-  const channels = mockChannels.filter((channel) => channel.serverId === selectedServerId)
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [createChannelOpen, setCreateChannelOpen] = useState(false)
 
-  const categories: string[] = []
-  for (const channel of channels) {
-    if (!categories.includes(channel.category)) {
-      categories.push(channel.category)
-    }
+  const channels = useQuery(
+    api.channels.listChannels,
+    selectedServerId ? { serverId: selectedServerId } : 'skip'
+  )
+
+  function handleTextChannelClick(channel: Doc<'channels'>): void {
+    setSelectedChannelId(channel._id)
   }
 
-  // Cast temporário: `channel.id` é um id mockado (string solta), não o
-  // `Id<'channels'>` real que o contexto de seleção exige a partir deste
-  // plano. Removido pelo plano 04-06 quando este componente passar a
-  // iterar sobre `Doc<'channels'>` de verdade.
-  function handleTextChannelClick(channel: Channel): void {
-    setSelectedChannelId(channel.id as Id<'channels'>)
+  function handleVoiceChannelClick(channel: Doc<'channels'>): void {
+    setSelectedChannelId(channel._id)
+    setJoinedVoiceChannelId(joinedVoiceChannelId === channel._id ? null : channel._id)
   }
 
-  function handleVoiceChannelClick(channel: Channel): void {
-    const channelId = channel.id as Id<'channels'>
-    setSelectedChannelId(channelId)
-    setJoinedVoiceChannelId(joinedVoiceChannelId === channelId ? null : channelId)
+  // Zero servidores (estado possível vindo do plano 04-05): não há
+  // `serverId` para passar a `listChannels`, então nem tentamos — só um
+  // estado vazio simples.
+  if (selectedServerId === null) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex-1 min-h-0 flex items-center justify-center px-4 text-center text-sm text-muted-foreground">
+          Crie ou entre em um servidor para começar
+        </div>
+        <VoiceControlBar />
+        <UserPanel />
+      </div>
+    )
   }
+
+  const selectedServer = servers?.find((s) => s._id === selectedServerId)
+  const textChannels = channels?.filter((channel) => channel.type === 'text') ?? []
+  const voiceChannels = channels?.filter((channel) => channel.type === 'voice') ?? []
 
   return (
     <div className="h-full flex flex-col">
+      <div className="h-12 flex-none flex items-center justify-between px-3 border-b border-border">
+        <span className="font-semibold text-foreground truncate">{selectedServer?.name}</span>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Convidar"
+                onClick={() => setInviteOpen(true)}
+              >
+                <UserPlus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Convidar</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Criar canal"
+                onClick={() => setCreateChannelOpen(true)}
+              >
+                <Plus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Criar canal</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
       <ScrollArea className="flex-1 min-h-0">
         <div className="py-3">
-          {categories.map((category, index) => {
-            const channelsInCategory = channels.filter((channel) => channel.category === category)
+          {/* channels === undefined enquanto a subscription não resolve — não é
+              erro, é carregamento; mantemos a estrutura sem itens até chegar
+              dado real. */}
+          {textChannels.length > 0 && (
+            <>
+              <div className="px-3 pb-1 text-xs font-semibold uppercase text-muted-foreground">
+                TEXTO
+              </div>
+              <div className="flex flex-col gap-0.5 px-2">
+                {textChannels.map((channel) => (
+                  <TextChannelRow
+                    key={channel._id}
+                    channel={channel}
+                    isSelected={channel._id === selectedChannelId}
+                    onClick={() => handleTextChannelClick(channel)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
 
-            return (
-              <Fragment key={category}>
-                {index > 0 && <Separator className="my-2" />}
-                <div className="px-3 pb-1 text-xs font-semibold uppercase text-muted-foreground">
-                  {category}
-                </div>
-                <div className="flex flex-col gap-0.5 px-2">
-                  {channelsInCategory.map((channel) =>
-                    channel.type === 'text' ? (
-                      <TextChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        isSelected={channel.id === selectedChannelId}
-                        onClick={() => handleTextChannelClick(channel)}
-                      />
-                    ) : (
-                      <VoiceChannelRow
-                        key={channel.id}
-                        channel={channel}
-                        isSelected={channel.id === selectedChannelId}
-                        isJoined={channel.id === joinedVoiceChannelId}
-                        onClick={() => handleVoiceChannelClick(channel)}
-                      />
-                    )
-                  )}
-                </div>
-              </Fragment>
-            )
-          })}
+          {textChannels.length > 0 && voiceChannels.length > 0 && <Separator className="my-2" />}
+
+          {voiceChannels.length > 0 && (
+            <>
+              <div className="px-3 pb-1 text-xs font-semibold uppercase text-muted-foreground">
+                VOZ
+              </div>
+              <div className="flex flex-col gap-0.5 px-2">
+                {voiceChannels.map((channel) => (
+                  <VoiceChannelRow
+                    key={channel._id}
+                    channel={channel}
+                    isSelected={channel._id === selectedChannelId}
+                    isJoined={channel._id === joinedVoiceChannelId}
+                    onClick={() => handleVoiceChannelClick(channel)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </ScrollArea>
 
       <VoiceControlBar />
       <UserPanel />
+
+      <InviteDialog serverId={selectedServerId} open={inviteOpen} onOpenChange={setInviteOpen} />
+      <CreateChannelDialog
+        serverId={selectedServerId}
+        open={createChannelOpen}
+        onOpenChange={setCreateChannelOpen}
+      />
     </div>
   )
-}
-
-function initials(name: string): string {
-  return name.slice(0, 2).toUpperCase()
 }
 
 function TextChannelRow({
@@ -110,12 +172,10 @@ function TextChannelRow({
   isSelected,
   onClick
 }: {
-  channel: Channel
+  channel: Doc<'channels'>
   isSelected: boolean
   onClick: () => void
 }): React.JSX.Element {
-  const hasUnread = channel.unreadCount > 0
-
   return (
     <button
       type="button"
@@ -124,17 +184,14 @@ function TextChannelRow({
         'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
         isSelected
           ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
-        hasUnread && !isSelected && 'text-foreground font-semibold'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
       )}
     >
       <Hash className="size-4 shrink-0" />
       <span className="flex-1 truncate">{channel.name}</span>
-      {hasUnread && (
-        <Badge variant="secondary" className="shrink-0">
-          {channel.unreadCount}
-        </Badge>
-      )}
+      {/* Badge de não lidas (F5): channel.unreadCount não existe no modelo
+          real de canal desta fase (é channelReadState) — nada a renderizar
+          aqui até F5. */}
     </button>
   )
 }
@@ -145,59 +202,29 @@ function VoiceChannelRow({
   isJoined,
   onClick
 }: {
-  channel: Channel
+  channel: Doc<'channels'>
   isSelected: boolean
   isJoined: boolean
   onClick: () => void
 }): React.JSX.Element {
-  const participants = mockVoiceParticipants.filter((p) => p.channelId === channel.id)
-
   return (
-    <div className="flex flex-col gap-1">
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
-          isSelected
-            ? 'bg-accent text-accent-foreground'
-            : isJoined
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
-        )}
-      >
-        <Volume2 className="size-4 shrink-0" />
-        <span className="flex-1 truncate">{channel.name}</span>
-      </button>
-
-      {participants.length > 0 && (
-        <div className="flex flex-col gap-1.5 pb-1 pl-8">
-          {participants.map((participant) => {
-            const member = mockMembers.find((m) => m.id === participant.memberId)
-            if (!member) {
-              return null
-            }
-
-            return (
-              <div
-                key={participant.memberId}
-                className="flex items-center gap-2 text-xs text-muted-foreground"
-              >
-                <Avatar size="sm" className={cn(participant.speaking && 'ring-2 ring-green-500')}>
-                  <AvatarImage src={member.avatarUrl} alt={member.username} />
-                  <AvatarFallback>{initials(member.username)}</AvatarFallback>
-                  {participant.muted && (
-                    <AvatarBadge className="bg-destructive size-3">
-                      <MicOff />
-                    </AvatarBadge>
-                  )}
-                </Avatar>
-                <span className="truncate">{member.username}</span>
-              </div>
-            )
-          })}
-        </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+        isSelected
+          ? 'bg-accent text-accent-foreground'
+          : isJoined
+            ? 'text-foreground'
+            : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
       )}
-    </div>
+    >
+      <Volume2 className="size-4 shrink-0" />
+      <span className="flex-1 truncate">{channel.name}</span>
+    </button>
   )
+  // Lista de participantes de voz aninhada sob o canal (avatares, anel de
+  // fala, ícone de mute) é F7: depende de `voiceStates` real, que não existe
+  // no backend desta fase.
 }

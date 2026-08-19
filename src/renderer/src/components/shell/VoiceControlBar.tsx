@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useQuery } from 'convex/react'
 import { Headphones, Mic, MicOff, PhoneOff, VolumeX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { mockChannels } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
+
+import { api } from '../../../../../convex/_generated/api'
 
 // Rodapé fixo de controles de voz (Plano 03-02). `muted`/`deafened` são
 // puramente cosméticos nesta fase — não entram no SelectionContext porque
@@ -18,11 +20,16 @@ export function VoiceControlBar(): React.JSX.Element {
   const [muted, setMuted] = useState(false)
   const [deafened, setDeafened] = useState(false)
 
-  const connectedChannel = joinedVoiceChannelId
-    ? mockChannels.find((channel) => channel.id === joinedVoiceChannelId)
-    : undefined
+  // `getChannel` (não `listChannels`) é deliberado: o canal de voz conectado
+  // pode pertencer a um servidor diferente do que está selecionado agora na
+  // sidebar (o usuário pode navegar para outro servidor sem sair da voz),
+  // então a busca não pode depender de `selectedServerId`.
+  const connectedChannel = useQuery(
+    api.channels.getChannel,
+    joinedVoiceChannelId ? { channelId: joinedVoiceChannelId } : 'skip'
+  )
 
-  const isConnected = connectedChannel !== undefined
+  const isConnected = joinedVoiceChannelId !== null && connectedChannel != null
 
   function toggleMuted(): void {
     setMuted((prev) => {
@@ -54,7 +61,7 @@ export function VoiceControlBar(): React.JSX.Element {
   return (
     <div className="flex-none h-14 border-t border-border bg-secondary px-2 flex items-center gap-2">
       <div className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
-        {isConnected ? (
+        {isConnected && connectedChannel ? (
           <span className="text-foreground font-medium">Conectado a {connectedChannel.name}</span>
         ) : (
           <span>Não conectado a nenhum canal de voz</span>

@@ -1,3 +1,4 @@
+import { useQuery } from 'convex/react'
 import { MicOff, MonitorUp } from 'lucide-react'
 import { useState } from 'react'
 
@@ -5,14 +6,10 @@ import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import {
-  mockChannels,
-  mockMembers,
-  mockMessages,
-  mockVoiceParticipants,
-  type Message
-} from '@/data/mock-data'
+import { mockMembers, mockMessages, mockVoiceParticipants, type Message } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
+
+import { api } from '../../../../../convex/_generated/api'
 
 function initialsFor(username: string): string {
   return username.slice(0, 2).toUpperCase()
@@ -116,13 +113,19 @@ function TextChannelView({
   )
 }
 
-// Área de conversa (Plano 03-03) — substitui o stub do Plano 01. Alterna
-// entre a visão de chat (canal de texto) e a visão de participantes de voz,
-// inteiramente orientada por `selectedChannelId` do SelectionProvider
-// (Plano 01), sem nenhum backend.
+// Área de conversa (Plano 03-03) — alterna entre a visão de chat (canal de
+// texto) e a visão de participantes de voz, orientada por `selectedChannelId`
+// do SelectionProvider. A partir do plano 04-06, o canal em si vem de
+// `api.channels.getChannel` (mesma query de ChannelHeader — subscrição
+// duplicada é esperada e barata) em vez de `mock-data.ts`; `mockMessages`/
+// `mockVoiceParticipants` seguem como stub de chat/voz (F5/F7), já que
+// nenhum id mockado bate com um `Id<'channels'>` real.
 export function ConversationArea(): React.JSX.Element {
   const { selectedChannelId } = useSelection()
-  const channel = mockChannels.find((c) => c.id === selectedChannelId)
+  const channel = useQuery(
+    api.channels.getChannel,
+    selectedChannelId ? { channelId: selectedChannelId } : 'skip'
+  )
 
   return (
     <div className="h-full flex flex-col">
@@ -132,13 +135,9 @@ export function ConversationArea(): React.JSX.Element {
           Nenhum canal selecionado
         </div>
       ) : channel.type === 'voice' ? (
-        <VoiceChannelView channelId={channel.id} />
+        <VoiceChannelView channelId={channel._id} />
       ) : (
-        <TextChannelView
-          key={channel.id}
-          channelId={channel.id}
-          firstUnreadMessageId={channel.firstUnreadMessageId}
-        />
+        <TextChannelView key={channel._id} channelId={channel._id} />
       )}
     </div>
   )

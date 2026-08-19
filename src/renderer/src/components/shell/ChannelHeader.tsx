@@ -1,18 +1,27 @@
+import { useQuery } from 'convex/react'
 import { Hash, Volume2 } from 'lucide-react'
 
-import { mockChannels } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
+
+import { api } from '../../../../../convex/_generated/api'
 
 // Barra fixa no topo da área de conversa (RESEARCH.md §1: ~48px). Mostra o
 // ícone (Hash para texto, Volume2 para voz) e o nome do canal atualmente
-// selecionado no SelectionProvider (Plano 03-01).
+// selecionado no SelectionProvider — a partir do plano 04-06, lido via
+// `api.channels.getChannel` em vez de `mock-data.ts`.
 export function ChannelHeader(): React.JSX.Element {
   const { selectedChannelId } = useSelection()
-  const channel = mockChannels.find((c) => c.id === selectedChannelId)
+  const channel = useQuery(
+    api.channels.getChannel,
+    selectedChannelId ? { channelId: selectedChannelId } : 'skip'
+  )
 
+  // Três estados colapsam no mesmo fallback: `selectedChannelId === null`
+  // (zero canais/servidores), `channel === undefined` (query ainda
+  // carregando — transição rápida, não vale um spinner dedicado) e
+  // `channel === null` (id inexistente/não-membro — não deveria acontecer
+  // no fluxo normal, mas `getChannel` retorna `null` para isso).
   if (!channel) {
-    // Estado impossível dado o Plano 01 (selectedChannelId sempre inicializa
-    // com um canal válido), mas tratado para não quebrar a UI.
     return (
       <div className="flex-none h-12 flex items-center gap-2 px-4 border-b border-border text-sm text-muted-foreground">
         Nenhum canal selecionado
