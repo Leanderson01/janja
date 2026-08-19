@@ -127,6 +127,16 @@ diretamente o roadmap:
 
 ### Blockers/Concerns
 
+- [F8/08-01] **Push do Convex não verificado.** `convex/http.ts` passou a importar
+  `@livekit/protocol`; o bundler do Convex nunca rodou sobre esse import. A evidência
+  que existe é aproximada (esbuild `--platform=browser` bundla limpo, com controle
+  mostrando que `livekit-server-sdk` falha). O push deste worktree Linux é IMPOSSÍVEL:
+  o token em `~/.convex/config.json` é de outra conta e não tem acesso ao time
+  `leandersonnunes-alu-lmb` (`npx convex dev --once` → "You don't have access to the
+  selected project"). Fica para a máquina Windows, junto dos outros checkpoints. Se
+  quebrar, o erro é barulhento no deploy e a saída já está desenhada: mover a
+  comparação de `track.source` para dentro de `verifyLiveKitWebhook` e devolver booleano.
+
 - [F1] Confirmar se a porta 443 da VPS já está ocupada (Nginx/Traefik
   existente) antes de configurar o Caddy do LiveKit.
 - [F8] Validação exige máquina Windows nativa — não é testável no ambiente de
