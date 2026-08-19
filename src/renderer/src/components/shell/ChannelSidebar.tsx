@@ -1,6 +1,17 @@
 import { useState } from 'react'
 import { useQuery } from 'convex/react'
-import { ChevronRight, Hash, MicOff, MonitorUp, Plus, UserPlus, Volume2 } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Hash,
+  MicOff,
+  MonitorUp,
+  Plus,
+  UserPlus,
+  Volume2
+} from 'lucide-react'
+import { toast } from 'sonner'
 
 import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
@@ -8,11 +19,16 @@ import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
 import { UserPanel } from '@/features/auth/UserPanel'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { loadSidebarPreferences, saveSidebarPreferences } from '@/lib/sidebar-preferences'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
@@ -126,38 +142,12 @@ export function ChannelSidebar(): React.JSX.Element {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="h-12 flex-none flex items-center justify-between px-3 border-b border-border">
-        <span className="font-semibold text-foreground truncate">{selectedServer?.name}</span>
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Convidar"
-                onClick={() => setInviteOpen(true)}
-              >
-                <UserPlus />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Convidar</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Criar canal"
-                onClick={() => setCreateChannelOpen(true)}
-              >
-                <Plus />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Criar canal</TooltipContent>
-          </Tooltip>
-        </div>
+      <div className="h-12 flex-none flex items-center px-3 border-b border-border">
+        <ServerMenu
+          serverName={selectedServer?.name ?? ''}
+          onInvite={() => setInviteOpen(true)}
+          onCreateChannel={() => setCreateChannelOpen(true)}
+        />
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
@@ -215,6 +205,91 @@ export function ChannelSidebar(): React.JSX.Element {
         onOpenChange={setCreateChannelOpen}
       />
     </div>
+  )
+}
+
+// Copiar texto para a área de transferência, com aviso nos dois desfechos
+// (Plano 08.5-12). O `catch` não é decorativo: `navigator.clipboard` rejeita
+// quando o documento não está em contexto seguro ou perde o foco, e um item de
+// menu que não faz nada e não diz nada é pior do que não existir. Mesmo
+// tratamento do menu do membro (Plano 08.5-04).
+async function copyToClipboard(text: string, successMessage: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(successMessage)
+  } catch {
+    toast.error('Não foi possível copiar')
+  }
+}
+
+// Menu do servidor (Plano 08.5-12). O gatilho é o PRÓPRIO nome do servidor.
+//
+// Por que o nome virou gatilho: o cabeçalho antes gastava ~64px dos 240px da
+// coluna com dois botões de ícone (Convidar, Criar canal), e o nome do servidor
+// — a única informação permanente do cabeçalho — começava a truncar cedo
+// demais. Na janela estreita que o 08.5-RESEARCH previu, o aperto é maior
+// ainda. As duas ações continuam a um clique de distância, agora dentro do
+// menu.
+//
+// Padrão único da fase (planos 08.5-02 e 08.5-04): `DropdownMenu` CONTROLADO,
+// aberto por clique/Enter no gatilho E por `onContextMenu` no mesmo elemento.
+// O `context-menu` do Radix não foi instalado de propósito — dois componentes
+// de menu significariam dois comportamentos de teclado para manter.
+//
+// Exportado para o teste: `ChannelSidebar` inteira depende de três `useQuery`
+// do Convex e de dois contextos; este componente não depende de nada.
+export function ServerMenu({
+  serverName,
+  onInvite,
+  onCreateChannel
+}: {
+  serverName: string
+  onInvite: () => void
+  onCreateChannel: () => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Menu do servidor ${serverName}`}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setOpen(true)
+          }}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md text-left font-semibold text-foreground transition-colors hover:text-muted-foreground"
+        >
+          <span className="min-w-0 flex-1 truncate">{serverName}</span>
+          {/* `aria-haspopup` e `aria-expanded` são do Radix; o chevron é só
+              affordance visual e por isso fica escondido do leitor de tela. */}
+          <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      {/* SÓ o que já existe neste componente ou no backend de hoje. Fora, por
+          decisão explícita: renomear/apagar servidor, sair do servidor e
+          qualquer gerenciamento de permissão — não existe mutation para
+          nenhum deles em `convex/`, e criá-las seria reescrever a autorização
+          do backend. Menu não inventa capacidade. */}
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem onSelect={onInvite}>
+          <UserPlus />
+          Convidar pessoas
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onCreateChannel}>
+          <Plus />
+          Criar canal
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => void copyToClipboard(serverName, 'Nome do servidor copiado')}
+        >
+          <Copy />
+          Copiar nome do servidor
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
