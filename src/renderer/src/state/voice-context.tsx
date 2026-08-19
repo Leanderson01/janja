@@ -9,8 +9,8 @@ import {
 import { useAction, useMutation } from 'convex/react'
 import { ConnectionState, Room, RoomEvent, type DisconnectReason } from 'livekit-client'
 
-import { api } from '../../../../../convex/_generated/api'
-import type { Id } from '../../../../../convex/_generated/dataModel'
+import { api } from '../../../../convex/_generated/api'
+import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { useSelection } from './selection-context'
 
