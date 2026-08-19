@@ -152,4 +152,30 @@ export default defineSchema({
     .index('by_channel', ['channelId'])
     .index('by_user', ['userId'])
     .index('by_channel_and_user', ['channelId', 'userId']),
+
+  // --- Fase 8.5: prévias de link ---
+  //
+  // Cache COMPARTILHADO da metadata de um link, e a razão de ele existir é
+  // privacidade, não desempenho: quem busca a página de terceiro é a `action`
+  // do Convex (ver linkPreviews.ts), nunca o computador de quem lê. Se cada
+  // leitor buscasse, um link postado num canal de 10 pessoas entregaria o IP
+  // das 10 ao dono daquele site a cada rolagem do histórico.
+  //
+  // `status: 'failed'` é gravado tanto quanto o sucesso, de propósito. Sem
+  // gravar a falha, um site fora do ar (ou um link para uma URL privada
+  // recusada) seria re-buscado a cada render de cada cliente — exatamente o
+  // abuso que este cache existe para evitar. Uma linha `failed` significa
+  // "já tentamos, não deu"; os campos de conteúdo ficam ausentes nela.
+  //
+  // Não há linha por mensagem: a chave é a URL. O segundo canal que postar o
+  // mesmo link não dispara requisição nenhuma.
+  linkPreviews: defineTable({
+    url: v.string(),
+    status: v.union(v.literal('ok'), v.literal('failed')),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    siteName: v.optional(v.string()),
+    fetchedAt: v.number(),
+  }).index('by_url', ['url']),
 })
