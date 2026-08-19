@@ -104,6 +104,12 @@ export function useVoiceParticipants(
 // `ScrollArea` do Radix não foi usada aqui pelo mesmo motivo registrado no
 // Plano 08.5-03: o `Viewport` embrulha os filhos num `display: table` e
 // desmancharia o `flex` da faixa.
+//
+// Os anéis dos badges são `ring-stage`, não `ring-background`: eles simulam um
+// recorte no fundo atrás do avatar, e a faixa só existe dentro do palco, cujo
+// fundo é `--stage`. A grade grande (`VoiceParticipantGrid`) continua com
+// `ring-background` porque ela também é renderizada na PRÉVIA de canal de voz,
+// que fica sobre `--background`.
 export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   const participants = useVoiceParticipants(channelId)
 
@@ -135,7 +141,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
             </Avatar>
             {participant.muted ? (
               <span
-                className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background"
+                className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-stage"
                 aria-label="Microfone desativado"
               >
                 <MicOff className="size-2.5" aria-hidden="true" />
@@ -146,7 +152,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
                 para o badge de presença quando ele chegar aqui. */}
             {participant.sharing ? (
               <span
-                className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-background"
+                className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-stage"
                 aria-label="Compartilhando a tela"
               >
                 <MonitorUp className="size-2.5" aria-hidden="true" />

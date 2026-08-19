@@ -1,5 +1,14 @@
 import { useQuery } from 'convex/react'
-import { Eye, EyeOff, Maximize2, MicOff, Minimize2, Volume2, type LucideIcon } from 'lucide-react'
+import {
+  Eye,
+  EyeOff,
+  Maximize2,
+  MicOff,
+  Minimize2,
+  Users,
+  Volume2,
+  type LucideIcon
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
@@ -13,6 +22,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useLayout } from '@/state/layout-context'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
@@ -129,6 +139,37 @@ function StageIconButton({
   )
 }
 
+// Alternar a lista de membros a partir do palco (Plano 08.5-07, sobre o
+// `layout-context` do Plano 08.5-05). É o MESMO botão do `ChannelHeader`, com o
+// mesmo contexto e o mesmo estado: entrar numa call não pode tirar do usuário um
+// controle que ele tinha na visão de texto — e é justamente na call que os
+// 240px da coluna de membros fazem mais falta, porque a área grande é vídeo.
+//
+// `aria-label` descreve a AÇÃO (o que o clique faz) e `aria-pressed` expõe o
+// ESTADO, igual ao original.
+function StageMembersToggle(): React.JSX.Element {
+  const { membersVisible, toggleMembers } = useLayout()
+  const label = membersVisible ? 'Esconder lista de membros' : 'Mostrar lista de membros'
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          aria-pressed={membersVisible}
+          onClick={toggleMembers}
+        >
+          <Users />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 // Controles do compartilhamento no palco. Só existem quando há tela no ar —
 // botão que não tem o que fazer não aparece.
 //
@@ -195,6 +236,12 @@ function ShareLayoutControls({
 // `ChannelHeader` e a `VoiceControlBar` já assinam, e
 // `voiceParticipantsByChannel` é a mesma de `useVoiceParticipants` —
 // o cliente do Convex compartilha subscrição por query+args.
+//
+// Janela estreita (o mínimo é 900×600, e o palco divide a largura com rail 72 +
+// sidebar 240 + membros 240): só o NOME cede. `min-w-0 flex-1 truncate` no nome
+// — os dois são necessários, porque item flex tem `min-width: auto` e o
+// `truncate` sozinho não vence isso — e `shrink-0` na contagem e nos botões,
+// que não podem ser espremidos até virarem retângulos ilegíveis.
 function StageBar({
   channelId,
   layout,
@@ -216,7 +263,7 @@ function StageBar({
       <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
         {channel?.name ?? '...'}
       </span>
-      <span className="shrink-0 text-sm text-muted-foreground">
+      <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
         {count === 1 ? '1 participante' : `${count} participantes`}
       </span>
       <div className="flex shrink-0 items-center gap-1">
@@ -225,6 +272,7 @@ function StageBar({
           shareCount={shareCount}
           onLayoutChange={onLayoutChange}
         />
+        <StageMembersToggle />
       </div>
     </div>
   )
@@ -254,6 +302,15 @@ function StageBar({
 // Radix embrulha os filhos num elemento `display: table`, o pai deixa de ser
 // flex e o `flex-1` da região de vídeo vira letra morta. Regressão de vídeo é
 // pior que um `overflow-y-auto` sobrevivente.
+//
+// `bg-stage`: fundo próprio, mais escuro que o `--background` da área de texto
+// (decisão do usuário em 2026-08-19, pendência aberta pelo Plano 08.5-03; o
+// token nasceu no commit `affdd51`, em `main.css`). A escala do app é
+// `--sidebar` > `--background` > `--stage` — o palco é o fundo do poço.
+//
+// Só a RAIZ é repintada. Barra, ladrilhos e faixa continuam sem fundo próprio:
+// o ponto do fundo mais escuro é que o conteúdo se destaque CONTRA ele, e
+// repintar tudo devolveria o palco à monocromia da qual ele acabou de sair.
 export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   const { joinedVoiceChannelId } = useSelection()
   const { screenShareTracks } = useVoice()
@@ -309,7 +366,7 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
   const isExpanded = layout === 'share-expanded'
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-background">
+    <div className="flex-1 min-h-0 flex flex-col bg-stage text-stage-foreground">
       {/* O `hidden` vai no INVÓLUCRO, não na barra: `hidden` e `flex` são o
           mesmo tipo de utilitário (display) e qual vence depende da ordem no CSS
           gerado, não da ordem no atributo. */}

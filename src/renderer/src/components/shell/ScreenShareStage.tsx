@@ -165,8 +165,24 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
     )
   }
 
+  // Rótulo acessível da região inteira (Plano 08.5-07): quem usa leitor de tela
+  // não vê a legenda desenhada em cima de cada tela, e "região de vídeo" sem
+  // dono não diz nada. Reaproveita o mesmo lookup identity→username do rótulo
+  // visível — o LiveKit só conhece `identity` (= `users._id`), que não se mostra
+  // a ninguém.
+  const regionLabel =
+    tracks.length === 1
+      ? tracks[0].isLocal
+        ? 'Sua tela compartilhada'
+        : `Tela compartilhada por ${usernameByIdentity.get(tracks[0].participantIdentity) ?? 'outro participante'}`
+      : `${tracks.length} telas compartilhadas`
+
   return (
-    <div className="h-full min-h-40 w-full flex flex-wrap items-stretch justify-center gap-3">
+    <div
+      role="group"
+      aria-label={regionLabel}
+      className="h-full min-h-40 w-full flex flex-wrap items-stretch justify-center gap-3"
+    >
       {tracks.map((entry) => (
         <div key={entry.trackSid} className="relative flex min-h-40 min-w-64 flex-1 flex-col">
           <ScreenShareTile entry={entry} />
