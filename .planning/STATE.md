@@ -99,7 +99,10 @@ diretamente o roadmap:
 
 ### Pending Todos
 
-Nenhum ainda.
+1 pendente:
+
+- [F7/voz] Voz não sai no modo VAD (padrão) — usuário novo fica mudo até trocar
+  para push-to-talk. `.planning/todos/pending/2026-08-19-voz-nao-sai-em-modo-vad-no-primeiro-uso.md`
 
 ### Blockers/Concerns
 
