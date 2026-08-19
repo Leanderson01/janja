@@ -123,6 +123,26 @@ if (!gotTheLock) {
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
   app.whenReady().then(() => {
+    // DNS previsível para o WebRTC.
+    //
+    // O Chromium resolve nomes com DNS sobre HTTPS em modo `automatic` por padrão, e
+    // ainda dispara consultas de tipo adicional (HTTPS/tipo 65) junto das A/AAAA. Numa
+    // rede onde o DoH não responde bem, a resolução falha inteira — e o resto do sistema
+    // continua funcionando, porque usa o resolvedor do SO.
+    //
+    // Foi exatamente o que apareceu num testador: `nslookup livekit.usesenju.com`
+    // resolvia e as portas 5349 e 7881 respondiam, mas o módulo P2P do WebRTC dizia
+    // "Failed to resolve address ... errorcode: -105" e a mídia nunca conectava. O DNS
+    // dele é servido por IPv6 (2804:1778::a), cenário em que esse caminho costuma
+    // tropeçar.
+    //
+    // Desligar o DoH e as consultas extras faz o app resolver nomes do mesmo jeito que
+    // todo o resto da máquina. Precisa ser chamado depois do ready.
+    app.configureHostResolver({
+      secureDnsMode: 'off',
+      enableAdditionalDnsQueryTypes: false
+    })
+
     // Set app user model id for windows
     electronApp.setAppUserModelId('com.electron')
 
