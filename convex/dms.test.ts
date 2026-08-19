@@ -231,3 +231,137 @@ describe('dms.sendDmMessage', () => {
     expect(messages).toHaveLength(0)
   })
 })
+
+describe('dms.listMyDmChannels', () => {
+  test('usuário sem nenhuma conversa vê lista vazia, sem erro', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    await insertUser(t, anaWorkosId, 'ana', '0001')
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+
+    const result = await asAna.query(anyApi.dms.listMyDmChannels, {})
+    expect(result).toEqual([])
+  })
+
+  test('usuário com 2 conversas diretas vê as 2, cada uma com o otherUser correto', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const brunoWorkosId = 'workos_bruno'
+    const carlaWorkosId = 'workos_carla'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const brunoId = await insertUser(t, brunoWorkosId, 'bruno', '0002')
+    const carlaId = await insertUser(t, carlaWorkosId, 'carla', '0003')
+
+    // Seed direto via t.run: 2 dmChannels + 4 dmMembers (ana-bruno, ana-carla).
+    const channelAnaBruno = await t.run((ctx) => ctx.db.insert('dmChannels', { createdAt: Date.now() }))
+    await t.run((ctx) => ctx.db.insert('dmMembers', { dmChannelId: channelAnaBruno, userId: anaId }))
+    await t.run((ctx) => ctx.db.insert('dmMembers', { dmChannelId: channelAnaBruno, userId: brunoId }))
+
+    const channelAnaCarla = await t.run((ctx) => ctx.db.insert('dmChannels', { createdAt: Date.now() }))
+    await t.run((ctx) => ctx.db.insert('dmMembers', { dmChannelId: channelAnaCarla, userId: anaId }))
+    await t.run((ctx) => ctx.db.insert('dmMembers', { dmChannelId: channelAnaCarla, userId: carlaId }))
+
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const result: Array<{
+      dmChannelId: Id<'dmChannels'>
+      otherUser: {
+        userId: Id<'users'>
+        username: string
+        tag: string
+        displayName: string
+        avatarUrl?: string
+      } | null
+    }> = await asAna.query(anyApi.dms.listMyDmChannels, {})
+
+    expect(result).toHaveLength(2)
+    const byChannel = new Map(result.map((r) => [r.dmChannelId, r.otherUser]))
+    expect(byChannel.get(channelAnaBruno)?.userId).toBe(brunoId)
+    expect(byChannel.get(channelAnaBruno)?.username).toBe('bruno')
+    expect(byChannel.get(channelAnaCarla)?.userId).toBe(carlaId)
+    expect(byChannel.get(channelAnaCarla)?.username).toBe('carla')
+  })
+})
+
+describe('dms.listDmMessages', () => {
+  async function setupChannelWithMembers(t: ReturnType<typeof convexTest>) {
+    const anaWorkosId = 'workos_ana'
+    const brunoWorkosId = 'workos_bruno'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const brunoId = await insertUser(t, brunoWorkosId, 'bruno', '0002')
+    await insertFriendship(t, anaId, brunoId)
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const dmChannelId: Id<'dmChannels'> = await asAna.mutation(
+      anyApi.dms.getOrCreateDmChannel,
+      { friendUserId: brunoId }
+    )
+    return { anaId, brunoId, anaWorkosId, brunoWorkosId, dmChannelId }
+  }
+
+  test('rejeita chamada sem identidade autenticada', async () => {
+    const t = convexTest(schema, modules)
+    const { dmChannelId } = await setupChannelWithMembers(t)
+
+    await expect(
+      t.query(anyApi.dms.listDmMessages, {
+        dmChannelId,
+        paginationOpts: { numItems: 10, cursor: null },
+      })
+    ).rejects.toThrow()
+  })
+
+  test('não-membro é rejeitado antes de qualquer paginação, mesmo sabendo o dmChannelId', async () => {
+    const t = convexTest(schema, modules)
+    const { dmChannelId } = await setupChannelWithMembers(t)
+    const carlaWorkosId = 'workos_carla'
+    await insertUser(t, carlaWorkosId, 'carla', '0003')
+    const asCarla = t.withIdentity({ subject: carlaWorkosId })
+
+    await expect(
+      asCarla.query(anyApi.dms.listDmMessages, {
+        dmChannelId,
+        paginationOpts: { numItems: 10, cursor: null },
+      })
+    ).rejects.toThrow()
+  })
+
+  test('membro do canal recebe as mensagens paginadas, mais recente primeiro', async () => {
+    const t = convexTest(schema, modules)
+    const { anaId, brunoId, anaWorkosId, dmChannelId } = await setupChannelWithMembers(t)
+
+    await t.run((ctx) =>
+      ctx.db.insert('dmMessages', {
+        dmChannelId,
+        authorId: anaId,
+        content: 'primeira',
+        createdAt: Date.now(),
+      })
+    )
+    await t.run((ctx) =>
+      ctx.db.insert('dmMessages', {
+        dmChannelId,
+        authorId: brunoId,
+        content: 'segunda',
+        createdAt: Date.now(),
+      })
+    )
+    await t.run((ctx) =>
+      ctx.db.insert('dmMessages', {
+        dmChannelId,
+        authorId: anaId,
+        content: 'terceira',
+        createdAt: Date.now(),
+      })
+    )
+
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const page = await asAna.query(anyApi.dms.listDmMessages, {
+      dmChannelId,
+      paginationOpts: { numItems: 2, cursor: null },
+    })
+
+    expect(page.page).toHaveLength(2)
+    expect(page.isDone).toBe(false)
+    expect(page.page[0].content).toBe('terceira')
+    expect(page.page[1].content).toBe('segunda')
+  })
+})

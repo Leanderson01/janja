@@ -1,5 +1,6 @@
 import { v } from 'convex/values'
-import { mutation } from './_generated/server'
+import { paginationOptsValidator } from 'convex/server'
+import { mutation, query } from './_generated/server'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
@@ -115,5 +116,61 @@ export const sendDmMessage = mutation({
       content: trimmed,
       createdAt: Date.now(),
     })
+  },
+})
+
+// Metade de leitura (plano 06-05): listar minhas conversas diretas e paginar
+// o histórico de uma delas. `otherUser` nunca inclui `workosId` — só os
+// campos públicos já usados em outras listagens (mesmo padrão de
+// convex/members.ts:listServerMembers).
+export const listMyDmChannels = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await getCallerUser(ctx)
+
+    const myMemberships = await ctx.db
+      .query('dmMembers')
+      .withIndex('by_user', (q) => q.eq('userId', me._id))
+      .collect()
+
+    return await Promise.all(
+      myMemberships.map(async (membership) => {
+        const otherMembers = await ctx.db
+          .query('dmMembers')
+          .withIndex('by_channel_user', (q) => q.eq('dmChannelId', membership.dmChannelId))
+          .collect()
+        const other = otherMembers.find((m) => m.userId !== me._id)
+        const otherUser = other ? await ctx.db.get(other.userId) : null
+
+        return {
+          dmChannelId: membership.dmChannelId,
+          otherUser: otherUser
+            ? {
+                userId: otherUser._id,
+                username: otherUser.username,
+                tag: otherUser.tag,
+                displayName: otherUser.displayName,
+                avatarUrl: otherUser.avatarUrl,
+              }
+            : null,
+        }
+      })
+    )
+  },
+})
+
+export const listDmMessages = query({
+  args: { dmChannelId: v.id('dmChannels'), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
+    const me = await getCallerUser(ctx)
+    // Autorização antes da paginação — nunca paginar primeiro e checar depois
+    // (vazaria existência/contagem de mensagens de uma conversa alheia).
+    await assertDmMember(ctx, args.dmChannelId, me._id)
+
+    return await ctx.db
+      .query('dmMessages')
+      .withIndex('by_dm_channel', (q) => q.eq('dmChannelId', args.dmChannelId))
+      .order('desc')
+      .paginate(args.paginationOpts)
   },
 })
