@@ -1,45 +1,94 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PICKER_TIMEOUT_MS, SCREENSHARE_CHANNELS } from './screenshare-types'
 
 // Pitfall 2 (PITFALLS.md) é a razão deste arquivo existir: um handler de
 // `setDisplayMediaRequestHandler` que termina sem chamar `callback` deixa a
 // Promise de `getDisplayMedia()` pendurada para sempre no renderer — a UI
 // fica carregando e TODA tentativa seguinte de compartilhar na mesma sessão
 // trava junto. É um defeito silencioso (nenhum erro, nenhum log) e só
-// aparece no caminho de exceção, que é justamente o que nunca acontece na
-// verificação manual feliz. Aqui os três caminhos do handler são forçados e
-// se cobra exatamente UMA chamada a `callback` em cada um.
+// aparece nos caminhos que a verificação manual feliz nunca percorre. Aqui
+// cada caminho do handler é forçado e se cobra exatamente UMA chamada a
+// `callback` em cada um.
 //
-// Não é substituto do checkpoint humano do Plano 08-03: isto prova o
+// O Plano 08-04 multiplicou esses caminhos: a escolha agora vai e volta ao
+// renderer, então existem cancelamento, id desconhecido, timeout, janela
+// ausente, falha de envio e pedidos concorrentes — todos capazes de terminar
+// em zero `callback` se alguém errar. São eles a maior parte deste arquivo.
+//
+// Não é substituto do checkpoint humano do Plano 08-03/08-07: isto prova o
 // contrato do handler, não que a captura funciona (WSL2 não tem tela nem
 // áudio, e `desktopCapturer` real nunca roda aqui).
 
-const { getSourcesMock, setDisplayMediaRequestHandlerMock } = vi.hoisted(() => ({
+const { getSourcesMock, setDisplayMediaRequestHandlerMock, ipcMainOnMock } = vi.hoisted(() => ({
   getSourcesMock: vi.fn(),
-  setDisplayMediaRequestHandlerMock: vi.fn()
+  setDisplayMediaRequestHandlerMock: vi.fn(),
+  ipcMainOnMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
   desktopCapturer: { getSources: getSourcesMock },
+  ipcMain: { on: ipcMainOnMock },
   session: {
     defaultSession: { setDisplayMediaRequestHandler: setDisplayMediaRequestHandlerMock }
   }
 }))
 
 type Streams = { video?: { id: string; name: string }; audio?: string }
-type DisplayMediaHandler = (request: unknown, callback: (streams: Streams) => void) => unknown
+type DisplayMediaHandler = (request: unknown, callback: (streams: Streams) => void) => Promise<void>
+type FakeWindow = {
+  isDestroyed: () => boolean
+  webContents: { send: ReturnType<typeof vi.fn> }
+}
+
+/** Uma fonte no formato que `desktopCapturer.getSources` devolve. */
+function fakeSource(id: string, name: string, withIcon = false): unknown {
+  return {
+    id,
+    name,
+    thumbnail: { toDataURL: (): string => `data:image/png;base64,thumb-${id}` },
+    appIcon: withIcon ? { toDataURL: (): string => `data:image/png;base64,icon-${id}` } : null
+  }
+}
+
+function fakeWindow(destroyed = false): FakeWindow {
+  return { isDestroyed: () => destroyed, webContents: { send: vi.fn() } }
+}
+
+type Harness = {
+  handler: DisplayMediaHandler
+  window: FakeWindow
+  /** Dispara os listeners de `ipcMain.on` daquele canal, como o renderer faria. */
+  emit: (channel: string, ...args: unknown[]) => void
+  listenerCount: (channel: string) => number
+}
 
 /**
- * Carrega o módulo do zero (o guarda de registro único é estado de módulo) e
- * devolve o handler que ele registrou.
+ * Carrega o módulo do zero (o guarda de registro e a escolha pendente são
+ * estado de módulo) e devolve o handler registrado + o canal de volta do
+ * renderer.
  */
-async function registerAndGetHandler(): Promise<DisplayMediaHandler> {
+async function setup(window: FakeWindow | null = fakeWindow()): Promise<Harness> {
   vi.resetModules()
   const { registerScreenShareHandler } = await import('./screenshare')
-  registerScreenShareHandler()
+  registerScreenShareHandler(() => window as never)
   const lastCall = setDisplayMediaRequestHandlerMock.mock.calls.at(-1)
   if (!lastCall) throw new Error('setDisplayMediaRequestHandler não foi chamado')
-  return lastCall[0] as DisplayMediaHandler
+  return {
+    handler: lastCall[0] as DisplayMediaHandler,
+    window: window ?? fakeWindow(),
+    emit: (channel, ...args) => {
+      for (const call of ipcMainOnMock.mock.calls.filter((c) => c[0] === channel)) {
+        ;(call[1] as (event: unknown, ...rest: unknown[]) => void)({}, ...args)
+      }
+    },
+    listenerCount: (channel) => ipcMainOnMock.mock.calls.filter((c) => c[0] === channel).length
+  }
+}
+
+/** Espera o seletor ter sido enviado ao renderer antes de responder por ele. */
+async function waitForPicker(window: FakeWindow): Promise<void> {
+  await vi.waitFor(() => expect(window.webContents.send).toHaveBeenCalled())
 }
 
 describe('registerScreenShareHandler', () => {
@@ -49,69 +98,350 @@ describe('registerScreenShareHandler', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
 
-  it('concede a primeira tela com áudio de sistema (loopback), chamando callback uma vez', async () => {
-    const screen = { id: 'screen:0:0', name: 'Tela 1' }
-    getSourcesMock.mockResolvedValue([screen, { id: 'screen:1:0', name: 'Tela 2' }])
-    const handler = await registerAndGetHandler()
-
-    const callback = vi.fn()
-    await handler({}, callback)
-
-    expect(callback).toHaveBeenCalledTimes(1)
-    expect(callback).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
-  it('pede só fontes do tipo screen (janela é o Plano 08-04)', async () => {
-    getSourcesMock.mockResolvedValue([{ id: 'screen:0:0', name: 'Tela 1' }])
-    const handler = await registerAndGetHandler()
+  describe('enumeração de fontes', () => {
+    it('pede telas E janelas, com miniatura de verdade e ícone de app', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler, window, emit } = await setup()
 
-    await handler({}, vi.fn())
+      const done = handler({}, vi.fn())
+      await waitForPicker(window)
 
-    expect(getSourcesMock).toHaveBeenCalledWith(expect.objectContaining({ types: ['screen'] }))
+      // `types: ['screen']` e `thumbnailSize: { 0, 0 }` eram a versão sem
+      // seletor do Plano 08-02. Com o diálogo, os dois voltam a valer — sem
+      // miniatura o seletor mostra cards vazios, e sem 'window' o usuário só
+      // consegue compartilhar telas inteiras.
+      expect(getSourcesMock).toHaveBeenCalledWith({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true
+      })
+
+      emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      await done
+    })
+
+    it('chama callback({}) quando não há nenhuma fonte disponível', async () => {
+      getSourcesMock.mockResolvedValue([])
+      const { handler, window } = await setup()
+
+      const callback = vi.fn()
+      await handler({}, callback)
+
+      // `{}` é o cancelamento explícito documentado; `{ video: undefined }`
+      // não é a mesma coisa e é exatamente o erro que o Pitfall 2 descreve.
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+      // Lista vazia não pode depender do renderer para se resolver.
+      expect(window.webContents.send).not.toHaveBeenCalled()
+    })
+
+    it('chama callback({}) quando desktopCapturer.getSources rejeita', async () => {
+      getSourcesMock.mockRejectedValue(new Error('captura indisponível'))
+      const { handler } = await setup()
+
+      const callback = vi.fn()
+      await handler({}, callback)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('não deixa a exceção de getSources escapar do handler', async () => {
+      getSourcesMock.mockRejectedValue(new Error('captura indisponível'))
+      const { handler } = await setup()
+
+      // Se a rejeição escapasse, isto viraria unhandled rejection no processo
+      // main — que é o outro sintoma descrito no Pitfall 2.
+      await expect(handler({}, vi.fn())).resolves.not.toThrow()
+    })
   })
 
-  it('chama callback({}) quando não há nenhuma tela disponível', async () => {
-    getSourcesMock.mockResolvedValue([])
-    const handler = await registerAndGetHandler()
+  describe('envio da lista ao renderer', () => {
+    it('serializa thumbnail e ícone como data URL e marca tela vs. janela', async () => {
+      getSourcesMock.mockResolvedValue([
+        fakeSource('screen:0:0', 'Tela 1'),
+        fakeSource('window:42:0', 'Navegador', true)
+      ])
+      const { handler, window, emit } = await setup()
 
-    const callback = vi.fn()
-    await handler({}, callback)
+      const done = handler({}, vi.fn())
+      await waitForPicker(window)
 
-    // `{}` é o cancelamento explícito documentado; `{ video: undefined }`
-    // não é a mesma coisa e é exatamente o erro que o Pitfall 2 descreve.
-    expect(callback).toHaveBeenCalledTimes(1)
-    expect(callback).toHaveBeenCalledWith({})
+      // `NativeImage` NÃO atravessa o IPC do Electron — chegaria como `{}` do
+      // outro lado, e o seletor mostraria cards vazios sem nenhum erro.
+      expect(window.webContents.send).toHaveBeenCalledWith(SCREENSHARE_CHANNELS.PICK_REQUESTED, {
+        sources: [
+          {
+            id: 'screen:0:0',
+            name: 'Tela 1',
+            thumbnailDataUrl: 'data:image/png;base64,thumb-screen:0:0',
+            isScreen: true
+          },
+          {
+            id: 'window:42:0',
+            name: 'Navegador',
+            thumbnailDataUrl: 'data:image/png;base64,thumb-window:42:0',
+            appIconDataUrl: 'data:image/png;base64,icon-window:42:0',
+            isScreen: false
+          }
+        ]
+      })
+
+      emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      await done
+    })
+
+    it('chama callback({}) quando não existe janela para exibir o seletor', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler } = await setup(null)
+
+      const callback = vi.fn()
+      await handler({}, callback)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('chama callback({}) quando a janela já foi destruída', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler } = await setup(fakeWindow(true))
+
+      const callback = vi.fn()
+      await handler({}, callback)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('chama callback({}) quando o envio ao renderer lança', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const window = fakeWindow()
+      window.webContents.send.mockImplementation(() => {
+        throw new Error('webContents destruído')
+      })
+      const { handler } = await setup(window)
+
+      const callback = vi.fn()
+      await handler({}, callback)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
   })
 
-  it('chama callback({}) quando desktopCapturer.getSources rejeita', async () => {
-    getSourcesMock.mockRejectedValue(new Error('captura indisponível'))
-    const handler = await registerAndGetHandler()
+  describe('resposta do usuário', () => {
+    it('concede a fonte escolhida com áudio de sistema (loopback), uma única vez', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      const chosen = fakeSource('window:42:0', 'Navegador', true)
+      getSourcesMock.mockResolvedValue([screen, chosen])
+      const { handler, window, emit } = await setup()
 
-    const callback = vi.fn()
-    await handler({}, callback)
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'window:42:0')
+      await done
 
-    expect(callback).toHaveBeenCalledTimes(1)
-    expect(callback).toHaveBeenCalledWith({})
+      // A fonte concedida é a ESCOLHIDA, não `sources[0]` (Plano 08-02).
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({ video: chosen, audio: 'loopback' })
+    })
+
+    it('chama callback({}) exatamente uma vez quando o usuário cancela', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler, window, emit } = await setup()
+
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      await done
+
+      // Este é O caminho novo do Plano 08-04 e o mais fácil de deixar
+      // pendurado: ninguém escolheu nada, e mesmo assim `callback` precisa
+      // ser chamado — senão a próxima tentativa de compartilhar trava junto.
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('trata id desconhecido como cancelamento, sem pendurar a Promise', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler, window, emit } = await setup()
+
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'window:999:0')
+      await done
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('trata id não-string como cancelamento', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler, window, emit } = await setup()
+
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, { id: 'screen:0:0' })
+      await done
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('ignora respostas repetidas — cancelar depois de escolher não chama callback de novo', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      getSourcesMock.mockResolvedValue([screen])
+      const { handler, window, emit } = await setup()
+
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')
+      emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      await done
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+    })
+
+    it('não quebra com resposta do renderer sem nenhuma escolha pendente', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { emit } = await setup()
+
+      expect(() => emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)).not.toThrow()
+      expect(() => emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')).not.toThrow()
+    })
   })
 
-  it('não deixa a exceção de getSources escapar do handler', async () => {
-    getSourcesMock.mockRejectedValue(new Error('captura indisponível'))
-    const handler = await registerAndGetHandler()
+  describe('timeout defensivo', () => {
+    it('cancela sozinho se ninguém responder, chamando callback({}) uma vez', async () => {
+      vi.useFakeTimers()
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      const { handler } = await setup()
 
-    // Se a rejeição escapasse, isto viraria unhandled rejection no processo
-    // main — que é o outro sintoma descrito no Pitfall 2.
-    await expect(handler({}, vi.fn())).resolves.not.toThrow()
+      const callback = vi.fn()
+      const done = handler({}, callback)
+
+      // Antes do prazo: nada. Se o handler resolvesse cedo, o usuário perderia
+      // o seletor no meio da escolha.
+      await vi.advanceTimersByTimeAsync(PICKER_TIMEOUT_MS - 1)
+      expect(callback).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(2)
+      await done
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({})
+    })
+
+    it('não dispara depois de o usuário já ter escolhido', async () => {
+      vi.useFakeTimers()
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      getSourcesMock.mockResolvedValue([screen])
+      const { handler, emit } = await setup()
+
+      const callback = vi.fn()
+      const done = handler({}, callback)
+      await vi.advanceTimersByTimeAsync(0)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')
+      await done
+      await vi.advanceTimersByTimeAsync(PICKER_TIMEOUT_MS * 2)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+    })
   })
 
-  it('registra o handler uma única vez, mesmo se chamada de novo', async () => {
-    vi.resetModules()
-    const { registerScreenShareHandler } = await import('./screenshare')
+  describe('tentativas sucessivas (base de SHARE-07)', () => {
+    it('a tentativa seguinte a um cancelamento funciona normalmente', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      getSourcesMock.mockResolvedValue([screen])
+      const { handler, window, emit } = await setup()
 
-    registerScreenShareHandler()
-    registerScreenShareHandler()
+      const first = vi.fn()
+      const firstDone = handler({}, first)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      await firstDone
 
-    // Registrar de novo SUBSTITUIRIA o handler anterior silenciosamente.
-    expect(setDisplayMediaRequestHandlerMock).toHaveBeenCalledTimes(1)
-    expect(console.warn).toHaveBeenCalled()
+      window.webContents.send.mockClear()
+      const second = vi.fn()
+      const secondDone = handler({}, second)
+      await waitForPicker(window)
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')
+      await secondDone
+
+      // O sintoma que o Pitfall 2 descreve é justamente este: a primeira
+      // tentativa "some" e todas as seguintes travam. Aqui a segunda conclui.
+      expect(first).toHaveBeenCalledTimes(1)
+      expect(first).toHaveBeenCalledWith({})
+      expect(second).toHaveBeenCalledTimes(1)
+      expect(second).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+    })
+
+    it('um pedido novo cancela o anterior em vez de deixar dois pendentes', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      getSourcesMock.mockResolvedValue([screen])
+      const { handler, window, emit } = await setup()
+
+      const first = vi.fn()
+      const firstDone = handler({}, first)
+      await waitForPicker(window)
+
+      window.webContents.send.mockClear()
+      const second = vi.fn()
+      const secondDone = handler({}, second)
+      await waitForPicker(window)
+
+      // O primeiro já foi resolvido pela chegada do segundo — sem isso, ele
+      // ficaria esperando uma resposta que agora pertence ao outro pedido.
+      await firstDone
+      expect(first).toHaveBeenCalledTimes(1)
+      expect(first).toHaveBeenCalledWith({})
+
+      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, 'screen:0:0')
+      await secondDone
+      expect(second).toHaveBeenCalledTimes(1)
+      expect(second).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(first).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('registro', () => {
+    it('registra o handler e os listeners de IPC uma única vez, mesmo se chamada de novo', async () => {
+      vi.resetModules()
+      const { registerScreenShareHandler } = await import('./screenshare')
+
+      registerScreenShareHandler(() => null)
+      registerScreenShareHandler(() => null)
+
+      // Registrar de novo SUBSTITUIRIA o handler de captura silenciosamente, e
+      // EMPILHARIA um segundo par de listeners de IPC — dois listeners
+      // resolvendo a mesma escolha.
+      expect(setDisplayMediaRequestHandlerMock).toHaveBeenCalledTimes(1)
+      expect(
+        ipcMainOnMock.mock.calls.filter((c) => c[0] === SCREENSHARE_CHANNELS.CHOOSE_SOURCE)
+      ).toHaveLength(1)
+      expect(
+        ipcMainOnMock.mock.calls.filter((c) => c[0] === SCREENSHARE_CHANNELS.CANCEL_PICKER)
+      ).toHaveLength(1)
+      expect(console.warn).toHaveBeenCalled()
+    })
+
+    it('registra exatamente um listener por canal do seletor', async () => {
+      const { listenerCount } = await setup()
+
+      expect(listenerCount(SCREENSHARE_CHANNELS.CHOOSE_SOURCE)).toBe(1)
+      expect(listenerCount(SCREENSHARE_CHANNELS.CANCEL_PICKER)).toBe(1)
+    })
   })
 })

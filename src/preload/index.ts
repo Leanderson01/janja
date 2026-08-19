@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { AuthUser } from '../main/auth/types'
+import { SCREENSHARE_CHANNELS } from '../main/screenshare-types'
+import type { ScreenShareSource } from '../main/screenshare-types'
 
 // Custom APIs for renderer
 const api = {}
@@ -60,6 +62,36 @@ const voiceApi = {
   }
 }
 
+// Superfície do seletor de tela exposta ao renderer (Plano 08-04, SHARE-01).
+// Ao contrário de AUTH_CHANNELS/VOICE_CHANNELS, os nomes dos canais NÃO são
+// duplicados aqui: são importados de `src/main/screenshare-types.ts` (arquivo
+// sem imports, só constantes e tipos, seguro de bundlar no preload). O motivo
+// é o Pitfall 2 — um nome de canal divergente entre os dois lados não gera
+// erro, gera um `send` que cai no vazio e uma captura que só destrava no
+// timeout de 60s do processo main. Continua valendo a regra que importa:
+// nunca expor `ipcRenderer` bruto, só estes três canais já nomeados.
+const screenshareApi = {
+  /** Registra o diálogo de escolha; devolve a função de remoção do listener. */
+  onPickRequested: (callback: (data: { sources: ScreenShareSource[] }) => void): (() => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: { sources: ScreenShareSource[] }): void =>
+      callback(data)
+    ipcRenderer.on(SCREENSHARE_CHANNELS.PICK_REQUESTED, listener)
+    return () => ipcRenderer.removeListener(SCREENSHARE_CHANNELS.PICK_REQUESTED, listener)
+  },
+  /** O usuário escolheu esta fonte. Uma via, sem retorno. */
+  chooseSource: (sourceId: string): void => {
+    ipcRenderer.send(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, sourceId)
+  },
+  /**
+   * O usuário fechou o diálogo sem escolher. Precisa ser chamado em TODO
+   * caminho de fechamento sem escolha (botão, Esc, clique fora, X) — é o que
+   * destrava o `getDisplayMedia()` que o processo main está segurando.
+   */
+  cancelPicker: (): void => {
+    ipcRenderer.send(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -69,6 +101,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('auth', authApi)
     contextBridge.exposeInMainWorld('voice', voiceApi)
+    contextBridge.exposeInMainWorld('screenshare', screenshareApi)
   } catch (error) {
     console.error(error)
   }
@@ -81,4 +114,6 @@ if (process.contextIsolated) {
   window.auth = authApi
   // @ts-ignore (define in dts)
   window.voice = voiceApi
+  // @ts-ignore (define in dts)
+  window.screenshare = screenshareApi
 }

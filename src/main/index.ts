@@ -2,11 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import {
-  registerProtocol,
-  extractCallbackUrl,
-  parseCallbackParams
-} from './auth/deep-link-handler'
+import { registerProtocol, extractCallbackUrl, parseCallbackParams } from './auth/deep-link-handler'
 import { handleCallback, getUser } from './auth/auth'
 import { setupAuthIpcHandlers, notifyAuthChange } from './auth/ipc-handlers'
 import { startPttHook, setPttModeActive, stopPttHook } from './voice/ptt'
@@ -159,12 +155,16 @@ if (!gotTheLock) {
     // IPC test
     ipcMain.on('ping', () => console.log('pong'))
 
-    // Plano 08-02 (SHARE-01): handler de captura de tela/áudio de sistema.
+    // Planos 08-02/08-04 (SHARE-01): handler de captura de tela/áudio de
+    // sistema, com o seletor de fontes.
     // Aqui dentro do `whenReady` de propósito — `session.defaultSession` não
     // existe antes disso. Registrado uma única vez, no boot: chamar de novo
     // substituiria o handler anterior sem avisar (ver src/main/screenshare.ts).
-    // Independe de janela: quem dispara é o renderer, via `getDisplayMedia`.
-    registerScreenShareHandler()
+    // A janela é passada como GETTER, não como valor: este registro acontece
+    // antes de `createWindow()` (e `mainWindow` volta a ser `null` se a janela
+    // for fechada), então o seletor precisa resolver a janela no momento do
+    // pedido de captura, não agora.
+    registerScreenShareHandler(() => mainWindow)
 
     createWindow()
 

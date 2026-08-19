@@ -1,5 +1,6 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { AuthUser } from '../main/auth/types'
+import type { ScreenShareSource as SharedScreenShareSource } from '../main/screenshare-types'
 
 interface AuthApi {
   signIn(): Promise<{ success: boolean; error?: string }>
@@ -15,11 +16,26 @@ interface VoiceApi {
   setPttModeActive(active: boolean): void
 }
 
+interface ScreenShareApi {
+  /** main -> renderer: abre o seletor com estas fontes. Devolve o cleanup. */
+  onPickRequested(callback: (data: { sources: ScreenShareSource[] }) => void): () => void
+  chooseSource(sourceId: string): void
+  cancelPicker(): void
+}
+
 declare global {
+  // Alias global do tipo definido em `src/main/screenshare-types.ts`: o
+  // renderer não importa de `src/main` (processo e tsconfig separados — ver o
+  // comentário de `AuthUser` em `src/renderer/src/hooks/useAuth.ts`), mas este
+  // arquivo `.d.ts` está no `include` das duas configs, então a definição
+  // atravessa a fronteira sem virar uma segunda cópia para sair de sincronia.
+  type ScreenShareSource = SharedScreenShareSource
+
   interface Window {
     electron: ElectronAPI
     api: unknown
     auth: AuthApi
     voice: VoiceApi
+    screenshare: ScreenShareApi
   }
 }
