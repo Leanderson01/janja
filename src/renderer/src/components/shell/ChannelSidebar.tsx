@@ -11,11 +11,19 @@ import { mockChannels, mockMembers, mockVoiceParticipants, type Channel } from '
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 
+import type { Id } from '../../../../../convex/_generated/dataModel'
+
 // Sidebar de canais (Plano 03-02) — substitui o stub do Plano 03-01. Lê
 // `mockChannels`/`mockMembers`/`mockVoiceParticipants` de mock-data.ts (não
 // duplica fixtures) e `useSelection()` para navegação de canal de
 // texto/join-leave de canal de voz. `VoiceControlBar` (mesmo plano) fica
 // como rodapé fixo, fora da área rolável.
+//
+// A partir do plano 04-05, `selectedServerId`/`selectedChannelId` do
+// SelectionProvider são ids reais do Convex — nunca vão bater com os ids
+// mockados abaixo, então este componente passa a renderizar "sem canais"
+// até o plano 04-06 trocar `mockChannels` por `api.channels.listChannels`.
+// Isso é esperado (estado vazio, não crash), não uma regressão deste plano.
 export function ChannelSidebar(): React.JSX.Element {
   const {
     selectedServerId,
@@ -34,13 +42,18 @@ export function ChannelSidebar(): React.JSX.Element {
     }
   }
 
+  // Cast temporário: `channel.id` é um id mockado (string solta), não o
+  // `Id<'channels'>` real que o contexto de seleção exige a partir deste
+  // plano. Removido pelo plano 04-06 quando este componente passar a
+  // iterar sobre `Doc<'channels'>` de verdade.
   function handleTextChannelClick(channel: Channel): void {
-    setSelectedChannelId(channel.id)
+    setSelectedChannelId(channel.id as Id<'channels'>)
   }
 
   function handleVoiceChannelClick(channel: Channel): void {
-    setSelectedChannelId(channel.id)
-    setJoinedVoiceChannelId(joinedVoiceChannelId === channel.id ? null : channel.id)
+    const channelId = channel.id as Id<'channels'>
+    setSelectedChannelId(channelId)
+    setJoinedVoiceChannelId(joinedVoiceChannelId === channelId ? null : channelId)
   }
 
   return (

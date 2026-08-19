@@ -1,8 +1,14 @@
+import { useState } from 'react'
+import { Plus } from 'lucide-react'
+
+import { CreateOrJoinServerDialog } from '@/components/shell/CreateOrJoinServerDialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { mockServers, type Server } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
+
+import type { Doc } from '../../../../../convex/_generated/dataModel'
 
 function initialsFor(name: string): string {
   const words = name.trim().split(/\s+/)
@@ -13,9 +19,9 @@ function initialsFor(name: string): string {
   return initials.toUpperCase()
 }
 
-function ServerIcon({ server }: { server: Server }): React.JSX.Element {
+function ServerIcon({ server }: { server: Doc<'servers'> }): React.JSX.Element {
   const { selectedServerId, setSelectedServerId } = useSelection()
-  const isActive = server.id === selectedServerId
+  const isActive = server._id === selectedServerId
 
   return (
     <Tooltip>
@@ -31,7 +37,7 @@ function ServerIcon({ server }: { server: Server }): React.JSX.Element {
           />
           <button
             type="button"
-            onClick={() => setSelectedServerId(server.id)}
+            onClick={() => setSelectedServerId(server._id)}
             aria-label={server.name}
             aria-current={isActive ? 'true' : undefined}
             className={
@@ -51,13 +57,44 @@ function ServerIcon({ server }: { server: Server }): React.JSX.Element {
   )
 }
 
+function AddServerButton(): React.JSX.Element {
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-lg"
+            className="rounded-full"
+            aria-label="Criar ou entrar num servidor"
+            onClick={() => setDialogOpen(true)}
+          >
+            <Plus />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">Adicionar servidor</TooltipContent>
+      </Tooltip>
+      <CreateOrJoinServerDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </>
+  )
+}
+
 export function ServerRail(): React.JSX.Element {
+  const { servers } = useSelection()
+
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col items-center gap-2 py-3">
-        {mockServers.map((server) => (
-          <ServerIcon key={server.id} server={server} />
+        {/* servers === undefined enquanto a subscription inicial não resolve — não
+            travamos em spinner, só não desenhamos ícone nenhum até chegar dado real
+            (ou lista vazia, que também não desenha ícone nenhum). */}
+        {servers?.map((server) => (
+          <ServerIcon key={server._id} server={server} />
         ))}
+        <AddServerButton />
       </div>
     </ScrollArea>
   )
