@@ -13,6 +13,10 @@ import {
 import { useEffect, useState } from 'react'
 
 import {
+  ParticipantAudioMenu,
+  ParticipantVolumeHint
+} from '@/components/shell/ParticipantAudioMenu'
+import {
   ConnectionQualityIcon,
   ParticipantStrip,
   initialsFor,
@@ -22,21 +26,8 @@ import {
 import { ScreenShareStage, ScreenSharePreviewNotice } from '@/components/shell/ScreenShareStage'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
-import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  DEFAULT_PARTICIPANT_VOLUME,
-  MAX_PLAYBACK_VOLUME,
-  type ParticipantAudioPreference
-} from '@/lib/participant-volumes'
+import { type ParticipantAudioPreference } from '@/lib/participant-volumes'
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/state/layout-context'
 import { useSelection } from '@/state/selection-context'
@@ -56,26 +47,18 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // - `ParticipantStrip.tsx` — a faixa horizontal de participantes E as regras
 //   comuns de participante de voz (`initialsFor`, `ConnectionQualityIcon`,
 //   `useVoiceParticipants`), que a grade abaixo importa em vez de duplicar.
+// - `ParticipantAudioMenu.tsx` — o menu de áudio por participante (VOICE-18),
+//   que saiu daqui depois do Plano 08.5-11 para poder existir também na faixa.
 //
-// A importação vai só numa direção (`CallStage` → os dois arquivos novos), de
-// propósito: `ParticipantStrip` importando de volta daqui criaria ciclo.
-
-// VOICE-18 (Plano 08.5-11): o passo dos itens de teclado, em porcentagem. O
-// slider anda de 5 em 5 (arrastar é fino); os itens do menu andam de 10 em 10,
-// porque cada passo custa um Enter.
-const VOLUME_KEYBOARD_STEP = 10
-const MAX_VOLUME_PERCENT = Math.round(MAX_PLAYBACK_VOLUME * 100)
-
-function toPercent(volume: number): number {
-  return Math.min(MAX_VOLUME_PERCENT, Math.max(0, Math.round(volume * 100)))
-}
+// A importação vai só numa direção (`CallStage` → os arquivos novos), de
+// propósito: qualquer um deles importando de volta daqui criaria ciclo.
 
 // Ladrilho da grade do palco. Quando o participante é OUTRA pessoa no canal ao
 // qual eu estou de fato conectado, ele vira gatilho do menu de áudio individual
-// — mesmo padrão único de menu da fase (Plano 08.5-02/08.5-04): um
-// `DropdownMenu` controlado, aberto por clique/Enter no `<button>` e pelo botão
-// direito no mesmo elemento. Sem `context-menu` do Radix, que não foi instalado
-// de propósito.
+// — que desde a correção do desvio 2 do Plano 08.5-11 mora em
+// `ParticipantAudioMenu.tsx`, compartilhado com a `ParticipantStrip`. O motivo
+// está lá: ESTA grade fica `hidden` no layout de compartilhamento, e o menu não
+// podia sumir junto com ela.
 //
 // Sem menu em dois casos, os dois deliberados:
 // - EU MESMO: não me ouço, então volume da minha própria voz aqui não existe.
@@ -94,10 +77,7 @@ function ParticipantTile({
   onVolumeChange: ((volume: number) => void) | null
   onToggleSilenced: (() => void) | null
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-
   const silenced = preference?.silenced ?? false
-  const percent = toPercent(preference?.volume ?? DEFAULT_PARTICIPANT_VOLUME)
   const hasMenu = onVolumeChange !== null && onToggleSilenced !== null
 
   const tile = (
@@ -137,10 +117,10 @@ function ParticipantTile({
       <div className="flex items-center gap-1.5">
         <span className="text-sm text-foreground">{participant.username}</span>
         {/* Mesmo argumento do ícone acima, para o caso menos óbvio: um volume
-            baixado e esquecido é indistinguível de "essa pessoa fala baixo". */}
-        {!silenced && percent !== 100 ? (
-          <span className="text-xs text-muted-foreground">{percent}%</span>
-        ) : null}
+            baixado e esquecido é indistinguível de "essa pessoa fala baixo".
+            `showSilenced` fica em `false` porque aqui o silenciado já tem badge
+            no avatar — dizer a mesma coisa duas vezes vira ruído. */}
+        <ParticipantVolumeHint preference={preference} />
         <ConnectionQualityIcon quality={participant.quality} />
       </div>
     </>
@@ -151,89 +131,15 @@ function ParticipantTile({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Opções de áudio de ${participant.username}`}
-          className="flex flex-col items-center gap-2 rounded-md p-1"
-          onContextMenu={(event) => {
-            event.preventDefault()
-            setOpen(true)
-          }}
-        >
-          {tile}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="w-60">
-        <DropdownMenuLabel className="truncate">{participant.username}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-
-        {/* O slider NÃO é um `DropdownMenuItem`: item de menu captura as setas
-            para a navegação do próprio menu e "selecionar" fecharia o menu a
-            cada arrasto. Fica numa área não-item, com `onKeyDown` parando a
-            propagação para que ArrowLeft/ArrowRight cheguem ao `Slider` em vez
-            de virarem navegação.
-
-            ISTO NÃO PÔDE SER VERIFICADO AQUI (WSL2, sem janela: nenhum pixel
-            foi renderizado nesta execução). Por isso o teclado NÃO depende
-            dele: os dois itens logo abaixo fazem a mesma coisa e são
-            acessíveis por construção. Se o slider se provar bom no checkpoint
-            humano, os itens podem sair; se ele se provar ruim, o slider sai e
-            os itens ficam. Os dois caminhos escrevem no mesmo lugar. */}
-        <div
-          className="px-2 py-1.5"
-          onKeyDown={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Volume</span>
-            <span>{percent}%</span>
-          </div>
-          <Slider
-            value={[percent]}
-            min={0}
-            max={MAX_VOLUME_PERCENT}
-            step={5}
-            aria-label={`Volume de ${participant.username}`}
-            onValueChange={(values) => onVolumeChange((values[0] ?? 100) / 100)}
-          />
-        </div>
-
-        {/* `preventDefault` no `onSelect` mantém o menu aberto: ajustar volume
-            é uma ação repetida, e fechar a cada 10% obrigaria a reabrir o menu
-            para cada passo. */}
-        <DropdownMenuItem
-          disabled={percent >= MAX_VOLUME_PERCENT}
-          onSelect={(event) => {
-            event.preventDefault()
-            onVolumeChange(Math.min(MAX_VOLUME_PERCENT, percent + VOLUME_KEYBOARD_STEP) / 100)
-          }}
-        >
-          Aumentar volume
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={percent <= 0}
-          onSelect={(event) => {
-            event.preventDefault()
-            onVolumeChange(Math.max(0, percent - VOLUME_KEYBOARD_STEP) / 100)
-          }}
-        >
-          Diminuir volume
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-
-        {/* "PARA MIM" é obrigatório no rótulo, e não é preciosismo: sem essas
-            duas palavras o usuário acredita que mutou a pessoa para a call
-            inteira. Isso seria MODERAÇÃO — coisa de cargo, que não existe
-            neste app e está explicitamente fora desta fase. O que este item faz
-            é reprodução local, e só. */}
-        <DropdownMenuItem onSelect={onToggleSilenced}>
-          {silenced ? 'Ouvir de novo' : 'Silenciar para mim'}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <ParticipantAudioMenu
+      username={participant.username}
+      preference={preference}
+      onVolumeChange={onVolumeChange}
+      onToggleSilenced={onToggleSilenced}
+      triggerClassName="flex flex-col items-center gap-2 rounded-md p-1"
+    >
+      {tile}
+    </ParticipantAudioMenu>
   )
 }
 
