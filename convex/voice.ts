@@ -1,7 +1,6 @@
 import { v } from 'convex/values'
 import { internalMutation, internalQuery, mutation } from './_generated/server'
 import type { MutationCtx } from './_generated/server'
-import type { Id } from './_generated/dataModel'
 import { requireIdentity } from './lib/membership'
 
 // VOICE-01/03/06/07: entrar, sair, mutar e ensurdecer num canal de voz — sempre com
