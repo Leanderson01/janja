@@ -10,12 +10,12 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 9 em execução (09-01 concluído)
-Plan: 1 of 5 concluído na Fase 3; 1 of 3 concluído na Fase 9
-Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) corrigido e verificado no que dá para verificar em WSL2, aguardando 09-02 e o checkpoint humano de 09-03 em Windows
-Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md
+Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 9 em execução (09-01 e 09-02 concluídos)
+Plan: 1 of 5 concluído na Fase 3; 2 of 3 concluídos na Fase 9
+Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) e página de conclusão de login/AUTH-07 (09-02) implementados e verificados no que dá para verificar em WSL2, aguardando o checkpoint humano de 09-03 em Windows (que inclui trocar o redirect URI no dashboard da WorkOS — ver ordem obrigatória em 09-02-SUMMARY.md)
+Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
 
-Progress: [█████░░░░░] 55%
+Progress: [█████░░░░░] 56%
 
 ## Performance Metrics
 
@@ -81,6 +81,21 @@ diretamente o roadmap:
   instalador NSIS completo (`.exe`) não roda em WSL2 por falta de `wine`
   (`spawn wine ENOENT`) — limitação de ambiente conhecida, prova final fica
   para o checkpoint humano do Plano 09-03.
+- [09-02]: AUTH-07 implementado — rota `GET /auth/complete` nova em
+  `convex/http.ts` (adicionada ao `httpRouter` já existente da Fase 7, sem
+  tocar no webhook do LiveKit), servindo HTML autocontido que confirma o
+  login e redireciona para `janja://callback`. `REDIRECT_URI` em
+  `src/main/auth/auth.ts` passou de `janja://callback` direto para
+  `${VITE_CONVEX_SITE_URL}/auth/complete`. Também fechado o crash de módulo
+  remanescente em `src/renderer/src/lib/convex-client.ts` (mesma classe do
+  achado #3 de `02-VERIFICACAO.md`, nunca corrigido aqui antes) — agora
+  `isConvexConfigured` é estado, checado em `main.tsx` antes de montar o
+  provider. **Pendente:** trocar o redirect URI no dashboard da WorkOS é um
+  passo humano com ordem obrigatória (env var → deploy Convex → verificar
+  rota no ar → build novo → só então dashboard) — inverter a ordem quebra o
+  login de formas diferentes conforme o passo pulado; ver
+  `09-02-SUMMARY.md` seção "User Setup Required" para o detalhamento
+  completo, alocado ao checkpoint humano do Plano 09-03.
 
 ### Pending Todos
 
@@ -133,13 +148,19 @@ Nenhum ainda.
 ## Session Continuity
 
 Last session: 2026-08-19
-Stopped at: Concluído 07-06-push-to-talk-PLAN.md (código de push-to-talk
-completo — hook global de teclado no processo main, IPC, VoiceProvider
-reagindo aos eventos). Arquivos não commitados (NO_GIT no prompt de
-execução) — orquestrador commita. 173 testes passam, typecheck/build
-limpos. Verificação de "funciona sem foco" continua pendente do Plano
-07-08 (Windows nativo).
-Próximo passo: 07-07 (sons de canal) e/ou 07-08 (verificação final humana
+Stopped at: Concluído 09-02-pagina-de-conclusao-de-login-PLAN.md (AUTH-07 —
+rota `/auth/complete` no Convex, `redirectUri` da WorkOS migrado para ela,
+crash de módulo em `convex-client.ts` corrigido). Arquivos não commitados
+(NO_GIT no prompt de execução) — orquestrador commita. 173 testes passam,
+`npm run typecheck` e `npm run build` limpos. Antes disso: concluído
+07-06-push-to-talk-PLAN.md (código de push-to-talk completo — hook global
+de teclado no processo main, IPC, VoiceProvider reagindo aos eventos).
+Verificação de "funciona sem foco" continua pendente do Plano 07-08
+(Windows nativo).
+Próximo passo: 09-03 (checkpoint humano em Windows — trocar redirect URI
+no dashboard da WorkOS seguindo a ordem obrigatória documentada em
+09-02-SUMMARY.md, testar login de ponta a ponta e o Brave); 07-07 (sons de
+canal) e/ou 07-08 (verificação final humana
 em Windows).
 Resume file: None
 

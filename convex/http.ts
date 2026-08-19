@@ -2,6 +2,7 @@ import { httpRouter } from 'convex/server'
 import { makeFunctionReference } from 'convex/server'
 import { httpAction } from './_generated/server'
 import type { Id } from './_generated/dataModel'
+import { renderCompletionPage } from './lib/authCompletionPage'
 
 // Plano 07-02 (VOICE-04): antídoto do usuário-fantasma (Pitfall 3, PITFALLS.md).
 // Nada além desta rota apaga uma linha de `voiceStates` quando o app do usuário morre
@@ -99,6 +100,26 @@ http.route({
     // Passo 5: 200 em qualquer caminho tratado com sucesso.
     return new Response(null, { status: 200 })
   }),
+})
+
+// Rota AUTH-07 (página de conclusão de login). Ver a "Decisão registrada —
+// 2026-08-18" em .planning/STATE.md e convex/lib/authCompletionPage.ts para o
+// raciocínio completo. Servida em https://<deployment>.convex.site/auth/complete —
+// o mesmo host de VITE_CONVEX_SITE_URL, cadastrado no dashboard da WorkOS como
+// redirect URI (ver src/main/auth/auth.ts).
+http.route({
+  path: '/auth/complete',
+  method: 'GET',
+  handler: httpAction(async (_ctx, request) => {
+    const params = new URL(request.url).searchParams
+    const hasCallbackParams = params.has('code') || params.has('error')
+    const callbackUrl = `janja://callback?${params.toString()}`
+    const html = renderCompletionPage(hasCallbackParams, callbackUrl)
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    })
+  })
 })
 
 export default http

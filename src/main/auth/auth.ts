@@ -17,11 +17,21 @@ import type { AuthUser } from './types'
 declare global {
   interface ImportMetaEnv {
     MAIN_VITE_WORKOS_CLIENT_ID: string
+    VITE_CONVEX_SITE_URL: string
   }
 }
 
 const CLIENT_ID = import.meta.env.MAIN_VITE_WORKOS_CLIENT_ID
-const REDIRECT_URI = 'janja://callback'
+// VITE_CONVEX_SITE_URL (sem o prefixo MAIN_VITE_) — confirmado em 09-RESEARCH.md §4
+// que o prefixo VITE_ sozinho já é visível no processo main via electron-vite. É o
+// domínio .convex.site (HTTP actions), diferente de VITE_CONVEX_URL (.convex.cloud,
+// usado só pelo renderer). AUTH-07 (ver STATE.md, "Decisão registrada —
+// 2026-08-18"): o redirectUri não aponta mais direto para janja://callback — aponta
+// para a página de conclusão servida por convex/http.ts, que faz esse redirect a
+// partir de uma aba https:// já carregada, evitando o navegador ter que navegar de
+// um redirect do provedor de auth direto para um esquema customizado.
+const SITE_URL = import.meta.env.VITE_CONVEX_SITE_URL
+const REDIRECT_URI = `${SITE_URL}/auth/complete`
 const PKCE_STATE_TTL_MS = 10 * 60 * 1000 // 10 minutos
 
 // Inicialização preguiçosa e deliberada.
@@ -47,16 +57,32 @@ let workosClient: ReturnType<typeof createPublicClient> | null = null
 
 export class AuthNotConfiguredError extends Error {
   constructor() {
+    // Monta a mensagem dinamicamente para citar exatamente qual(is) variável(is)
+    // falta(m) — nunca um texto fixo genérico que obrigue quem lê a adivinhar qual
+    // das duas está vazia.
+    const missing: string[] = []
+    if (!(typeof CLIENT_ID === 'string' && CLIENT_ID.length > 0)) {
+      missing.push('MAIN_VITE_WORKOS_CLIENT_ID')
+    }
+    if (!(typeof SITE_URL === 'string' && SITE_URL.length > 0)) {
+      missing.push('VITE_CONVEX_SITE_URL')
+    }
+    const missingList = missing.length > 0 ? missing.join(' e ') : 'a configuração de login'
     super(
-      'MAIN_VITE_WORKOS_CLIENT_ID não está definida. Crie um arquivo .env.local na ' +
-        'raiz do projeto com essa variável (veja .env.local.example) e reinicie o app.'
+      `${missingList} não está definida. Crie um arquivo .env.local na raiz do ` +
+        'projeto com essa(s) variável(is) (veja .env.local.example) e reinicie o app.'
     )
     this.name = 'AuthNotConfiguredError'
   }
 }
 
 export function isAuthConfigured(): boolean {
-  return typeof CLIENT_ID === 'string' && CLIENT_ID.length > 0
+  return (
+    typeof CLIENT_ID === 'string' &&
+    CLIENT_ID.length > 0 &&
+    typeof SITE_URL === 'string' &&
+    SITE_URL.length > 0
+  )
 }
 
 function workos(): ReturnType<typeof createPublicClient> {
