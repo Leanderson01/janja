@@ -2,11 +2,13 @@ import { useMutation, usePaginatedQuery } from 'convex/react'
 import { ArrowDown, File, FileX } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { LinkPreviewCard } from '@/components/shell/LinkPreviewCard'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { formatBytes, isImage } from '@/lib/attachments'
+import { firstLinkOf } from '@/lib/message-links'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -162,6 +164,12 @@ function MessageAttachments({
 }
 
 function MessageRow({ message }: { message: EnrichedMessage }): React.JSX.Element {
+  // CHAT-15 (Plano 08.5-16). `firstLinkOf` é pura, só olha a string e devolve
+  // no máximo uma URL — chamar por mensagem renderizada é barato. Mensagem sem
+  // link devolve `null` aqui e o componente de prévia NÃO É MONTADO: nenhuma
+  // subscription é aberta, nenhuma chamada de servidor acontece. É esse detalhe
+  // que torna a feature aceitável numa lista paginada de 30 em 30 mensagens.
+  const link = firstLinkOf(message.content)
   const displayName = message.isMine
     ? 'Você'
     : message.author
@@ -187,6 +195,10 @@ function MessageRow({ message }: { message: EnrichedMessage }): React.JSX.Elemen
         {message.content.length > 0 && (
           <p className="text-sm text-foreground break-words">{message.content}</p>
         )}
+        {/* Ordem visual: texto → prévia do link → anexos. O anexo é conteúdo
+            que a pessoa mandou; a prévia é enfeite derivado do texto, e por
+            isso fica antes — para não separar a mensagem do que ela carrega. */}
+        {link ? <LinkPreviewCard url={link} /> : null}
         <MessageAttachments attachments={message.attachments} />
       </div>
     </div>
