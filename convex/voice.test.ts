@@ -751,6 +751,10 @@ function webhookBody(payload: {
   event: string
   room?: { name: string }
   participant?: { identity: string }
+  // `source` vai como o NOME do enum protobuf ('SCREEN_SHARE', 'CAMERA', ...): é assim
+  // que o livekit-server serializa `TrackSource` no JSON do webhook, e é o que
+  // `WebhookReceiver.receive` volta a decodificar para o valor numérico do enum.
+  track?: { sid?: string; source?: string }
 }): string {
   return JSON.stringify(payload)
 }
@@ -974,7 +978,9 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       await insertVoiceState(t, channelId, anaId)
 
-      const rawBody = webhookBody({ event: 'track_unpublished', room: { name: channelId } })
+      // `egress_started`: evento real do LiveKit que este switch não trata (era
+      // `track_unpublished` aqui até o Plano 08-01, que passou a tratá-lo).
+      const rawBody = webhookBody({ event: 'egress_started', room: { name: channelId } })
       const authHeader = await signWebhookAuthHeader(
         rawBody,
         LIVEKIT_ENV.LIVEKIT_API_KEY,
@@ -1021,6 +1027,144 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       expect(response.status).toBe(200)
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
+    })
+  })
+})
+
+/**
+ * SHARE-06 (Plano 08-01): `track_unpublished` estende o MESMO switch e a MESMA
+ * verificação de assinatura de 07-02 — nenhuma rota nova. O filtro é por
+ * `TrackSource.SCREEN_SHARE` (enum, não string literal): microfone e câmera também
+ * disparam `track_unpublished` o tempo todo numa call normal, e nenhum dos dois é dado
+ * que `voiceStates` rastreia.
+ */
+describe('POST /livekit/webhook — track_unpublished (compartilhamento de tela)', () => {
+  async function sharingAna() {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    const stateId = await insertVoiceState(t, channelId, anaId)
+    await t.run((ctx) => ctx.db.patch(stateId, { sharing: true }))
+    return { t, anaId, channelId }
+  }
+
+  async function postSigned(t: ReturnType<typeof convexTest>, rawBody: string) {
+    const authHeader = await signWebhookAuthHeader(
+      rawBody,
+      LIVEKIT_ENV.LIVEKIT_API_KEY,
+      LIVEKIT_ENV.LIVEKIT_API_SECRET
+    )
+    return t.fetch('/livekit/webhook', {
+      method: 'POST',
+      body: rawBody,
+      headers: { Authorization: authHeader }
+    })
+  }
+
+  test('track de tela despublicada zera sharing e MANTÉM a pessoa no canal', async () => {
+    await withLiveKitEnv(async () => {
+      const { t, anaId, channelId } = await sharingAna()
+
+      const response = await postSigned(
+        t,
+        webhookBody({
+          event: 'track_unpublished',
+          room: { name: channelId },
+          participant: { identity: anaId },
+          track: { sid: 'TR_tela', source: 'SCREEN_SHARE' }
+        })
+      )
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].sharing).toBe(false)
+    })
+  })
+
+  test.each(['CAMERA', 'MICROPHONE', 'SCREEN_SHARE_AUDIO'])(
+    'track_unpublished de %s responde 200 e NÃO toca em sharing (prova que o filtro não é catch-all)',
+    async (source) => {
+      await withLiveKitEnv(async () => {
+        const { t, anaId, channelId } = await sharingAna()
+
+        const response = await postSigned(
+          t,
+          webhookBody({
+            event: 'track_unpublished',
+            room: { name: channelId },
+            participant: { identity: anaId },
+            track: { sid: 'TR_outra', source }
+          })
+        )
+
+        expect(response.status).toBe(200)
+        const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+        expect(rows).toHaveLength(1)
+        expect(rows[0].sharing).toBe(true)
+      })
+    }
+  )
+
+  test('track_unpublished sem campo track responde 200 e não altera nada', async () => {
+    await withLiveKitEnv(async () => {
+      const { t, anaId, channelId } = await sharingAna()
+
+      const response = await postSigned(
+        t,
+        webhookBody({
+          event: 'track_unpublished',
+          room: { name: channelId },
+          participant: { identity: anaId }
+        })
+      )
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows[0].sharing).toBe(true)
+    })
+  })
+
+  test('track de tela sem linha correspondente (pessoa já saiu) responde 200 sem lançar', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+
+      const response = await postSigned(
+        t,
+        webhookBody({
+          event: 'track_unpublished',
+          room: { name: channelId },
+          participant: { identity: anaId },
+          track: { sid: 'TR_tela', source: 'SCREEN_SHARE' }
+        })
+      )
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(0)
+    })
+  })
+
+  test('track de tela com assinatura inválida responde 401 e sharing continua true', async () => {
+    await withLiveKitEnv(async () => {
+      const { t, anaId, channelId } = await sharingAna()
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: webhookBody({
+          event: 'track_unpublished',
+          room: { name: channelId },
+          participant: { identity: anaId },
+          track: { sid: 'TR_tela', source: 'SCREEN_SHARE' }
+        }),
+        headers: { Authorization: 'Bearer nao-e-um-jwt-assinado-de-verdade' }
+      })
+
+      expect(response.status).toBe(401)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows[0].sharing).toBe(true)
     })
   })
 })
