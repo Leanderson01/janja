@@ -39,7 +39,7 @@ const VoiceContext = createContext<VoiceContextValue | undefined>(undefined)
 
 export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
-  const joinVoiceChannel = useAction(api.voice.joinVoiceChannel)
+  const joinVoiceChannel = useAction(api.voiceToken.joinVoiceChannel)
   const leaveVoiceChannelMutation = useMutation(api.voice.leaveVoiceChannel)
 
   // Um único `Room` para a vida inteira do provider (= vida do app montado).
