@@ -7,6 +7,7 @@ import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
 import { TypingIndicator } from '@/components/shell/TypingIndicator'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { readableConvexError } from '@/lib/convex-error'
 import { resolveMainView } from '@/lib/stage-view'
 import { useSelection } from '@/state/selection-context'
@@ -61,7 +62,7 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
 
   return (
     <>
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 min-w-0">
         <MessageList channelId={channelId} />
       </div>
       <TypingIndicator channelId={channelId} />
@@ -107,14 +108,18 @@ export function ConversationArea(): React.JSX.Element {
   // não neste componente. Primeira coisa que alguém vai achar que é bug.
   if (view.kind === 'stage') {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full min-w-0 flex flex-col">
         <CallStage channelId={view.channelId} />
       </div>
     )
   }
 
+  // `min-w-0`: em janela estreita (rail 72 + sidebar 240 + membros 240 = 552px
+  // fixos) a área central é a única que encolhe. Sem isto, um filho flex com
+  // `min-width: auto` — nome de canal longo, palavra sem espaço numa mensagem —
+  // empurraria a coluna inteira e a janela ganharia rolagem horizontal.
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-w-0 flex flex-col">
       <ChannelHeader />
       {view.kind === 'text' ? (
         // `key` remonta a visão inteira ao trocar de canal, resetando o estado
@@ -126,11 +131,20 @@ export function ConversationArea(): React.JSX.Element {
         // do palco, sem a região de vídeo — que não existe para quem não está
         // conectado ao canal (o `ScreenShareStage` já devolvia só o convite
         // "Entre no canal para ver a tela compartilhada").
-        <div className="flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto p-8">
-          <VoiceParticipantGrid channelId={view.channelId} />
-        </div>
+        // A prévia rola por `ScrollArea` como o resto do app (sidebar, membros,
+        // lista de mensagens): a barra do sistema não combina com a UI escura.
+        // Aqui isso é seguro, ao contrário do palco — `CallStage` manteve o
+        // `overflow-y-auto` de propósito porque o `Viewport` do Radix embrulha os
+        // filhos num `display: table`, que mataria o `flex-1` da região de vídeo
+        // (08.5-03-SUMMARY.md, desvio 2). A prévia não tem região de vídeo, e o
+        // flex que ela precisa fica no `div` DE DENTRO do viewport.
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="flex flex-col items-center gap-4 p-8">
+            <VoiceParticipantGrid channelId={view.channelId} />
+          </div>
+        </ScrollArea>
       ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center text-sm text-muted-foreground">
+        <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center text-sm text-muted-foreground">
           Nenhum canal selecionado
         </div>
       )}

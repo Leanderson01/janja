@@ -61,14 +61,17 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
   const messages = [...results].reverse()
 
   return (
-    <div className="h-full flex flex-col">
+    // `min-w-0` na raiz e no nome: em janela estreita esta coluna é a que
+    // encolhe, e sem ele o `truncate` do nome não corta nada — um filho flex tem
+    // `min-width: auto` e se recusa a ficar menor que o próprio conteúdo.
+    <div className="h-full min-w-0 flex flex-col">
       <div className="h-12 flex-none flex items-center gap-2 px-4 border-b border-border">
-        <span className="font-semibold text-foreground truncate">
+        <span className="min-w-0 font-semibold text-foreground truncate">
           {otherUser ? `${otherUser.username}#${otherUser.tag}` : 'Conversa'}
         </span>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         {status === 'CanLoadMore' ? (
           <div className="flex-none flex justify-center py-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => loadMore(30)}>
@@ -77,7 +80,7 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
           </div>
         ) : null}
 
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 min-w-0">
           {otherUser ? (
             <DmMessageList messages={messages} otherUser={otherUser} />
           ) : (
