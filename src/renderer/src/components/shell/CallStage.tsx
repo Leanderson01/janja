@@ -7,6 +7,7 @@ import {
   Minimize2,
   Users,
   Volume2,
+  VolumeX,
   type LucideIcon
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -15,12 +16,27 @@ import {
   ConnectionQualityIcon,
   ParticipantStrip,
   initialsFor,
-  useVoiceParticipants
+  useVoiceParticipants,
+  type VoiceParticipantView
 } from '@/components/shell/ParticipantStrip'
 import { ScreenShareStage, ScreenSharePreviewNotice } from '@/components/shell/ScreenShareStage'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DEFAULT_PARTICIPANT_VOLUME,
+  MAX_PLAYBACK_VOLUME,
+  type ParticipantAudioPreference
+} from '@/lib/participant-volumes'
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/state/layout-context'
 import { useSelection } from '@/state/selection-context'
@@ -44,6 +60,183 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // A importação vai só numa direção (`CallStage` → os dois arquivos novos), de
 // propósito: `ParticipantStrip` importando de volta daqui criaria ciclo.
 
+// VOICE-18 (Plano 08.5-11): o passo dos itens de teclado, em porcentagem. O
+// slider anda de 5 em 5 (arrastar é fino); os itens do menu andam de 10 em 10,
+// porque cada passo custa um Enter.
+const VOLUME_KEYBOARD_STEP = 10
+const MAX_VOLUME_PERCENT = Math.round(MAX_PLAYBACK_VOLUME * 100)
+
+function toPercent(volume: number): number {
+  return Math.min(MAX_VOLUME_PERCENT, Math.max(0, Math.round(volume * 100)))
+}
+
+// Ladrilho da grade do palco. Quando o participante é OUTRA pessoa no canal ao
+// qual eu estou de fato conectado, ele vira gatilho do menu de áudio individual
+// — mesmo padrão único de menu da fase (Plano 08.5-02/08.5-04): um
+// `DropdownMenu` controlado, aberto por clique/Enter no `<button>` e pelo botão
+// direito no mesmo elemento. Sem `context-menu` do Radix, que não foi instalado
+// de propósito.
+//
+// Sem menu em dois casos, os dois deliberados:
+// - EU MESMO: não me ouço, então volume da minha própria voz aqui não existe.
+// - Canal apenas VISUALIZADO (prévia, não conectado): não há track tocando
+//   para ajustar, e o menu prometeria um efeito que não aconteceria.
+// Nesses casos o ladrilho volta a ser exatamente o `<div>` que era antes deste
+// plano — nenhuma semântica de botão para quem não tem ação.
+function ParticipantTile({
+  participant,
+  preference,
+  onVolumeChange,
+  onToggleSilenced
+}: {
+  participant: VoiceParticipantView
+  preference: ParticipantAudioPreference | undefined
+  onVolumeChange: ((volume: number) => void) | null
+  onToggleSilenced: (() => void) | null
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+
+  const silenced = preference?.silenced ?? false
+  const percent = toPercent(preference?.volume ?? DEFAULT_PARTICIPANT_VOLUME)
+  const hasMenu = onVolumeChange !== null && onToggleSilenced !== null
+
+  const tile = (
+    <>
+      <div className="relative">
+        {/* Silenciado para mim precisa APARECER: sem isso o usuário esquece
+            que silenciou alguém e conclui que a pessoa sumiu da call ou que o
+            microfone dela quebrou. Opacidade + ícone, os dois — cor sozinha
+            não é sinal acessível. */}
+        <Avatar
+          className={cn(
+            'size-20',
+            participant.isSpeaking && 'ring-4 ring-success',
+            silenced && 'opacity-60'
+          )}
+        >
+          <AvatarFallback className="text-lg">{initialsFor(participant.username)}</AvatarFallback>
+        </Avatar>
+        {participant.muted ? (
+          <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
+            <MicOff className="size-3.5" aria-hidden="true" />
+          </span>
+        ) : null}
+        {silenced ? (
+          // Canto superior ESQUERDO, a mesma vaga livre que a faixa usa para
+          // "compartilhando" — o canto inferior direito é do mute (que é da
+          // PESSOA) e os dois não podem se sobrepor, porque significam coisas
+          // diferentes: um é o microfone dela, o outro é a minha decisão.
+          <span
+            className="absolute -left-0.5 -top-0.5 flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground ring-2 ring-background"
+            aria-label="Silenciado para mim"
+          >
+            <VolumeX className="size-3.5" aria-hidden="true" />
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-sm text-foreground">{participant.username}</span>
+        {/* Mesmo argumento do ícone acima, para o caso menos óbvio: um volume
+            baixado e esquecido é indistinguível de "essa pessoa fala baixo". */}
+        {!silenced && percent !== 100 ? (
+          <span className="text-xs text-muted-foreground">{percent}%</span>
+        ) : null}
+        <ConnectionQualityIcon quality={participant.quality} />
+      </div>
+    </>
+  )
+
+  if (!hasMenu) {
+    return <div className="flex flex-col items-center gap-2">{tile}</div>
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Opções de áudio de ${participant.username}`}
+          className="flex flex-col items-center gap-2 rounded-md p-1"
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setOpen(true)
+          }}
+        >
+          {tile}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-60">
+        <DropdownMenuLabel className="truncate">{participant.username}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        {/* O slider NÃO é um `DropdownMenuItem`: item de menu captura as setas
+            para a navegação do próprio menu e "selecionar" fecharia o menu a
+            cada arrasto. Fica numa área não-item, com `onKeyDown` parando a
+            propagação para que ArrowLeft/ArrowRight cheguem ao `Slider` em vez
+            de virarem navegação.
+
+            ISTO NÃO PÔDE SER VERIFICADO AQUI (WSL2, sem janela: nenhum pixel
+            foi renderizado nesta execução). Por isso o teclado NÃO depende
+            dele: os dois itens logo abaixo fazem a mesma coisa e são
+            acessíveis por construção. Se o slider se provar bom no checkpoint
+            humano, os itens podem sair; se ele se provar ruim, o slider sai e
+            os itens ficam. Os dois caminhos escrevem no mesmo lugar. */}
+        <div
+          className="px-2 py-1.5"
+          onKeyDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Volume</span>
+            <span>{percent}%</span>
+          </div>
+          <Slider
+            value={[percent]}
+            min={0}
+            max={MAX_VOLUME_PERCENT}
+            step={5}
+            aria-label={`Volume de ${participant.username}`}
+            onValueChange={(values) => onVolumeChange((values[0] ?? 100) / 100)}
+          />
+        </div>
+
+        {/* `preventDefault` no `onSelect` mantém o menu aberto: ajustar volume
+            é uma ação repetida, e fechar a cada 10% obrigaria a reabrir o menu
+            para cada passo. */}
+        <DropdownMenuItem
+          disabled={percent >= MAX_VOLUME_PERCENT}
+          onSelect={(event) => {
+            event.preventDefault()
+            onVolumeChange(Math.min(MAX_VOLUME_PERCENT, percent + VOLUME_KEYBOARD_STEP) / 100)
+          }}
+        >
+          Aumentar volume
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={percent <= 0}
+          onSelect={(event) => {
+            event.preventDefault()
+            onVolumeChange(Math.max(0, percent - VOLUME_KEYBOARD_STEP) / 100)
+          }}
+        >
+          Diminuir volume
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        {/* "PARA MIM" é obrigatório no rótulo, e não é preciosismo: sem essas
+            duas palavras o usuário acredita que mutou a pessoa para a call
+            inteira. Isso seria MODERAÇÃO — coisa de cargo, que não existe
+            neste app e está explicitamente fora desta fase. O que este item faz
+            é reprodução local, e só. */}
+        <DropdownMenuItem onSelect={onToggleSilenced}>
+          {silenced ? 'Ouvir de novo' : 'Silenciar para mim'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 // Grid de participantes de um canal de voz (Plano 07-04) — dado real de
 // `voiceStates` via `api.voice.voiceParticipantsByChannel`, em versão
 // grande (~80px), com o mesmo padrão de anel verde para "falando" e ícone
@@ -53,12 +246,17 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // sempre vem de `voiceStates` (visível para qualquer um), mas anel de fala
 // e qualidade de conexão só existem para o canal realmente conectado. Essa
 // combinação mora em `useVoiceParticipants`.
+//
+// Plano 08.5-11: é também por aqui que se chega ao volume individual
+// (VOICE-18) — cada ladrilho de OUTRA pessoa vira gatilho do menu de áudio.
+// Ver `ParticipantTile` acima para os dois casos sem menu.
 export function VoiceParticipantGrid({
   channelId
 }: {
   channelId: Id<'channels'>
 }): React.JSX.Element {
   const { joinedVoiceChannelId } = useSelection()
+  const { room, participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
   const participants = useVoiceParticipants(channelId)
 
   // Canal de voz apenas VISUALIZADO (não conectado): não existe track para
@@ -83,26 +281,28 @@ export function VoiceParticipantGrid({
   return (
     <>
       <div className="flex flex-wrap items-center justify-center gap-6">
-        {participants.map((participant) => (
-          <div key={participant.userId} className="flex flex-col items-center gap-2">
-            <div className="relative">
-              <Avatar className={cn('size-20', participant.isSpeaking && 'ring-4 ring-success')}>
-                <AvatarFallback className="text-lg">
-                  {initialsFor(participant.username)}
-                </AvatarFallback>
-              </Avatar>
-              {participant.muted ? (
-                <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
-                  <MicOff className="size-3.5" aria-hidden="true" />
-                </span>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm text-foreground">{participant.username}</span>
-              <ConnectionQualityIcon quality={participant.quality} />
-            </div>
-          </div>
-        ))}
+        {participants.map((participant) => {
+          // `room.localParticipant.identity` é o `users._id` do Convex — a
+          // MESMA chave de `voiceParticipantsByChannel`, de `speakingUserIds` e
+          // do mapa de volumes (07-RESEARCH.md §6). Comparar por ela evita uma
+          // query nova só para descobrir quem sou eu.
+          const isSelf = participant.userId === room.localParticipant.identity
+          const canControl = isConnectedHere && !isSelf
+
+          return (
+            <ParticipantTile
+              key={participant.userId}
+              participant={participant}
+              preference={participantVolumes[participant.userId]}
+              onVolumeChange={
+                canControl ? (volume) => setParticipantVolume(participant.userId, volume) : null
+              }
+              onToggleSilenced={
+                canControl ? () => toggleParticipantSilenced(participant.userId) : null
+              }
+            />
+          )
+        })}
       </div>
       {isConnectedHere ? null : <ScreenSharePreviewNotice />}
     </>
