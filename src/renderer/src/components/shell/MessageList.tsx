@@ -13,6 +13,9 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 const PAGE_SIZE = 30
 const TOP_THRESHOLD_PX = 150
 const BOTTOM_THRESHOLD_PX = 100
+// Folga acima do divisor de não lidas (05-07-PLAN.md) — deixa uma mensagem lida
+// espiando acima, para o usuário perceber que há contexto anterior.
+const DIVIDER_SCROLL_PADDING_PX = 96
 
 const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
@@ -44,7 +47,12 @@ type EnrichedMessage = {
 // como primeira não lida pela mutation openChannel.
 function UnreadDivider(): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2 py-1" role="separator" aria-label="Novas mensagens">
+    <div
+      className="flex items-center gap-2 py-1"
+      role="separator"
+      aria-label="Novas mensagens"
+      data-unread-divider="true"
+    >
       <Separator className="flex-1 bg-red-500" />
       <span className="text-xs font-semibold text-red-500 whitespace-nowrap">NOVAS MENSAGENS</span>
       <Separator className="flex-1 bg-red-500" />
@@ -110,18 +118,26 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
   const previousOldestIdRef = useRef<Id<'messages'> | undefined>(undefined)
   const hasScrolledToBottomOnceRef = useRef(false)
 
-  const [dividerMessageId, setDividerMessageId] = useState<Id<'messages'> | null>(null)
+  // `undefined` = openChannel ainda não resolveu (posição inicial do scroll aguarda —
+  // ver useLayoutEffect abaixo); `null` = resolveu e não há não lida; `Id` = resolveu
+  // com uma primeira não lida. Distinguir "ainda não sei" de "sei que não há" é o que
+  // evita decidir a posição inicial cedo demais (05-07-PLAN.md).
+  const [dividerMessageId, setDividerMessageId] = useState<Id<'messages'> | null | undefined>(
+    undefined
+  )
   const [newMessageCount, setNewMessageCount] = useState(0)
 
   // Snapshot único do divisor, capturado no mount deste canal — o chamador
   // (ConversationArea) remonta este componente por key={channel._id} ao trocar de
   // canal, mesmo padrão já usado desde a Fase 3 pra resetar o eco local. openChannel
   // é mutation (não query): o retorno é um valor pontual daquela chamada, nunca
-  // reavalia sozinho depois (05-RESEARCH.md §5).
+  // reavalia sozinho depois (05-RESEARCH.md §5). Se a mutation falhar (offline, etc.),
+  // cai para `null` (sem divisor) em vez de deixar a posição inicial travada para
+  // sempre em "aguardando" — mesmo raciocínio de fallback decisivo do 05-07-PLAN.md.
   useEffect(() => {
     openChannel({ channelId })
       .then((result) => setDividerMessageId(result.firstUnreadMessageId))
-      .catch(() => {})
+      .catch(() => setDividerMessageId(null))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId])
 
@@ -163,11 +179,50 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
   const ordered = [...messages].reverse()
 
   useLayoutEffect(() => {
-    const viewport = viewportRef.current
+    // Autossuficiente: não depende do outro efeito (abaixo, que só liga o listener de
+    // scroll) ter rodado antes para popular `viewportRef`. Aquele é `useEffect`
+    // (passivo, roda depois da pintura); este é `useLayoutEffect` (roda antes da
+    // pintura, logo após o commit do DOM) — na primeira vez que o container real
+    // monta (troca de "Carregando mensagens..." pro ScrollArea), este efeito roda
+    // ANTES do outro, então `viewportRef.current` ainda estaria vazio se só lêssemos
+    // o ref. Buscar direto aqui (com fallback pro ref já resolvido, pra não repetir o
+    // querySelector todo render) é o que corrige o defeito relatado pelo Leo: sem
+    // isso, o scroll nunca era setado no mount e ficava em 0 (topo), uma posição sem
+    // significado.
+    const viewport =
+      viewportRef.current ??
+      containerRef.current?.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]') ??
+      null
     if (!viewport) return
+    viewportRef.current = viewport
 
-    if (!hasScrolledToBottomOnceRef.current && messages.length > 0) {
-      viewport.scrollTop = viewport.scrollHeight
+    if (!hasScrolledToBottomOnceRef.current) {
+      if (messages.length === 0) return
+      // openChannel ainda não resolveu — não decide a posição inicial com dado
+      // incompleto. Se decidíssemos aqui (tratando "ainda não sei" como "não há
+      // divisor"), `hasScrolledToBottomOnceRef` viraria `true` e a correção certa,
+      // quando o divisor chegasse depois, nunca rodaria de novo.
+      if (dividerMessageId === undefined) return
+
+      const dividerEl = containerRef.current?.querySelector<HTMLDivElement>(
+        '[data-unread-divider="true"]'
+      )
+
+      if (dividerEl) {
+        // Primeira não lida está na página carregada — rola até ela com folga acima
+        // (CHAT-14: divisor visível, contexto anterior espiando).
+        const offset =
+          dividerEl.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top +
+          viewport.scrollTop
+        viewport.scrollTop = Math.max(0, offset - DIVIDER_SCROLL_PADDING_PX)
+      } else {
+        // Tudo lido (dividerMessageId === null) OU a primeira não lida está fora da
+        // página carregada (30 mensagens) — em ambos os casos vai para o fim, em vez
+        // de carregar páginas em cadeia atrás dela (limitação conhecida, 05-07-PLAN.md).
+        viewport.scrollTop = viewport.scrollHeight
+      }
+
       hasScrolledToBottomOnceRef.current = true
       previousNewestIdRef.current = newestId
       previousOldestIdRef.current = oldestId
@@ -192,7 +247,7 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
     previousNewestIdRef.current = newestId
     previousOldestIdRef.current = oldestId
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newestId, oldestId])
+  }, [newestId, oldestId, dividerMessageId])
 
   function scrollToBottom(): void {
     const viewport = viewportRef.current
