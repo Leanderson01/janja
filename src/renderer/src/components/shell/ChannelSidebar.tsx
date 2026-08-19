@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from 'convex/react'
-import { Hash, MicOff, Plus, UserPlus, Volume2 } from 'lucide-react'
+import { Hash, MicOff, MonitorUp, Plus, UserPlus, Volume2 } from 'lucide-react'
 
 import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
@@ -265,6 +265,17 @@ function VoiceChannelRow({
                   <AvatarFallback>{initialsFor(participant.username)}</AvatarFallback>
                 </Avatar>
                 <span className="flex-1 truncate">{participant.username}</span>
+                {/* SHARE-05 (Plano 08-06): `sharing` já vem na mesma linha de
+                    `voiceStates` que esta query devolve desde 07-04 — nenhuma
+                    query nova. E, ao contrário do anel de fala acima, ele NÃO
+                    depende de `isJoined`: o ponto do indicador é justamente
+                    ser visto por quem ainda não entrou no canal. */}
+                {participant.sharing ? (
+                  <MonitorUp
+                    className="size-3 shrink-0 text-green-500"
+                    aria-label="compartilhando a tela"
+                  />
+                ) : null}
                 {participant.muted ? (
                   <MicOff className="size-3 shrink-0" aria-label="mutado" />
                 ) : null}

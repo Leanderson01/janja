@@ -1,4 +1,4 @@
-import { MicOff } from 'lucide-react'
+import { MicOff, MonitorUp } from 'lucide-react'
 import { useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 
@@ -20,17 +20,23 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 type ServerMember = FunctionReturnType<typeof api.members.listServerMembers>[number]
 type VoiceParticipant = FunctionReturnType<typeof api.voice.voiceParticipantsByServer>[number]
 
-// Overlay de fala/mute (anel verde + ícone de mute): desde o Plano 07-04,
-// `muted` vem sempre de `voiceStates` real (via `voiceParticipantsByServer`)
-// — presente para todo membro em qualquer canal de voz do servidor, esteja
-// o usuário local conectado junto ou não. `speaking` só é significativo
-// quando o membro está no MESMO canal ao qual o `Room` local está
-// conectado (`joinedVoiceChannelId`) — fora disso não há como saber quem
-// fala agora, dado 100% efêmero do LiveKit (ver `voiceStateFor` abaixo).
-type VoiceState = { speaking: boolean; muted: boolean }
+// Overlay de fala/mute/compartilhamento (anel verde + ícones sobre o
+// avatar): desde o Plano 07-04, `muted` vem sempre de `voiceStates` real
+// (via `voiceParticipantsByServer`) — presente para todo membro em qualquer
+// canal de voz do servidor, esteja o usuário local conectado junto ou não.
+// `sharing` (SHARE-05, Plano 08-06) entra pela MESMA porta e pela mesma
+// razão: é dado de aplicação, escrito no Convex pelo cliente que publica a
+// track (Plano 08-05) e reconciliado por webhook quando esse cliente morre
+// (Plano 08-01), então vale para quem está fora do canal — que é justamente
+// quem precisa do ícone para saber que tem algo acontecendo lá dentro.
+// `speaking` é o único dos três que só é significativo quando o membro está
+// no MESMO canal ao qual o `Room` local está conectado
+// (`joinedVoiceChannelId`) — fora disso não há como saber quem fala agora,
+// dado 100% efêmero do LiveKit (ver `voiceStateFor` abaixo).
+type VoiceState = { speaking: boolean; muted: boolean; sharing: boolean }
 
 function neutralVoiceState(): VoiceState {
-  return { speaking: false, muted: false }
+  return { speaking: false, muted: false, sharing: false }
 }
 
 /** Resolve o `VoiceState` de um membro a partir da linha de `voiceStates`
@@ -50,7 +56,7 @@ function voiceStateFor(
   const speaking =
     participant.channelId === joinedVoiceChannelId && speakingUserIds.has(member.userId)
 
-  return { speaking, muted: participant.muted }
+  return { speaking, muted: participant.muted, sharing: participant.sharing }
 }
 
 function initialsFor(username: string): string {
@@ -84,6 +90,19 @@ function MemberAvatar({
           aria-label="mutado"
         >
           <MicOff className="size-2.5" />
+        </span>
+      ) : null}
+      {/* SHARE-05: canto superior ESQUERDO, sozinho. Os outros dois cantos já
+          têm dono (mute em cima à direita, presença online embaixo à direita,
+          esta última vinda do `AvatarBadge` do design system) e empilhar dois
+          ícones no mesmo canto tornaria os dois ilegíveis num avatar de 32px.
+          Verde porque o estado é ativo/positivo, ao contrário do mute. */}
+      {voiceState.sharing ? (
+        <span
+          className="absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-background text-green-500 ring-1 ring-background"
+          aria-label="compartilhando a tela"
+        >
+          <MonitorUp className="size-2.5" />
         </span>
       ) : null}
     </div>
