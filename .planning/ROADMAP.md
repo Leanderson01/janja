@@ -333,12 +333,12 @@ nativa, nunca só no ambiente de desenvolvimento WSL2):
 **Plans**: 7 plans
 
 Plans:
-- [ ] 08-01 — setSharing no Convex, estendendo o mesmo webhook da F7 (TDD)
-- [ ] 08-02 — Núcleo mínimo de captura: desktopCapturer + handler defensivo + restrictOwnAudio
+- [x] 08-01 — setSharing no Convex, estendendo o mesmo webhook da F7 (TDD)
+- [x] 08-02 — Núcleo mínimo de captura: desktopCapturer + handler defensivo + restrictOwnAudio
 - [ ] 08-03 — Checkpoint Windows com 3+ máquinas: prova de áudio sem eco (antes de qualquer UI)
-- [ ] 08-04 — Seletor de tela próprio, com miniaturas e tratamento de cancelamento
-- [ ] 08-05 — Alternância de qualidade e sincronização de voiceStates.sharing
-- [ ] 08-06 — Lado receptor: renderização do vídeo e indicadores de quem compartilha
+- [x] 08-04 — Seletor de tela próprio, com miniaturas e tratamento de cancelamento
+- [x] 08-05 — Alternância de qualidade e sincronização de voiceStates.sharing
+- [x] 08-06 — Lado receptor: renderização do vídeo e indicadores de quem compartilha
 - [ ] 08-07 — Checkpoint Windows final: SHARE-01..08 completo
 
 ### Fase 8.5: Repaginação da UI
