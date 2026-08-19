@@ -106,4 +106,24 @@ export default defineSchema({
     content: v.string(),
     createdAt: v.number(),
   }).index('by_dm_channel', ['dmChannelId']),
+
+  // --- Fase 7: voz ---
+  //
+  // Convex é a fonte da verdade de "quem está em qual canal de voz", nunca o
+  // LiveKit — a linha aqui é criada só depois que joinVoiceChannel autoriza
+  // membership e assina um token, e é removida por leaveVoiceChannel (saída
+  // explícita) ou pelo webhook do LiveKit no Plano 07-02 (saída
+  // involuntária: crash, perda de rede — Pitfall 3). `sharing` existe desde
+  // já (design §5) mas só é escrito pela Fase 8; aqui sempre `false` na
+  // criação da linha.
+  voiceStates: defineTable({
+    channelId: v.id('channels'),
+    userId: v.id('users'),
+    muted: v.boolean(),
+    deafened: v.boolean(),
+    sharing: v.boolean(),
+  })
+    .index('by_channel', ['channelId'])
+    .index('by_user', ['userId'])
+    .index('by_channel_and_user', ['channelId', 'userId']),
 })
