@@ -2,6 +2,8 @@ import { ChannelSidebar } from '@/components/shell/ChannelSidebar'
 import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
 import { ServerRail } from '@/components/shell/ServerRail'
+import { DmConversationView } from '@/components/friends/DmConversationView'
+import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
@@ -14,12 +16,14 @@ import { SelectionProvider, useSelection } from '@/state/selection-context'
 // Fase 6 acrescenta um segundo branch (`view === 'home'`, extraído para
 // `ShellBody` porque precisa de `useSelection()`, que só existe dentro de
 // `SelectionProvider`): `ServerRail` continua sempre visível, mas
-// `ChannelSidebar`/`MemberList` somem e `FriendsPanel` ocupa o centro. O
-// plano 06-07 troca essa segunda região por `DmSidebar`/`DmConversationView`
-// condicionalmente; por ora `view === 'home'` sempre mostra `FriendsPanel`
-// direto, sem sidebar própria.
+// `ChannelSidebar`/`MemberList` somem. No lugar de `ChannelSidebar` entra
+// `DmSidebar` (lista de conversas diretas + atalho "Amigos"); no centro,
+// `FriendsPanel` (selectedDmChannelId === null) ou `DmConversationView`
+// (conversa aberta) — plano 06-07. Sem `MemberList` na visão Início
+// (decisão registrada em 06-RESEARCH.md §7: Discord real também não mostra
+// lista de membros na Home).
 function ShellBody(): React.JSX.Element {
-  const { view } = useSelection()
+  const { view, selectedDmChannelId } = useSelection()
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground">
@@ -42,9 +46,19 @@ function ShellBody(): React.JSX.Element {
           </div>
         </>
       ) : (
-        <div className="flex-1 min-w-0 flex flex-col bg-background">
-          <FriendsPanel />
-        </div>
+        <>
+          <div className="flex-none w-60 bg-secondary border-r border-border">
+            <DmSidebar />
+          </div>
+
+          <div className="flex-1 min-w-0 flex flex-col bg-background">
+            {selectedDmChannelId === null ? (
+              <FriendsPanel />
+            ) : (
+              <DmConversationView dmChannelId={selectedDmChannelId} />
+            )}
+          </div>
+        </>
       )}
     </div>
   )

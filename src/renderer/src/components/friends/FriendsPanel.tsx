@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { Check, Copy, UserMinus, X } from 'lucide-react'
+import { Check, Copy, MessageCircle, UserMinus, X } from 'lucide-react'
 
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { parseUserTag } from '@/lib/user-tag'
+import { useSelection } from '@/state/selection-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -98,41 +99,64 @@ function MyIdentifierBadge({
 
 function FriendRow({
   friend,
-  onRemove
+  onRemove,
+  onMessage,
+  error
 }: {
   friend: Friend
   onRemove: (friendUserId: Id<'users'>) => void
+  onMessage: (friendUserId: Id<'users'>) => void
+  error?: string
 }): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent/50">
-      <div className="relative shrink-0">
-        <Avatar>
-          {friend.avatarUrl ? <AvatarImage src={friend.avatarUrl} alt={friend.username} /> : null}
-          <AvatarFallback>{initialsFor(friend.username)}</AvatarFallback>
-        </Avatar>
-        <AvatarBadge
-          className={friend.online ? 'bg-green-500' : 'bg-muted-foreground'}
-          aria-label={friend.online ? 'online' : 'offline'}
-        />
+    <div className="flex flex-col gap-1 rounded px-2 py-1.5 hover:bg-accent/50">
+      <div className="flex items-center gap-2">
+        <div className="relative shrink-0">
+          <Avatar>
+            {friend.avatarUrl ? (
+              <AvatarImage src={friend.avatarUrl} alt={friend.username} />
+            ) : null}
+            <AvatarFallback>{initialsFor(friend.username)}</AvatarFallback>
+          </Avatar>
+          <AvatarBadge
+            className={friend.online ? 'bg-green-500' : 'bg-muted-foreground'}
+            aria-label={friend.online ? 'online' : 'offline'}
+          />
+        </div>
+        <span className="min-w-0 flex-1 truncate text-sm">
+          {friend.username}
+          <span className="text-muted-foreground">#{friend.tag}</span>
+        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Mensagem para ${friend.username}#${friend.tag}`}
+              onClick={() => onMessage(friend.userId)}
+            >
+              <MessageCircle />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Mensagem</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remover ${friend.username}#${friend.tag}`}
+              onClick={() => onRemove(friend.userId)}
+            >
+              <UserMinus />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Remover amigo</TooltipContent>
+        </Tooltip>
       </div>
-      <span className="min-w-0 flex-1 truncate text-sm">
-        {friend.username}
-        <span className="text-muted-foreground">#{friend.tag}</span>
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remover ${friend.username}#${friend.tag}`}
-            onClick={() => onRemove(friend.userId)}
-          >
-            <UserMinus />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Remover amigo</TooltipContent>
-      </Tooltip>
+      {error ? <p className="pl-10 text-xs text-destructive">{error}</p> : null}
     </div>
   )
 }
@@ -141,11 +165,15 @@ function FriendGroup({
   title,
   friends,
   onRemove,
+  onMessage,
+  rowErrors,
   dimmed = false
 }: {
   title: string
   friends: Friend[]
   onRemove: (friendUserId: Id<'users'>) => void
+  onMessage: (friendUserId: Id<'users'>) => void
+  rowErrors: Record<string, string>
   dimmed?: boolean
 }): React.JSX.Element {
   return (
@@ -155,7 +183,13 @@ function FriendGroup({
       </h3>
       <div className="flex flex-col gap-0.5">
         {friends.map((friend) => (
-          <FriendRow key={friend.userId} friend={friend} onRemove={onRemove} />
+          <FriendRow
+            key={friend.userId}
+            friend={friend}
+            onRemove={onRemove}
+            onMessage={onMessage}
+            error={rowErrors[friend.userId]}
+          />
         ))}
       </div>
     </div>
@@ -165,6 +199,22 @@ function FriendGroup({
 function FriendsTab(): React.JSX.Element {
   const friends = useQuery(api.friends.listFriends)
   const removeFriendship = useMutation(api.friends.removeFriendship)
+  const getOrCreateDmChannel = useMutation(api.dms.getOrCreateDmChannel)
+  const { setSelectedDmChannelId } = useSelection()
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+
+  function clearRowError(friendUserId: Id<'users'>): void {
+    setRowErrors((prev) => {
+      if (!(friendUserId in prev)) return prev
+      const next = { ...prev }
+      delete next[friendUserId]
+      return next
+    })
+  }
+
+  function setRowError(friendUserId: Id<'users'>, message: string): void {
+    setRowErrors((prev) => ({ ...prev, [friendUserId]: message }))
+  }
 
   function handleRemove(friendUserId: Id<'users'>): void {
     removeFriendship({ friendUserId }).catch((err: unknown) => {
@@ -174,6 +224,20 @@ function FriendsTab(): React.JSX.Element {
       // vira um erro silencioso no console do usuário.
       console.error('Falha ao remover amigo:', err)
     })
+  }
+
+  // Botão Mensagem (plano 06-07): getOrCreateDmChannel devolve o canal
+  // existente ou cria um novo entre mim e o amigo. `view` já é 'home' neste
+  // ponto (é onde o FriendsPanel vive) — só troca qual conteúdo aparece na
+  // região central, via selectedDmChannelId (AppShell, Task 4 deste plano).
+  async function handleMessage(friendUserId: Id<'users'>): Promise<void> {
+    try {
+      const dmChannelId = await getOrCreateDmChannel({ friendUserId })
+      setSelectedDmChannelId(dmChannelId)
+      clearRowError(friendUserId)
+    } catch (err) {
+      setRowError(friendUserId, err instanceof Error ? err.message : String(err))
+    }
   }
 
   if (friends === undefined) {
@@ -199,6 +263,8 @@ function FriendsTab(): React.JSX.Element {
             title={`ONLINE — ${onlineFriends.length}`}
             friends={onlineFriends}
             onRemove={handleRemove}
+            onMessage={(id) => void handleMessage(id)}
+            rowErrors={rowErrors}
           />
         ) : null}
         {offlineFriends.length > 0 ? (
@@ -206,6 +272,8 @@ function FriendsTab(): React.JSX.Element {
             title={`OFFLINE — ${offlineFriends.length}`}
             friends={offlineFriends}
             onRemove={handleRemove}
+            onMessage={(id) => void handleMessage(id)}
+            rowErrors={rowErrors}
             dimmed
           />
         ) : null}
