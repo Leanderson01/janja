@@ -1,13 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode
-} from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAction, useMutation } from 'convex/react'
-import { ConnectionState, Room, RoomEvent, type DisconnectReason } from 'livekit-client'
+import { ConnectionState, Room, RoomEvent } from 'livekit-client'
 
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -24,11 +17,7 @@ import { useSelection } from './selection-context'
 // `connectionState` usa exatamente os 5 valores do enum `ConnectionState` do
 // `livekit-client` (07-RESEARCH.md §3) — nenhuma nomenclatura própria.
 export type VoiceConnectionState =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'signalReconnecting'
+  'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'signalReconnecting'
 
 export type VoiceContextValue = {
   room: Room
@@ -43,14 +32,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const leaveVoiceChannelMutation = useMutation(api.voice.leaveVoiceChannel)
 
   // Um único `Room` para a vida inteira do provider (= vida do app montado).
-  // Não recriamos a instância a cada troca de canal — `room.connect()` /
-  // `room.disconnect()` são chamados repetidamente sobre o mesmo objeto,
-  // que é o padrão do SDK.
-  const roomRef = useRef<Room | null>(null)
-  if (roomRef.current === null) {
-    roomRef.current = new Room()
-  }
-  const room = roomRef.current
+  // `useState` com inicializador preguiçoso garante uma única instância
+  // estável sem acessar `.current` de uma ref durante o render — não
+  // recriamos a instância a cada troca de canal, `room.connect()` /
+  // `room.disconnect()` são chamados repetidamente sobre o mesmo objeto, que
+  // é o padrão do SDK.
+  const [room] = useState(() => new Room())
 
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>('disconnected')
 
@@ -60,33 +47,29 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // nós mesmos causamos (já zeramos esta ref antes de chamar
   // `room.disconnect()`) de um `Disconnected` que o próprio LiveKit iniciou
   // (sala fechada, expulsão, reconexão esgotada) — só o segundo caso deve
-  // devolver a intenção para `null`.
+  // devolver a intenção para `null`. Só é lida/escrita dentro de efeitos e
+  // seus callbacks, nunca durante o render.
   const activeChannelRef = useRef<Id<'channels'> | null>(null)
 
-  // `setJoinedVoiceChannelId` muda de identidade a cada render de
-  // SelectionProvider (é recriada via `useMemo`, mas o valor de função em si
-  // é estável porque vem de `useState`) — mantemos numa ref só para não
-  // precisar listar como dependência de um efeito que só deve rodar por
-  // evento do Room, não por re-render do React.
-  const setJoinedVoiceChannelIdRef = useRef(setJoinedVoiceChannelId)
-  setJoinedVoiceChannelIdRef.current = setJoinedVoiceChannelId
-
   // Listeners do Room: registrados uma única vez, na vida do `Room`.
+  // `setJoinedVoiceChannelId` é o setter cru de um `useState` de
+  // SelectionProvider — estável por toda a vida do componente, não precisa
+  // de indireção via ref para ser usado num efeito com deps `[]`.
   useEffect(() => {
     function handleConnectionStateChanged(state: ConnectionState): void {
       setConnectionState(state as VoiceConnectionState)
     }
 
-    function handleDisconnected(_reason?: DisconnectReason): void {
+    function handleDisconnected(): void {
       // Se `activeChannelRef` já está null, fomos nós que chamamos
-      // `room.disconnect()` de propósito (ver `runTransition` abaixo) — a
-      // intenção já reflete a realidade, nada a fazer. Se ainda aponta para
-      // um canal, o Room caiu sozinho (sala fechada, expulsão, reconexão
-      // esgotada) e a UI não pode continuar mostrando "conectado" a um
-      // canal do qual o app já caiu.
+      // `room.disconnect()` de propósito (ver a fila de transições abaixo)
+      // — a intenção já reflete a realidade, nada a fazer. Se ainda aponta
+      // para um canal, o Room caiu sozinho (sala fechada, expulsão,
+      // reconexão esgotada) e a UI não pode continuar mostrando "conectado"
+      // a um canal do qual o app já caiu.
       if (activeChannelRef.current !== null) {
         activeChannelRef.current = null
-        setJoinedVoiceChannelIdRef.current(null)
+        setJoinedVoiceChannelId(null)
       }
     }
 
@@ -151,7 +134,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             console.error('[voice] falha ao entrar no canal de voz', err)
             // A intenção não pôde ser cumprida — devolve a UI para o estado
             // real (não conectado) em vez de ficar presa "tentando".
-            setJoinedVoiceChannelIdRef.current(null)
+            setJoinedVoiceChannelId(null)
           }
         }
       })
