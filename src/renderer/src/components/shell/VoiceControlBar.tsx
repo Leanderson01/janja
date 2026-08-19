@@ -5,6 +5,7 @@ import { RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
@@ -37,6 +38,11 @@ import { api } from '../../../../../convex/_generated/api'
 export function VoiceControlBar(): React.JSX.Element {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
   const { room, connectionState, setManualMute } = useVoice()
+
+  // Plano 07-07 (VOICE-17): observa `voiceStates` do canal conectado e toca
+  // som de entrada/saída — vive aqui porque este já é o "centro de
+  // controles de voz" do shell, sem criar um novo ponto de montagem.
+  useVoiceJoinLeaveSounds()
 
   const setMutedMutation = useMutation(api.voice.setMuted)
   const setDeafenedMutation = useMutation(api.voice.setDeafened)

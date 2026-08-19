@@ -136,6 +136,16 @@ export function VoiceSettingsPopover({
     }
   }, [open, room, hasVoiceIntention])
 
+  // Plano 07-07 (VOICE-17): toggle de sons de entrada/saída. Não depende de
+  // canal conectado nem de `Room` — é lido direto de `voice-sounds.ts` a
+  // cada evento, então basta persistir a preferência (mesmo padrão de
+  // `handleModeChange`/`handleThresholdChange` acima, sem `applyVoicePreferences()`
+  // porque nada no `Room`/VAD depende desta preferência).
+  function handleSoundsEnabledChange(soundsEnabled: boolean): void {
+    const next = saveVoicePreferences({ soundsEnabled })
+    setPrefs(next)
+  }
+
   function handleModeChange(mode: VoiceMode): void {
     const next = saveVoicePreferences({ mode })
     setPrefs(next)
@@ -197,6 +207,24 @@ export function VoiceSettingsPopover({
         {/* Plano 07-09: único item que funciona sem canal nenhum conectado
             (VOICE-21) — sempre visível, mesmo fora de uma chamada. */}
         <MicTestPanel vadThreshold={prefs.vadThreshold} />
+
+        {/* Plano 07-07 (VOICE-17): sempre visível, mesmo padrão do
+            `MicTestPanel` acima — é preferência de máquina, não algo que só
+            faz sentido dentro de uma call. */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Sons de entrada/saída de canal
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant={prefs.soundsEnabled ? 'default' : 'outline'}
+            aria-pressed={prefs.soundsEnabled}
+            onClick={() => handleSoundsEnabledChange(!prefs.soundsEnabled)}
+          >
+            {prefs.soundsEnabled ? 'Ligado' : 'Desligado'}
+          </Button>
+        </div>
 
         {!hasVoiceIntention && (
           <p className="text-xs text-muted-foreground">

@@ -9,6 +9,14 @@ export type VoiceMode = 'vad' | 'ptt'
 export type VoicePreferences = {
   mode: VoiceMode
   vadThreshold: number
+  /**
+   * Plano 07-07 (VOICE-17): toca um som distinto quando alguém entra/sai do
+   * canal de voz conectado. Estado de MÁQUINA como o resto deste módulo —
+   * mesma justificativa (07-RESEARCH.md §7): irritante em uso prolongado
+   * para algumas pessoas, tem que ter um jeito rápido de desligar por
+   * computador, não por conta.
+   */
+  soundsEnabled: boolean
 }
 
 const STORAGE_KEY = 'janja:voice-preferences'
@@ -18,7 +26,8 @@ const STORAGE_KEY = 'janja:voice-preferences'
 // próprio nível de áudio em tempo real.
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   mode: 'vad',
-  vadThreshold: 0.15
+  vadThreshold: 0.15,
+  soundsEnabled: true
 }
 
 function isVoiceMode(value: unknown): value is VoiceMode {
@@ -35,8 +44,12 @@ function sanitize(raw: unknown): VoicePreferences {
     typeof candidate.vadThreshold === 'number' && Number.isFinite(candidate.vadThreshold)
       ? Math.min(1, Math.max(0, candidate.vadThreshold))
       : DEFAULT_VOICE_PREFERENCES.vadThreshold
+  const soundsEnabled =
+    typeof candidate.soundsEnabled === 'boolean'
+      ? candidate.soundsEnabled
+      : DEFAULT_VOICE_PREFERENCES.soundsEnabled
 
-  return { mode, vadThreshold }
+  return { mode, vadThreshold, soundsEnabled }
 }
 
 // Nunca lança — `localStorage` ausente/corrompido/indisponível (modo
