@@ -353,8 +353,39 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // de canal de voz rapidamente (channelA -> channelB sem passar por null).
   const transitionChainRef = useRef<Promise<void>>(Promise.resolve())
 
+  // 07-10: alvo já RECLAMADO por uma invocação deste efeito, atualizado de
+  // forma SÍNCRONA — antes de qualquer `await`, antes até de enfileirar
+  // qualquer passo na `transitionChainRef`. `activeChannelRef` só reflete a
+  // realidade DEPOIS que um join/leave inteiro termina, então não serve
+  // pra distinguir "já existe alguém cuidando deste alvo agora" de "ninguém
+  // ainda tentou" — uma segunda invocação síncrona para o MESMO alvo (o
+  // double-invoke de desenvolvimento do StrictMode chama o corpo deste
+  // efeito duas vezes, de trás pra frente, para o mesmo render) passaria
+  // pela guarda de `activeChannelRef` e enfileiraria um segundo passo que,
+  // se o primeiro falhar ou for interrompido por qualquer razão antes de
+  // setar `activeChannelRef`, reconecta do zero — foi exatamente isso que
+  // produziu dois `joinVoiceChannel`/duas conexões reais ao mesmo canal
+  // num teste com dois usuários (mesma identity, o SFU derruba uma das
+  // duas). `lastEnqueuedTargetRef` fecha essa janela: só a invocação que
+  // efetivamente reivindica um alvo novo enfileira trabalho para ele;
+  // qualquer invocação repetida para o alvo já reclamado é um no-op
+  // imediato, sem nem entrar na fila.
+  const lastEnqueuedTargetRef = useRef<Id<'channels'> | null>(null)
+
   useEffect(() => {
     const target = joinedVoiceChannelId
+
+    // Reivindicação síncrona: se uma invocação anterior (mesmo render,
+    // StrictMode double-invoke, ou qualquer outro disparo espúrio sem o
+    // alvo ter de fato mudado) já reclamou este exato alvo, não há nada
+    // novo a fazer — nem vale a pena enfileirar um passo que só vai
+    // confirmar isso mais tarde. Um alvo DIFERENTE sempre reclama e
+    // enfileira normalmente, mesmo com uma transição anterior ainda em
+    // andamento (troca rápida de canal continua funcionando: a fila
+    // serializada abaixo garante que o passo mais novo roda depois do
+    // anterior terminar, e termina conectado ao alvo mais recente).
+    if (lastEnqueuedTargetRef.current === target) return
+    lastEnqueuedTargetRef.current = target
 
     transitionChainRef.current = transitionChainRef.current
       .catch(() => {
@@ -384,7 +415,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
         if (target !== null) {
           try {
-            // Trava defensiva contra conexão duplicada.
+            // Trava defensiva contra conexão duplicada (segunda camada).
             //
             // Um testador produziu um log com DUAS conexões ao LiveKit numa única
             // entrada: dois tokens distintos, dois `signal connecting`, dois
@@ -393,11 +424,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // ou não conforme qual sobreviveu. O sintoma relatado foi "do nada começou
             // a funcionar", assinatura de corrida.
             //
-            // A fila serializada acima deveria bastar, e na outra máquina bastou. Não
-            // consegui explicar a divergência a partir do log, então esta checagem não
-            // é a correção da causa raiz — é uma barreira no ponto onde o dano
-            // acontece. `room.state` é a verdade do SDK sobre a conexão, não uma
-            // suposição nossa sobre o que a fila garantiu.
+            // A causa raiz (uma segunda invocação deste efeito para o mesmo alvo
+            // reconectando do zero sempre que a primeira não chegava a marcar
+            // `activeChannelRef`, StrictMode double-invoke incluso) está fechada por
+            // `lastEnqueuedTargetRef` acima, antes mesmo de qualquer passo ser
+            // enfileirado. Esta checagem continua aqui como segunda camada, para
+            // qualquer outra via que chame `room.connect()` enquanto uma conexão já
+            // está ativa/em andamento — `room.state` é a verdade do SDK sobre a
+            // conexão, não uma suposição nossa sobre o que a fila garantiu.
             if (room.state !== ConnectionState.Disconnected) {
               console.warn(
                 '[voice] conexão já em andamento ou ativa (%s) — ignorando join duplicado',
@@ -427,6 +461,21 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // A intenção não pôde ser cumprida — devolve a UI para o estado
             // real (não conectado) em vez de ficar presa "tentando".
             setJoinedVoiceChannelId(null)
+            // Libera a reivindicação deste alvo em `lastEnqueuedTargetRef`
+            // SE a falha aconteceu antes de `activeChannelRef` ser marcado
+            // (o caminho normal, já que ele só é setado depois que
+            // `room.connect`/`setMicrophoneEnabled` resolvem com sucesso,
+            // logo acima). Sem isto, uma nova tentativa para este MESMO
+            // canal (usuário clicando de novo) seria descartada como
+            // duplicada pela guarda síncrona do efeito, deixando quem
+            // tentou entrar permanentemente incapaz de se conectar. Se por
+            // algum motivo `activeChannelRef` já foi marcado com sucesso
+            // antes de um erro tardio (ex.: `applyVoicePreferences`), não
+            // mexe aqui — a reivindicação continua correta e não deve ser
+            // solta.
+            if (activeChannelRef.current !== target) {
+              lastEnqueuedTargetRef.current = null
+            }
           }
         }
       })
