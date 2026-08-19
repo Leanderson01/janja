@@ -173,13 +173,25 @@ export const mintMicTestTokens = action({
  * Assinatura ausente, inválida, ou corpo que não bate com o hash assinado: `receive`
  * lança, e esta action deixa a exceção propagar — `http.ts` é quem decide responder
  * 401, sem ter chamado nenhuma mutation de reconciliação.
+ *
+ * Plano 08-01: `trackSource` entrou no retorno porque `track_unpublished` (tela parou
+ * de ser publicada) precisa distinguir tela de câmera/microfone, e `http.ts` só enxerga
+ * o que esta action devolve — o `WebhookEvent` de protobuf não atravessa `runAction`.
+ * Devolvido como o valor NUMÉRICO do enum `TrackSource` do protocolo (SCREEN_SHARE = 3),
+ * que é o que `receive` decodifica a partir do nome serializado no JSON; quem compara
+ * contra `TrackSource.SCREEN_SHARE` é `http.ts`, nunca uma string literal (08-RESEARCH.md §7).
  */
 export const verifyLiveKitWebhook = internalAction({
   args: { rawBody: v.string(), authHeader: v.string() },
   handler: async (
     _ctx,
     { rawBody, authHeader }
-  ): Promise<{ event: string; channelId: string | null; userId: string | null }> => {
+  ): Promise<{
+    event: string
+    channelId: string | null
+    userId: string | null
+    trackSource: number | null
+  }> => {
     const apiKey = process.env.LIVEKIT_API_KEY
     const apiSecret = process.env.LIVEKIT_API_SECRET
     if (!apiKey || !apiSecret) {
@@ -196,6 +208,7 @@ export const verifyLiveKitWebhook = internalAction({
       event: event.event,
       channelId: event.room?.name ?? null,
       userId: event.participant?.identity ?? null,
+      trackSource: event.track?.source ?? null,
     }
   },
 })
