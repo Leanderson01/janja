@@ -446,6 +446,90 @@ describe('voice.setMuted / voice.setDeafened — semântica', () => {
   })
 })
 
+// --- SHARE-05 (Plano 08-01): `sharing` deixa de ser sempre `false` e passa a ser
+// escrito de verdade. A regra que os testes abaixo travam: compartilhar tela só existe
+// DENTRO de um canal de voz já conectado (design §6), então `setSharing` fora de canal
+// é erro, nunca um upsert silencioso que criaria uma linha órfã de `voiceStates`.
+
+describe('voice.setSharing', () => {
+  async function joinedAna() {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    await withLiveKitEnv(() => asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId }))
+    return { t, asAna, anaId, channelId }
+  }
+
+  test('setSharing(true) marca sharing na própria linha, sem tocar em muted/deafened', async () => {
+    const { t, asAna } = await joinedAna()
+
+    await asAna.mutation(anyApi.voice.setSharing, { sharing: true })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sharing).toBe(true)
+    expect(rows[0].muted).toBe(false)
+    expect(rows[0].deafened).toBe(false)
+  })
+
+  test('setSharing(false) desmarca sharing (parar de compartilhar pelo cliente)', async () => {
+    const { t, asAna } = await joinedAna()
+
+    await asAna.mutation(anyApi.voice.setSharing, { sharing: true })
+    await asAna.mutation(anyApi.voice.setSharing, { sharing: false })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sharing).toBe(false)
+  })
+
+  test('setSharing sem estar em nenhum canal de voz lança, e não cria linha nenhuma', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    await insertUser(t, anaWorkosId, 'ana', '0001')
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+
+    await expect(asAna.mutation(anyApi.voice.setSharing, { sharing: true })).rejects.toThrow(
+      /canal de voz/i
+    )
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(0)
+  })
+
+  test('setSharing sem identidade autenticada lança', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    await insertVoiceState(t, channelId, anaId)
+
+    await expect(t.mutation(anyApi.voice.setSharing, { sharing: true })).rejects.toThrow()
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows[0].sharing).toBe(false)
+  })
+
+  test('setSharing só afeta a própria linha — a de outro participante do mesmo canal fica intacta', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const { serverId, channelId } = await insertServerWithChannel(t, anaId)
+    const biaId = await insertUser(t, 'workos_bia', 'bia', '0002')
+    await addMember(t, serverId, biaId)
+    await insertVoiceState(t, channelId, anaId)
+    await insertVoiceState(t, channelId, biaId)
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+
+    await asAna.mutation(anyApi.voice.setSharing, { sharing: true })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows.find((row) => row.userId === anaId)?.sharing).toBe(true)
+    expect(rows.find((row) => row.userId === biaId)?.sharing).toBe(false)
+  })
+})
+
 // --- VOICE-04 / Pitfall 3 (PITFALLS.md): reconciliação de usuário-fantasma via
 // webhook do LiveKit. Nada além disto apaga uma linha de `voiceStates` quando o app
 // morre sem rodar `leaveVoiceChannel` (crash, Alt+F4, Windows Update, perda de rede).
