@@ -15,8 +15,10 @@ import {
   RoomEvent,
   Track,
   isAudioTrack,
+  type LocalTrackPublication,
   type Participant,
-  type RemoteTrack
+  type RemoteTrack,
+  type ScreenShareCaptureOptions
 } from 'livekit-client'
 
 import { api } from '../../../../convex/_generated/api'
@@ -37,6 +39,37 @@ const AUDIO_CAPTURE_OPTIONS = {
   echoCancellation: true,
   noiseSuppression: true,
   autoGainControl: true
+}
+
+// SHARE-01/02/03/04 (Plano 08-02): opções de captura do compartilhamento de
+// tela. Espelho deliberado (e invertido) de `AUDIO_CAPTURE_OPTIONS`, no
+// mesmo lugar, porque a diferença entre os dois é o ponto inteiro:
+//
+// - `restrictOwnAudio: true` é o que impede o eco descrito no Pitfall 1. O
+//   loopback do WASAPI captura TUDO que sai pelo dispositivo de saída —
+//   inclusive a voz dos outros participantes que o próprio LiveKit está
+//   tocando no fone de quem compartilha. Sem esta flag, essa voz é
+//   republicada na track de screenshare e volta com atraso para quem falou.
+//   Usar fone não resolve (o loopback é do dispositivo, não do alto-falante).
+//   Só funciona a partir do Electron 43.4.0: antes disso a constraint era
+//   silenciosamente ignorada — é por isso que a versão mínima está fixada em
+//   `package.json`, e não é preferência.
+// - `echoCancellation`/`noiseSuppression`/`autoGainControl: false` é o
+//   inverso de VOICE-16 de propósito: aquelas três foram desenhadas para voz
+//   de microfone. Aplicadas a áudio de sistema (música, jogo, vídeo) só
+//   degradam a fidelidade.
+//
+// Sem `publishOptions` (terceiro argumento de `setScreenShareEnabled`):
+// bitrate/fps configuráveis são o Plano 08-05.
+const SCREEN_SHARE_CAPTURE_OPTIONS: ScreenShareCaptureOptions = {
+  audio: {
+    restrictOwnAudio: true,
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  },
+  video: true,
+  contentHint: 'motion'
 }
 
 // VOICE-01/03/06/07: ponte real entre a INTENÇÃO de estar num canal de voz
@@ -97,6 +130,34 @@ export type VoiceContextValue = {
    */
   setDeafened: (deafened: boolean) => void
   /**
+   * SHARE-02 (Plano 08-02): a tela está sendo compartilhada AGORA. Derivado
+   * de `LocalTrackPublished`/`LocalTrackUnpublished` do próprio `Room` —
+   * nunca de um `useState` setado otimisticamente por quem clicou no botão.
+   * A diferença importa: entre o clique e a publicação existe o handler do
+   * processo main, o seletor do SO e a permissão do usuário, e qualquer um
+   * dos três pode terminar em nada (cancelamento). Quem observa a publicação
+   * real nunca mostra "compartilhando" para um compartilhamento que não
+   * existe.
+   */
+  isSharing: boolean
+  /**
+   * Publica tela + áudio de sistema no canal de voz conectado. Não lança:
+   * cancelamento pelo usuário e falha de captura viram log, com `isSharing`
+   * permanecendo `false` (a Promise de `getDisplayMedia` rejeita nesses
+   * casos — o handler do processo main garante que ela nunca fica pendurada,
+   * ver `src/main/screenshare.ts`).
+   *
+   * Nesta versão não existe seleção de fonte: o processo main sempre concede
+   * a primeira tela. O seletor é o Plano 08-04.
+   */
+  startScreenShare: () => Promise<void>
+  /**
+   * Para o compartilhamento. O SDK despublica as DUAS tracks (vídeo e áudio
+   * de sistema) por conta própria — não gerenciar isso à mão aqui
+   * (08-RESEARCH.md §4).
+   */
+  stopScreenShare: () => Promise<void>
+  /**
    * Track de ANÁLISE do VAD: o clone vivo da `MediaStreamTrack` publicada
    * que o monitor de detecção de voz escuta, ou `null` quando não há VAD
    * ativo (modo 'ptt', sem canal conectado, ou falha de setup).
@@ -130,6 +191,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const [room] = useState(() => new Room())
 
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>('disconnected')
+
+  // Ver `isSharing` no valor do contexto: espelho do que o `Room` de fato
+  // publicou, nunca da intenção de quem clicou.
+  const [isSharing, setIsSharing] = useState(false)
 
   // Canal ao qual o `Room` está de fato conectado agora (não a intenção).
   // Usado para: (1) decidir se uma transição de `joinedVoiceChannelId`
@@ -424,6 +489,40 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     return vadAnalysisTrackRef.current
   }, [])
 
+  // SHARE-01/03/04: publica tela + áudio de sistema. O `getDisplayMedia` que
+  // o SDK dispara por baixo é interceptado pelo handler do processo main
+  // (`src/main/screenshare.ts`), que concede a primeira tela com
+  // `audio: 'loopback'`.
+  async function startScreenShare(): Promise<void> {
+    // Compartilhar exige estar de fato conectado — o botão do rodapé já é
+    // desabilitado fora disso, mas a guarda vale para qualquer outra via
+    // (atalho, IPC futuro) que chame isto direto.
+    if (room.state !== ConnectionState.Connected) {
+      console.warn('[screenshare] ignorando início: sala não conectada (%s)', room.state)
+      return
+    }
+    try {
+      await room.localParticipant.setScreenShareEnabled(true, SCREEN_SHARE_CAPTURE_OPTIONS)
+    } catch (err) {
+      // Caminho ESPERADO, não excepcional: o usuário cancela, ou nenhuma
+      // tela está disponível (`callback({})` no processo main faz o
+      // `getDisplayMedia` rejeitar). Nunca deixar isso subir como rejeição
+      // não tratada — `isSharing` continua `false` porque nada foi
+      // publicado, e o botão volta sozinho ao estado inicial.
+      console.error('[screenshare] falha ao iniciar o compartilhamento de tela', err)
+    }
+  }
+
+  async function stopScreenShare(): Promise<void> {
+    try {
+      // Sem argumentos de captura: `false` só despublica. O SDK remove as
+      // duas tracks (vídeo e áudio de sistema) sozinho.
+      await room.localParticipant.setScreenShareEnabled(false)
+    } catch (err) {
+      console.error('[screenshare] falha ao parar o compartilhamento de tela', err)
+    }
+  }
+
   function setManualMute(muted: boolean): void {
     manualMuteRef.current = muted
   }
@@ -484,7 +583,30 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       setConnectionState(state as VoiceConnectionState)
     }
 
+    // SHARE-02: `isSharing` segue a publicação REAL da track de tela, não o
+    // clique. Só a track de VÍDEO (`Track.Source.ScreenShare`) manda: a de
+    // áudio (`ScreenShareAudio`) é publicada/despublicada na mesma operação
+    // e usá-la também faria o estado oscilar duas vezes por
+    // início/parada — e ela pode legitimamente não existir (usuário sem
+    // áudio de sistema disponível) sem que o compartilhamento tenha falhado.
+    function handleLocalTrackPublished(publication: LocalTrackPublication): void {
+      if (publication.source !== Track.Source.ScreenShare) return
+      setIsSharing(true)
+    }
+
+    function handleLocalTrackUnpublished(publication: LocalTrackPublication): void {
+      if (publication.source !== Track.Source.ScreenShare) return
+      setIsSharing(false)
+    }
+
     function handleDisconnected(): void {
+      // Sair do canal (ou cair dele) termina qualquer compartilhamento: as
+      // tracks morrem com a conexão. Resetado aqui, e não só via
+      // `LocalTrackUnpublished`, porque uma queda abrupta não
+      // necessariamente emite o evento de despublicação — sem isto o botão
+      // ficaria preso em "compartilhando" depois de sair do canal.
+      setIsSharing(false)
+
       // Fala e qualidade de conexão nunca sobrevivem a uma desconexão —
       // sempre zeradas aqui, independente de quem causou (nós ou o
       // LiveKit), nunca deixando dado de uma call anterior vazar pra
@@ -524,6 +646,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
     room.on(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
     room.on(RoomEvent.ActiveDeviceChanged, handleActiveDeviceChanged)
+    room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished)
+    room.on(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
 
     return () => {
       room.off(RoomEvent.ConnectionStateChanged, handleConnectionStateChanged)
@@ -531,6 +655,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
       room.off(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
       room.off(RoomEvent.ActiveDeviceChanged, handleActiveDeviceChanged)
+      room.off(RoomEvent.LocalTrackPublished, handleLocalTrackPublished)
+      room.off(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
       // Higiene de hot-reload/fechamento do app — best-effort, não é o
       // mecanismo principal de saída (isso é o webhook do Plano 07-02).
       clearSpeakingAndQuality()
@@ -753,6 +879,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     applyVoicePreferences,
     setManualMute,
     setDeafened,
+    isSharing,
+    startScreenShare,
+    stopScreenShare,
     getVadAnalysisTrack
   }
 

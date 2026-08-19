@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Headphones, Mic, MicOff, PhoneOff, VolumeX } from 'lucide-react'
+import { Headphones, Mic, MicOff, MonitorUp, PhoneOff, VolumeX } from 'lucide-react'
 import { RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
@@ -37,7 +37,15 @@ import { api } from '../../../../../convex/_generated/api'
 // voltasse a falar, ignorando o mute manual.
 export function VoiceControlBar(): React.JSX.Element {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
-  const { room, connectionState, setManualMute, setDeafened } = useVoice()
+  const {
+    room,
+    connectionState,
+    setManualMute,
+    setDeafened,
+    isSharing,
+    startScreenShare,
+    stopScreenShare
+  } = useVoice()
 
   // Plano 07-07 (VOICE-17): observa `voiceStates` do canal conectado e toca
   // som de entrada/saída — vive aqui porque este já é o "centro de
@@ -173,6 +181,19 @@ export function VoiceControlBar(): React.JSX.Element {
     }
   }
 
+  // SHARE-01/02 (Plano 08-02): um único botão de alternância. Sem
+  // confirmação e sem seletor de tela — o processo main concede sempre a
+  // primeira tela nesta versão; o seletor é o Plano 08-04, que troca só o
+  // lado do main, sem mexer aqui.
+  //
+  // Não é `async`: `startScreenShare`/`stopScreenShare` nunca rejeitam (todo
+  // erro, cancelamento incluso, já vira log dentro delas), e `isSharing` vem
+  // do evento de publicação real do `Room`, não de um estado otimista daqui
+  // — não há nada para aguardar neste componente.
+  function toggleScreenShare(): void {
+    void (isSharing ? stopScreenShare() : startScreenShare())
+  }
+
   function leaveVoiceChannel(): void {
     setJoinedVoiceChannelId(null)
   }
@@ -227,6 +248,25 @@ export function VoiceControlBar(): React.JSX.Element {
           </Button>
         </TooltipTrigger>
         <TooltipContent>{deafened ? 'Desativar surdina' : 'Ensurdecer'}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={!isReady}
+            aria-pressed={isSharing}
+            aria-label={isSharing ? 'Parar compartilhamento de tela' : 'Compartilhar tela'}
+            onClick={toggleScreenShare}
+          >
+            <MonitorUp className={isSharing ? 'text-green-500' : undefined} />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {isSharing ? 'Parar compartilhamento' : 'Compartilhar tela'}
+        </TooltipContent>
       </Tooltip>
 
       {/* Plano 07-09: sempre renderizado, não só com `hasIntention` — o testador de
