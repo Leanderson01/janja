@@ -583,6 +583,84 @@ describe('voice.reconcileParticipantLeft (internalMutation)', () => {
   })
 })
 
+describe('voice.reconcileScreenShareStopped (internalMutation)', () => {
+  test('zera sharing da linha (channelId, userId) SEM apagar a linha', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    const stateId = await insertVoiceState(t, channelId, anaId)
+    await t.run((ctx) => ctx.db.patch(stateId, { sharing: true, muted: true }))
+
+    await t.mutation(anyApi.voice.reconcileScreenShareStopped, { channelId, userId: anaId })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    // A pessoa continua no canal de voz — só parou de compartilhar tela. Isto é o que
+    // separa esta mutation de `reconcileParticipantLeft`, que apaga a linha inteira.
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sharing).toBe(false)
+    expect(rows[0].muted).toBe(true)
+  })
+
+  test('idempotente: chamar duas vezes seguidas não lança nem apaga a linha', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    const stateId = await insertVoiceState(t, channelId, anaId)
+    await t.run((ctx) => ctx.db.patch(stateId, { sharing: true }))
+
+    await t.mutation(anyApi.voice.reconcileScreenShareStopped, { channelId, userId: anaId })
+    await expect(
+      t.mutation(anyApi.voice.reconcileScreenShareStopped, { channelId, userId: anaId })
+    ).resolves.not.toThrow()
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sharing).toBe(false)
+  })
+
+  test('sem linha correspondente (pessoa já saiu do canal) não lança', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+
+    await expect(
+      t.mutation(anyApi.voice.reconcileScreenShareStopped, { channelId, userId: anaId })
+    ).resolves.not.toThrow()
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(0)
+  })
+
+  test('nunca toca na linha de outro canal do mesmo usuário nem na de outro usuário', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const biaId = await insertUser(t, 'workos_bia', 'bia', '0002')
+    const { serverId, channelId: channelA } = await insertServerWithChannel(t, anaId)
+    const channelB = await t.run((ctx) =>
+      ctx.db.insert('channels', { serverId, name: 'sala-2', type: 'voice', position: 1 })
+    )
+    const anaA = await insertVoiceState(t, channelA, anaId)
+    const anaB = await insertVoiceState(t, channelB, anaId)
+    const biaA = await insertVoiceState(t, channelA, biaId)
+    await t.run(async (ctx) => {
+      await ctx.db.patch(anaA, { sharing: true })
+      await ctx.db.patch(anaB, { sharing: true })
+      await ctx.db.patch(biaA, { sharing: true })
+    })
+
+    await t.mutation(anyApi.voice.reconcileScreenShareStopped, {
+      channelId: channelA,
+      userId: anaId
+    })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(3)
+    expect(rows.find((row) => row._id === anaA)?.sharing).toBe(false)
+    expect(rows.find((row) => row._id === anaB)?.sharing).toBe(true)
+    expect(rows.find((row) => row._id === biaA)?.sharing).toBe(true)
+  })
+})
+
 describe('voice.resolveAuthenticatedUserId (internalQuery)', () => {
   test('resolve o users._id do chamador autenticado, sem canal nenhum envolvido', async () => {
     const t = convexTest(schema, modules)
