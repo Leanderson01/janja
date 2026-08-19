@@ -198,13 +198,13 @@ de acesso — e vê quem está nele.
 **Plans**: 8 plans
 
 Plans:
-- [ ] 04-01 — Schema (servers, serverMembers, invites, channels) + helper de autorização
-- [ ] 04-02 — Convites: gerar, revogar, entrar por código (TDD)
-- [ ] 04-03 — Canais de texto e voz (TDD, com teste direto de SRV-06)
-- [ ] 04-04 — Membros e presença (TDD)
-- [ ] 04-05 — Navegação real de servidores + diálogo de criar/entrar
-- [ ] 04-06 — Canais reais na sidebar + diálogos de canal e convite
-- [ ] 04-07 — Lista de membros sobre dado real
+- [x] 04-01 — Schema (servers, serverMembers, invites, channels) + helper de autorização
+- [x] 04-02 — Convites: gerar, revogar, entrar por código (TDD)
+- [x] 04-03 — Canais de texto e voz (TDD, com teste direto de SRV-06)
+- [x] 04-04 — Membros e presença (TDD)
+- [x] 04-05 — Navegação real de servidores + diálogo de criar/entrar
+- [x] 04-06 — Canais reais na sidebar + diálogos de canal e convite
+- [x] 04-07 — Lista de membros sobre dado real
 - [ ] 04-08 — Verificação humana no Windows (checkpoint)
 
 ### Fase 5: Chat em tempo real
@@ -248,11 +248,11 @@ privado com eles, fora de qualquer servidor.
 **Plans**: 8 plans
 
 Plans:
-- [ ] 06-01 — Schema (5 tabelas) + busca por USER#123
-- [ ] 06-02 — Pedidos de amizade: enviar, aceitar, recusar (TDD)
-- [ ] 06-03 — Lista de amigos com presença + remoção
-- [ ] 06-04 — Canal e mensagens de DM (TDD)
-- [ ] 06-05 — Listagem e paginação de DMs
+- [x] 06-01 — Schema (5 tabelas) + busca por USER#123
+- [x] 06-02 — Pedidos de amizade: enviar, aceitar, recusar (TDD)
+- [x] 06-03 — Lista de amigos com presença + remoção
+- [x] 06-04 — Canal e mensagens de DM (TDD)
+- [x] 06-05 — Listagem e paginação de DMs
 - [ ] 06-06 — Navegação Home + painel de amigos
 - [ ] 06-07 — Conversa direta
 - [ ] 06-08 — Verificação com duas contas no Windows (checkpoint)
@@ -388,9 +388,9 @@ implementadores distintos).
 | 1. LiveKit na VPS | 2/2 | Complete | 2026-08-18 |
 | 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
-| 4. Servidores e canais | 0/8 | Planned | - |
-| 5. Chat em tempo real | 0/6 | Planned | - |
-| 6. Amigos e DMs | 0/8 | Planned | - |
+| 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
+| 5. Chat em tempo real | 0/6 | In progress | - |
+| 6. Amigos e DMs | 5/8 | In progress | - |
 | 7. Voz | 0/9 | Planned | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
