@@ -36,6 +36,27 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ---------------------------------------------------------------------
+     Tokens da Fase 8.5 (destaque + semânticos). Mesmo formato do
+     --destructive do boilerplate: par cor + foreground, valor nos DOIS
+     blocos de tema, mapeamento em @theme inline.
+
+     --highlight: UM único tom de destaque, matiz ~264 (azul-violeta) — a
+     mesma família do --sidebar-primary órfão do shadcn init. Uso permitido:
+     estado ativo/selecionado, anel de foco e marcador de não-lido. Nunca
+     decoração.
+
+     --success / --warning: significado semântico (online, falando,
+     compartilhando, qualidade de conexão, reconectando). NÃO são destaque e
+     não contam contra a regra do tom único.
+     --------------------------------------------------------------------- */
+  --success: oklch(0.55 0.15 150);
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.62 0.14 85);
+  --warning-foreground: oklch(0.145 0 0);
+  --highlight: oklch(0.52 0.2 264);
+  --highlight-foreground: oklch(0.985 0 0);
 }
 
 .dark {
@@ -56,7 +77,10 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* anel de foco do tema escuro herda o destaque: @layer base aplica
+     outline-ring/50 a TODO elemento, então nenhum componente precisa
+     ser tocado para o foco deixar de ser cinza neutro. */
+  --ring: var(--highlight);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -70,6 +94,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Tokens da Fase 8.5 — os valores que o app realmente usa.
+     Regra de uso e racional: ver o comentário no bloco :root acima. */
+  --success: oklch(0.72 0.17 150);
+  --success-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.8 0.15 85);
+  --warning-foreground: oklch(0.145 0 0);
+  --highlight: oklch(0.6 0.19 264);
+  --highlight-foreground: oklch(0.985 0 0);
 }
 
 @theme inline {
@@ -88,6 +121,12 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-highlight: var(--highlight);
+  --color-highlight-foreground: var(--highlight-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
