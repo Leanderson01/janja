@@ -16,7 +16,7 @@
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob:; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob: https://*.convex.cloud; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com"
     />
     <!--
       A CSP padrão do template do electron-vite é `default-src 'self'`, que
@@ -25,8 +25,17 @@
       sem erro de aplicação, porque a falha é do próprio Chromium.
 
       connect-src: Convex (dados) e LiveKit (sinalização de voz, F7).
-      img-src https:: avatares vindos do Google e do WorkOS.
+      img-src https:: avatares vindos do Google e do WorkOS — e, desde o Plano
+        08.5-14, também as IMAGENS ANEXADAS, que o Convex serve de
+        `https://*.convex.cloud`. Já estavam cobertas por `https:`; conferido
+        antes de mexer, em vez de afrouxar por precaução.
       media-src blob:: tracks de áudio e vídeo do WebRTC.
+      media-src https://*.convex.cloud: ÁUDIO E VÍDEO ANEXADOS (CHAT-10, Plano
+        08.5-14). Sem esta entrada, um `.mp3` ou `.mp4` anexado é recusado pelo
+        Chromium sem gerar erro de aplicação nenhum — exatamente a classe de
+        falha silenciosa que travou o app na Fase 2 e é o motivo deste
+        comentário existir. `blob:` NÃO cobre isto: o arquivo anexado vem por
+        URL do storage, não de um blob local.
 
       A mídia WebRTC em si (UDP/ICE) não passa por CSP — só a sinalização.
       Manter esta lista explícita em vez de afrouxar para `*`: o renderer
