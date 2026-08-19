@@ -226,10 +226,10 @@ navegável, e claro sobre o que já foi lido.
 **Plans**: 6 plans
 
 Plans:
-- [ ] 05-01 — Schema (messages, channelReadState, typing) + envio e listagem (TDD)
-- [ ] 05-02 — Não lidas no backend: abrir canal, divisor e contagem (TDD)
-- [ ] 05-03 — Digitando no backend, sem TTL de servidor por decisão (TDD)
-- [ ] 05-04 — Lista de mensagens, âncora de scroll e badge de não lidas
+- [x] 05-01 — Schema (messages, channelReadState, typing) + envio e listagem (TDD)
+- [x] 05-02 — Não lidas no backend: abrir canal, divisor e contagem (TDD)
+- [x] 05-03 — Digitando no backend, sem TTL de servidor por decisão (TDD)
+- [x] 05-04 — Lista de mensagens, âncora de scroll e badge de não lidas
 - [ ] 05-05 — Indicador de digitando
 - [ ] 05-06 — Verificação com duas contas no Windows, com método de medir os 500 ms
 
@@ -253,8 +253,8 @@ Plans:
 - [x] 06-03 — Lista de amigos com presença + remoção
 - [x] 06-04 — Canal e mensagens de DM (TDD)
 - [x] 06-05 — Listagem e paginação de DMs
-- [ ] 06-06 — Navegação Home + painel de amigos
-- [ ] 06-07 — Conversa direta
+- [x] 06-06 — Navegação Home + painel de amigos
+- [x] 06-07 — Conversa direta
 - [ ] 06-08 — Verificação com duas contas no Windows (checkpoint)
 
 ### Fase 7: Voz
@@ -389,9 +389,9 @@ implementadores distintos).
 | 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
-| 5. Chat em tempo real | 0/6 | In progress | - |
-| 6. Amigos e DMs | 5/8 | In progress | - |
-| 7. Voz | 0/9 | Planned | - |
+| 5. Chat em tempo real | 4/6 | In progress | - |
+| 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
+| 7. Voz | 0/9 | In progress | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
