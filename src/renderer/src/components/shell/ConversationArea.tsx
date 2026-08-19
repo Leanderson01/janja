@@ -28,6 +28,7 @@ const TYPING_THROTTLE_MS = 2000
 // da lista (mesmo padrão de remount por `key` já usado desde a Fase 3).
 function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   const sendMessage = useMutation(api.messages.sendMessage)
+  const generateUploadUrl = useMutation(api.messages.generateUploadUrl)
   const setTyping = useMutation(api.typing.setTyping)
   const lastTypingCallRef = useRef(0)
 
@@ -49,6 +50,63 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
     })
   }
 
+  // CHAT-10 — a sequencia de upload, que e a parte de anexo que pode falhar em
+  // tres lugares diferentes: emitir a URL, subir o arquivo, gravar a mensagem.
+  //
+  // Por que EM SERIE (`for...of` com `await`) e nao em paralelo: cinco uploads
+  // de 25 MB simultaneos saturam o upload domestico brasileiro e a receita e
+  // todos falharem juntos — o mesmo raciocinio que ja governa o preset "fluida"
+  // do compartilhamento de tela (Fase 8). Em serie, um arquivo grande no fim da
+  // fila nao derruba os quatro que ja subiram.
+  //
+  // Uma chamada de `generateUploadUrl` POR ARQUIVO, dentro do laco: a URL do
+  // Convex e de uso unico. Reaproveita-la para o segundo arquivo falharia.
+  //
+  // Caso de borda conhecido e ACEITO: se um arquivo subir e o `sendMessage`
+  // falhar, o arquivo fica orfao no storage — ocupa cota e nunca aparece para
+  // ninguem, porque so existe linha no banco depois que o `sendMessage` valida.
+  // Coletar orfaos seria feature nova (cron + varredura do `_storage`), nao
+  // anexo; esta registrado como risco no 08.5-14-SUMMARY.md.
+  //
+  // O `throw` no fim NAO e redundante com o toast: e o sinal de que o
+  // `MessageInput` precisa para NAO limpar a selecao do usuario. Engolir o erro
+  // aqui faria a pessoa reescolher os cinco arquivos.
+  async function handleSendWithAttachments(content: string, files: File[]): Promise<void> {
+    try {
+      const attachments: { storageId: Id<'_storage'>; name: string }[] = []
+
+      for (const file of files) {
+        const uploadUrl = await generateUploadUrl({ channelId })
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          // `file.type` vem vazio quando o SO nao reconhece a extensao. Mandar
+          // `Content-Type: ''` faria o storage gravar um content-type invalido,
+          // e e dele que a UI decide se o anexo e imagem — o fallback e o
+          // generico, que cai no cartao de arquivo.
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file
+        })
+
+        if (!response.ok) {
+          throw new Error(`Falha ao enviar "${file.name}" (HTTP ${response.status})`)
+        }
+
+        const { storageId } = (await response.json()) as { storageId: Id<'_storage'> }
+        attachments.push({ storageId, name: file.name })
+      }
+
+      // `size` e `contentType` NAO vao daqui: o servidor le os dois do
+      // `_storage` (08.5-13). Se fossem do cliente, o limite de 25 MB seria
+      // contornavel mandando `size: 1`.
+      await sendMessage({ channelId, content, attachments })
+    } catch (err) {
+      toast.error('Não foi possível enviar a mensagem. Tente de novo.', {
+        description: readableConvexError(err)
+      })
+      throw err
+    }
+  }
+
   // A assimetria com `handleSend` acima é deliberada, não esquecimento: falhar em
   // avisar "está digitando" não é algo que o usuário precise saber, nada se perde,
   // e numa rede ruim isto dispararia um toast a cada 2s — o remédio seria pior que
@@ -66,7 +124,11 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
         <MessageList channelId={channelId} />
       </div>
       <TypingIndicator channelId={channelId} />
-      <MessageInput onSend={handleSend} onTyping={handleTyping} />
+      <MessageInput
+        onSend={handleSend}
+        onTyping={handleTyping}
+        onSendWithAttachments={handleSendWithAttachments}
+      />
     </>
   )
 }
