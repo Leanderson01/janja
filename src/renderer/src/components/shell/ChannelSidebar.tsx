@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Copy,
   Hash,
+  LogIn,
+  Maximize2,
   MicOff,
   MonitorUp,
+  MoreVertical,
   Plus,
   UserPlus,
   Volume2
@@ -35,7 +39,7 @@ import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
-import type { Doc } from '../../../../../convex/_generated/dataModel'
+import type { Doc, Id } from '../../../../../convex/_generated/dataModel'
 
 function initialsFor(username: string): string {
   return username.slice(0, 2).toUpperCase()
@@ -93,6 +97,13 @@ export function ChannelSidebar(): React.JSX.Element {
     selectedServerId ? { serverId: selectedServerId } : 'skip'
   )
   const unreadByChannel = new Map((unreadCounts ?? []).map((u) => [u.channelId, u.unreadCount]))
+
+  // Uma única assinatura de mutation para a sidebar inteira, repassada às
+  // linhas de canal de texto (ver `MarkChannelAsRead` abaixo). `useMutation`
+  // DENTRO de `TextChannelRow` tornaria a linha impossível de montar em teste:
+  // ele lança "Could not find Convex client!" fora de um `ConvexProvider`.
+  // Mesmo arranjo que o `MemberList` adotou no Plano 08.5-04.
+  const markChannelAsRead = useMutation(api.channelReadState.openChannel)
 
   function handleTextChannelClick(channel: Doc<'channels'>): void {
     setSelectedChannelId(channel._id)
@@ -168,6 +179,7 @@ export function ChannelSidebar(): React.JSX.Element {
                   isSelected={channel._id === selectedChannelId}
                   unreadCount={unreadByChannel.get(channel._id) ?? 0}
                   onClick={() => handleTextChannelClick(channel)}
+                  markAsRead={markChannelAsRead}
                 />
               ))}
             </ChannelSection>
@@ -360,38 +372,140 @@ function ChannelSection({
   )
 }
 
-function TextChannelRow({
+// Assinatura da mutation `channelReadState.openChannel` como a linha de canal
+// a enxerga. Mesmo motivo do `SendFriendRequest` do Plano 08.5-04: o tipo mora
+// aqui para a linha poder receber a mutation por prop e ser montada sozinha em
+// teste, sem `ConvexProvider`.
+export type MarkChannelAsRead = (args: { channelId: Id<'channels'> }) => Promise<unknown>
+
+// Gatilho + casca do menu de canal (Plano 08.5-12), compartilhado pelas linhas
+// de texto e de voz — só os itens mudam.
+//
+// Por que um botão irmão e não a linha inteira como gatilho, ao contrário do
+// menu do membro (Plano 08.5-04): aqui a linha JÁ TEM ação primária (selecionar
+// o canal, entrar na call). Se ela virasse o gatilho do menu, o clique esquerdo
+// deixaria de navegar. E `<button>` dentro de `<button>` é HTML inválido — o
+// aviso que o Plano 08.5-08 deixou registrado —, então a linha passou a ser um
+// `<div>` com dois botões irmãos: o da ação primária e este.
+//
+// `opacity-0 group-hover:opacity-100` é o comportamento de mouse esperado. O
+// `focus-visible:opacity-100` é o que impede o clássico "parece funcionar, não
+// funciona no teclado": sem ele o botão RECEBE o foco por Tab e continua
+// invisível, e quem navega por teclado fica sem saber onde está. O
+// `data-[state=open]` mantém o botão visível enquanto o menu dele está aberto,
+// inclusive quando foi o botão direito que o abriu e o ponteiro está longe.
+//
+// O espaço do botão é reservado sempre (ele não sai do fluxo), então a linha
+// não muda de largura no hover e o nome do canal não "pula".
+function ChannelRowMenu({
+  channelName,
+  open,
+  onOpenChange,
+  children
+}: {
+  channelName: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Opções do canal ${channelName}`}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+        >
+          <MoreVertical className="size-4" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      {/* `align="end"`: o gatilho fica colado na borda direita de uma coluna de
+          240px, então ancorar pelo começo jogaria o menu de 224px para fora da
+          janela. */}
+      <DropdownMenuContent align="end" className="w-56">
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// Exportada para o teste de teclado (`ChannelSidebar.test.tsx`): a
+// `ChannelSidebar` inteira depende de três `useQuery` do Convex, do
+// `useSelection` e do `useVoice`; esta linha não depende de nenhum contexto.
+export function TextChannelRow({
   channel,
   isSelected,
   unreadCount,
-  onClick
+  onClick,
+  markAsRead
 }: {
   channel: Doc<'channels'>
   isSelected: boolean
   unreadCount: number
   onClick: () => void
+  markAsRead: MarkChannelAsRead
 }): React.JSX.Element {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  async function handleMarkAsRead(): Promise<void> {
+    try {
+      await markAsRead({ channelId: channel._id })
+      toast.success('Canal marcado como lido')
+    } catch {
+      toast.error('Não foi possível marcar o canal como lido')
+    }
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    // Era um `<button>` até o Plano 08.5-12. Virou `<div>` com dois botões
+    // irmãos porque o menu precisa de gatilho próprio e menu aninhado dentro de
+    // `<button>` é HTML inválido. O estado visual (fundo, cor, hover) subiu
+    // para este container para que o botão do menu fique SOBRE o mesmo fundo da
+    // linha; o `relative` continua aqui por causa do `SelectedMarker`, que é
+    // `absolute left-0`.
+    <div
       className={cn(
-        'relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+        'group relative flex items-center rounded-md pr-1 transition-colors',
         isSelected
           ? 'bg-accent text-accent-foreground'
           : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
       )}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setMenuOpen(true)
+      }}
     >
       <SelectedMarker isSelected={isSelected} />
-      <Hash className="size-4 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-      {/* CHAT-06: "marcador de não-lido" é um dos três usos autorizados do
-          `--highlight` (Plano 08.5-01). O `variant="secondary"` anterior era
-          cinza sobre fundo cinza — o número existia, mas não chamava. */}
-      {unreadCount > 0 && (
-        <Badge className="shrink-0 bg-highlight text-highlight-foreground">{unreadCount}</Badge>
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+      >
+        <Hash className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+        {/* CHAT-06: "marcador de não-lido" é um dos três usos autorizados do
+            `--highlight` (Plano 08.5-01). O `variant="secondary"` anterior era
+            cinza sobre fundo cinza — o número existia, mas não chamava. */}
+        {unreadCount > 0 && (
+          <Badge className="shrink-0 bg-highlight text-highlight-foreground">{unreadCount}</Badge>
+        )}
+      </button>
+      {/* Só ações com backend hoje. Apagar canal, renomear canal e silenciar
+          canal ficam de fora: não existe mutation para nenhuma delas em
+          `convex/`. */}
+      <ChannelRowMenu channelName={channel.name} open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenuItem onSelect={() => void handleMarkAsRead()}>
+          <Check />
+          Marcar como lido
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => void copyToClipboard(channel.name, 'Nome do canal copiado')}
+        >
+          <Copy />
+          Copiar nome do canal
+        </DropdownMenuItem>
+      </ChannelRowMenu>
+    </div>
   )
 }
 
@@ -411,25 +525,63 @@ function VoiceChannelRow({
   // acima), não como erro.
   const participants = useQuery(api.voice.voiceParticipantsByChannel, { channelId: channel._id })
   const { speakingUserIds } = useVoice()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div className="flex flex-col gap-0.5">
-      <button
-        type="button"
-        onClick={onClick}
+      {/* Mesma reestruturação da linha de texto (Plano 08.5-12): container
+          `relative` com dois botões irmãos. Os participantes aninhados
+          continuam fora dele, um nível acima. */}
+      <div
         className={cn(
-          'relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+          'group relative flex items-center rounded-md pr-1 transition-colors',
           isSelected
             ? 'bg-accent text-accent-foreground'
             : isJoined
               ? 'text-foreground'
               : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
         )}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setMenuOpen(true)
+        }}
       >
         <SelectedMarker isSelected={isSelected} />
-        <Volume2 className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-      </button>
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+        >
+          <Volume2 className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+        </button>
+        {/* O item chama o MESMO `onClick` da linha — nenhuma lógica de junção
+            duplicada aqui. Por isso ele é rotulado pelo que o handler REALMENTE
+            faz em cada estado: no canal em que você já está, o gesto é voltar
+            ao palco (contrato do Plano 08.5-03), não sair. Um item "Sair do
+            canal" ligado a este handler mentiria; e ligá-lo a uma desconexão
+            de verdade duplicaria o botão Desconectar da `VoiceControlBar`, que
+            desde o Plano 08.5-03 é o ÚNICO lugar que encerra a chamada. */}
+        <ChannelRowMenu channelName={channel.name} open={menuOpen} onOpenChange={setMenuOpen}>
+          {isJoined ? (
+            <DropdownMenuItem onSelect={onClick}>
+              <Maximize2 />
+              Voltar ao palco
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={onClick}>
+              <LogIn />
+              Entrar no canal
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onSelect={() => void copyToClipboard(channel.name, 'Nome do canal copiado')}
+          >
+            <Copy />
+            Copiar nome do canal
+          </DropdownMenuItem>
+        </ChannelRowMenu>
+      </div>
 
       {participants && participants.length > 0 ? (
         <div className="flex flex-col gap-0.5 pl-7">
