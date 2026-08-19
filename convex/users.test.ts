@@ -67,3 +67,59 @@ describe('users.ensureUser', () => {
     spy.mockRestore()
   })
 })
+
+describe('users.findUserByUsernameTag', () => {
+  it('retorna o usuário quando (username, tag) existe', async () => {
+    const t = convexTest(schema, modules)
+
+    await t.run((ctx) =>
+      ctx.db.insert('users', {
+        workosId: 'workos_leo',
+        username: 'leo',
+        tag: '1234',
+        displayName: 'Leo',
+      }),
+    )
+
+    const result = await t.query(anyApi.users.findUserByUsernameTag, {
+      username: 'leo',
+      tag: '1234',
+    })
+
+    expect(result).not.toBeNull()
+    expect(result?.username).toBe('leo')
+    expect(result?.tag).toBe('1234')
+    expect(result).not.toHaveProperty('workosId')
+  })
+
+  it('retorna null quando o par não existe', async () => {
+    const t = convexTest(schema, modules)
+
+    const result = await t.query(anyApi.users.findUserByUsernameTag, {
+      username: 'ninguem',
+      tag: '0000',
+    })
+
+    expect(result).toBeNull()
+  })
+
+  it('retorna null quando o username existe mas a tag não bate', async () => {
+    const t = convexTest(schema, modules)
+
+    await t.run((ctx) =>
+      ctx.db.insert('users', {
+        workosId: 'workos_leo',
+        username: 'leo',
+        tag: '1234',
+        displayName: 'Leo',
+      }),
+    )
+
+    const result = await t.query(anyApi.users.findUserByUsernameTag, {
+      username: 'leo',
+      tag: '9999',
+    })
+
+    expect(result).toBeNull()
+  })
+})

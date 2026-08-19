@@ -1,4 +1,5 @@
-import { mutation } from './_generated/server'
+import { v } from 'convex/values'
+import { mutation, query } from './_generated/server'
 import * as tag from './lib/tag'
 
 // Deriva um username base a partir da parte antes do "@" do e-mail da
@@ -55,5 +56,29 @@ export const ensureUser = mutation({
     })
 
     return await ctx.db.get(userId)
+  },
+})
+
+// Busca pública por identificador `USER#123` (SOCIAL-01): resolve o par
+// (username, tag) pelo índice by_username_tag já publicado, nunca por
+// varredura. Qualquer usuário autenticado pode procurar outro por esse
+// identificador — é o próprio propósito da busca de amigos.
+export const findUserByUsernameTag = query({
+  args: { username: v.string(), tag: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query('users')
+      .withIndex('by_username_tag', (q) => q.eq('username', args.username).eq('tag', args.tag))
+      .unique()
+    if (!user) return null
+    // Nunca devolver workosId a outro usuário — é um identificador interno
+    // do provedor de auth, não parte da identidade pública USER#123.
+    return {
+      _id: user._id,
+      username: user.username,
+      tag: user.tag,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+    }
   },
 })

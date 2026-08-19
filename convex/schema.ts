@@ -49,4 +49,40 @@ export default defineSchema({
     type: v.union(v.literal('text'), v.literal('voice')),
     position: v.number(),
   }).index('by_server', ['serverId']),
+
+  // --- Fase 6: amigos e DMs ---
+
+  friendRequests: defineTable({
+    fromUserId: v.id('users'),
+    toUserId: v.id('users'),
+    createdAt: v.number(),
+  })
+    .index('by_from_to', ['fromUserId', 'toUserId'])
+    .index('by_to', ['toUserId']),
+
+  friendships: defineTable({
+    userA: v.id('users'),
+    userB: v.id('users'),
+    createdAt: v.number(),
+  })
+    .index('by_pair', ['userA', 'userB'])
+    .index('by_userB', ['userB']),
+
+  dmChannels: defineTable({
+    createdAt: v.number(),
+  }),
+
+  dmMembers: defineTable({
+    dmChannelId: v.id('dmChannels'),
+    userId: v.id('users'),
+  })
+    .index('by_user', ['userId'])
+    .index('by_channel_user', ['dmChannelId', 'userId']),
+
+  dmMessages: defineTable({
+    dmChannelId: v.id('dmChannels'),
+    authorId: v.id('users'),
+    content: v.string(),
+    createdAt: v.number(),
+  }).index('by_dm_channel', ['dmChannelId']),
 })
