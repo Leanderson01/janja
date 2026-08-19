@@ -8,6 +8,7 @@ import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { LayoutProvider, useLayout } from '@/state/layout-context'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
 import { VoiceProvider } from '@/state/voice-context'
 
@@ -27,6 +28,7 @@ import { VoiceProvider } from '@/state/voice-context'
 // lista de membros na Home).
 function ShellBody(): React.JSX.Element {
   const { view, selectedDmChannelId } = useSelection()
+  const { membersVisible } = useLayout()
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground">
@@ -44,9 +46,26 @@ function ShellBody(): React.JSX.Element {
             <ConversationArea />
           </div>
 
-          <div className="flex-none w-60 bg-secondary border-l border-border">
-            <MemberList />
-          </div>
+          {/* Janela estreita (Plano 08.5-05): a lista de membros é a válvula
+              de escape da área principal. As colunas fixas somam 552px
+              (rail 72 + sidebar 240 + membros 240) e a janela mínima é
+              900x600 (`src/main/index.ts`) — esconder a lista devolve 240px
+              para a conversa. As larguras continuam fixas (decisão da F3,
+              não reaberta); o que muda é a coluna existir ou não. A coluna
+              central já é `flex-1 min-w-0`, então absorve o espaço sozinha.
+
+              Desmontada de verdade, nunca escondida por `hidden`/`w-0`:
+              `MemberList` mantém duas subscriptions do Convex
+              (`listServerMembers` e `voiceParticipantsByServer`) e esconder
+              por CSS as manteria vivas sem ninguém olhando.
+
+              A visão Início não tem lista de membros e não ganha o botão
+              (06-RESEARCH.md §7) — nada a condicionar no outro branch. */}
+          {membersVisible ? (
+            <div className="flex-none w-60 bg-secondary border-l border-border">
+              <MemberList />
+            </div>
+          ) : null}
         </>
       ) : (
         <>
@@ -72,7 +91,15 @@ export function AppShell(): React.JSX.Element {
     <SelectionProvider>
       <VoiceProvider>
         <TooltipProvider>
-          <ShellBody />
+          {/* Estado de layout da janela (Plano 08.5-05): mora acima do
+              `ShellBody` porque quem alterna a lista de membros é um botão do
+              `ChannelHeader`, lá dentro da área de conversa, e quem obedece é
+              a coluna da direita — dois pontos distantes na árvore, com a
+              área de conversa inteira no meio. Envolve só o `ShellBody`:
+              nem o seletor de tela nem o Toaster têm layout de janela. */}
+          <LayoutProvider>
+            <ShellBody />
+          </LayoutProvider>
           {/* SHARE-01 (Plano 08-04): uma única instância por app, não por
               canal — quem dispara o seletor é o processo main, que não sabe
               (nem precisa saber) qual canal de voz está ativo. Montado aqui
