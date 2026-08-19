@@ -1,8 +1,18 @@
 <!doctype html>
-<html>
+<!--
+  class="dark": tema escuro é fixo por decisão de produto; não existe toggle.
+  O bloco `.dark` de src/renderer/src/assets/main.css é ativado por SELETOR DE
+  CLASSE (`@custom-variant dark (&:is(.dark *))`), não por `prefers-color-scheme`:
+  sem esta classe, `:root` (tema claro) vence e toda a UI renderiza em branco.
+  Fica no HTML e não em JS porque `classList.add('dark')` no boot só acrescentaria
+  um flash de tema claro e mais um lugar para esquecer.
+-->
+<html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <title>Electron</title>
+    <title>janja</title>
+    <!-- theme-color: equivalente sRGB de --background do bloco .dark (oklch(0.145 0 0)) -->
+    <meta name="theme-color" content="#0a0a0a" />
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
