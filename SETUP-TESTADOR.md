@@ -39,7 +39,7 @@ node node_modules/electron/install.js
 Na raiz da pasta `janja`, crie um arquivo chamado **`.env.local`** com este conteúdo:
 
 ```
-VITE_CONVEX_URL=<peça ao Leo>
+VITE_CONVEX_URL=<peça ao Leo — sem barra no final>
 VITE_CONVEX_SITE_URL=<peça ao Leo>
 MAIN_VITE_WORKOS_CLIENT_ID=<peça ao Leo>
 ```
@@ -77,6 +77,7 @@ erro. O app não tem permissão de fechar aba que não abriu.
 | Sintoma | O que fazer |
 |---|---|
 | Tela branca com "Carregando…" eterna | Falta algum valor no `.env.local`. Confira os três |
+| Carrega para sempre depois do login do Google | URL do Convex com barra no final. O app já corrige sozinho, mas atualize com `git pull` se estiver numa versão antiga |
 | `Error: Electron uninstall` | Rode `node node_modules/electron/install.js` |
 | Login trava escolhendo a conta | Você está no Brave. Use Chrome ou Edge |
 | Abre mas não aparece servidor nenhum | Normal na primeira vez — peça um convite ao Leo |
