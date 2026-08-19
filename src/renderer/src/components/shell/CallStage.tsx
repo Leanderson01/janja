@@ -1,14 +1,20 @@
 import { useQuery } from 'convex/react'
-import { MicOff, Volume2 } from 'lucide-react'
+import { Eye, EyeOff, Maximize2, MicOff, Minimize2, Volume2, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import {
   ConnectionQualityIcon,
+  ParticipantStrip,
   initialsFor,
   useVoiceParticipants
 } from '@/components/shell/ParticipantStrip'
-import { ScreenShareStage } from '@/components/shell/ScreenShareStage'
+import { ScreenShareStage, ScreenSharePreviewNotice } from '@/components/shell/ScreenShareStage'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useSelection } from '@/state/selection-context'
+import { useVoice } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -42,50 +48,164 @@ export function VoiceParticipantGrid({
 }: {
   channelId: Id<'channels'>
 }): React.JSX.Element {
+  const { joinedVoiceChannelId } = useSelection()
   const participants = useVoiceParticipants(channelId)
 
+  // Canal de voz apenas VISUALIZADO (não conectado): não existe track para
+  // exibir, mas o convite "Entre no canal para ver a tela compartilhada" volta
+  // aqui — ele se perdeu no Plano 08.5-03 quando a região de vídeo saiu da
+  // prévia, e este plano é o dono da região (pendência registrada no
+  // 08.5-03-SUMMARY.md, desvio 3). Mora dentro da grade porque a grade é a
+  // única coisa que a prévia renderiza, e `ConversationArea.tsx` não é arquivo
+  // deste plano. Dentro do palco esta condição é sempre falsa: o palco só
+  // existe para o canal CONECTADO (regra 1 de `resolveMainView`).
+  const isConnectedHere = channelId === joinedVoiceChannelId
+
   if (!participants || participants.length === 0) {
-    return <div className="text-sm text-muted-foreground">Nenhum participante conectado</div>
+    return (
+      <>
+        <div className="text-sm text-muted-foreground">Nenhum participante conectado</div>
+        {isConnectedHere ? null : <ScreenSharePreviewNotice />}
+      </>
+    )
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-6">
-      {participants.map((participant) => (
-        <div key={participant.userId} className="flex flex-col items-center gap-2">
-          <div className="relative">
-            <Avatar className={cn('size-20', participant.isSpeaking && 'ring-4 ring-success')}>
-              <AvatarFallback className="text-lg">
-                {initialsFor(participant.username)}
-              </AvatarFallback>
-            </Avatar>
-            {participant.muted ? (
-              <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
-                <MicOff className="size-3.5" aria-hidden="true" />
-              </span>
-            ) : null}
+    <>
+      <div className="flex flex-wrap items-center justify-center gap-6">
+        {participants.map((participant) => (
+          <div key={participant.userId} className="flex flex-col items-center gap-2">
+            <div className="relative">
+              <Avatar className={cn('size-20', participant.isSpeaking && 'ring-4 ring-success')}>
+                <AvatarFallback className="text-lg">
+                  {initialsFor(participant.username)}
+                </AvatarFallback>
+              </Avatar>
+              {participant.muted ? (
+                <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
+                  <MicOff className="size-3.5" aria-hidden="true" />
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-foreground">{participant.username}</span>
+              <ConnectionQualityIcon quality={participant.quality} />
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm text-foreground">{participant.username}</span>
-            <ConnectionQualityIcon quality={participant.quality} />
-          </div>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+      {isConnectedHere ? null : <ScreenSharePreviewNotice />}
+    </>
   )
 }
 
-// Barra do palco (Plano 08.5-03): mesma altura do `ChannelHeader` (h-12) e a
-// mesma borda, para que a linha do topo da janela não pule ao alternar entre
-// texto e call. O `ChannelHeader` NÃO é renderizado no modo palco — ele descreve
-// o canal SELECIONADO, que durante uma call pode ser um canal de texto qualquer,
-// e um cabeçalho descrevendo outra coisa que não está na tela é pior que
-// nenhum.
+// Estados de visualização do palco. LOCAL do componente, de propósito: não vai
+// para o `SelectionContext` nem para o `localStorage`. É estado de momento — e
+// persistir "expandido" faria o app abrir numa call antiga em tela cheia.
+type StageLayout = 'tiles' | 'share' | 'share-expanded'
+
+// Botão de ícone da barra/overlay do palco. Ícone sem texto visível ganha
+// tooltip (convenção da fase) e o `aria-label` descreve a AÇÃO do clique. O
+// anel de foco vem do próprio `Button` e é obrigatório aqui: no layout
+// expandido estes botões são a única saída além do Esc.
+function StageIconButton({
+  icon: Icon,
+  label,
+  onClick
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={label} onClick={onClick}>
+          <Icon />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+// Controles do compartilhamento no palco. Só existem quando há tela no ar —
+// botão que não tem o que fazer não aparece.
+//
+// "Ocultar tela" NÃO para o compartilhamento: quem para é o botão do rodapé
+// (`VoiceControlBar`), e o rótulo tem que deixar isso claro, porque confundir
+// os dois é derrubar a tela de todo mundo achando que está limpando a própria.
+//
+// O botão "Mostrar tela" (layout `tiles` com track no ar) não está escrito no
+// plano e é obrigatório: sem ele, ocultar seria uma porta de mão única — o
+// usuário só reveria a tela se o apresentador parasse e recomeçasse.
+function ShareLayoutControls({
+  layout,
+  shareCount,
+  onLayoutChange
+}: {
+  layout: StageLayout
+  shareCount: number
+  onLayoutChange: (layout: StageLayout) => void
+}): React.JSX.Element | null {
+  if (shareCount === 0) return null
+
+  return (
+    <>
+      {layout === 'tiles' ? (
+        <StageIconButton
+          icon={Eye}
+          label="Mostrar tela compartilhada"
+          onClick={() => onLayoutChange('share')}
+        />
+      ) : null}
+      {layout !== 'tiles' ? (
+        <StageIconButton
+          icon={EyeOff}
+          label="Ocultar tela compartilhada"
+          onClick={() => onLayoutChange('tiles')}
+        />
+      ) : null}
+      {layout === 'share' ? (
+        <StageIconButton
+          icon={Maximize2}
+          label="Expandir tela compartilhada"
+          onClick={() => onLayoutChange('share-expanded')}
+        />
+      ) : null}
+      {layout === 'share-expanded' ? (
+        <StageIconButton
+          icon={Minimize2}
+          label="Restaurar tamanho da tela compartilhada"
+          onClick={() => onLayoutChange('share')}
+        />
+      ) : null}
+    </>
+  )
+}
+
+// Barra do palco (Plano 08.5-03; botões no Plano 08.5-07): mesma altura do
+// `ChannelHeader` (h-12) e a mesma borda, para que a linha do topo da janela não
+// pule ao alternar entre texto e call. O `ChannelHeader` NÃO é renderizado no
+// modo palco — ele descreve o canal SELECIONADO, que durante uma call pode ser
+// um canal de texto qualquer, e um cabeçalho descrevendo outra coisa que não
+// está na tela é pior que nenhum.
 //
 // Duas queries, nenhuma subscrição nova: `getChannel` é a mesma que o
 // `ChannelHeader` e a `VoiceControlBar` já assinam, e
 // `voiceParticipantsByChannel` é a mesma de `useVoiceParticipants` —
 // o cliente do Convex compartilha subscrição por query+args.
-function StageBar({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+function StageBar({
+  channelId,
+  layout,
+  shareCount,
+  onLayoutChange
+}: {
+  channelId: Id<'channels'>
+  layout: StageLayout
+  shareCount: number
+  onLayoutChange: (layout: StageLayout) => void
+}): React.JSX.Element {
   const channel = useQuery(api.channels.getChannel, { channelId })
   const participants = useQuery(api.voice.voiceParticipantsByChannel, { channelId })
   const count = participants?.length ?? 0
@@ -99,30 +219,151 @@ function StageBar({ channelId }: { channelId: Id<'channels'> }): React.JSX.Eleme
       <span className="shrink-0 text-sm text-muted-foreground">
         {count === 1 ? '1 participante' : `${count} participantes`}
       </span>
+      <div className="flex shrink-0 items-center gap-1">
+        <ShareLayoutControls
+          layout={layout}
+          shareCount={shareCount}
+          onLayoutChange={onLayoutChange}
+        />
+      </div>
     </div>
   )
 }
 
-// O palco da call: barra própria, ladrilhos dos participantes e região de tela
-// compartilhada.
+// O palco da call: barra própria, região de vídeo, ladrilhos de participantes e
+// faixa de participantes — nesta ordem NA ÁRVORE, que não é a ordem na tela (ver
+// os `order-*` abaixo).
 //
-// Por que NÃO virou `ScrollArea` (a convenção da fase pediria): o
-// `ScreenShareStage` se dimensiona contando com um pai flex de altura definida.
-// Dentro do `ScrollArea`, o `Viewport` do Radix embrulha os filhos num elemento
-// `display: table` — o pai deixa de ser flex e o `flex-1` vira letra morta,
-// deixando a região de vídeo com a altura mínima. Regressão de vídeo é pior que
-// um `overflow-y-auto` sobrevivente.
+// A REGRA QUE MANDA NESTE COMPONENTE (08-06-SUMMARY.md): enquanto a track
+// existir, o `<video>` NÃO pode ser desmontado por causa de layout. `detach()`
+// do SDK só zera `srcObject`; quem tira o elemento da tela é o React ao
+// desmontar o `ScreenShareTile`, e é isso que garante que o frame não congela.
+// Por isso:
 //
-// `bg-background`, igual à área de texto: um fundo mais escuro que o
-// `--background` não existe nos tokens de hoje, e inventar um token é decisão de
-// paleta — fica para o checkpoint humano (Plano 08.5-17) dizer se faz falta.
+// - `<ScreenShareStage />` aparece UMA vez no JSX, sem `&&` e sem ternário em
+//   volta, sempre na mesma posição da árvore. Trocar de layout troca a CLASSE
+//   do container; nunca a existência do componente.
+// - a reordenação visual (vídeo em cima no modo compartilhamento, embaixo no
+//   modo ladrilhos) é feita com `order-*` do flexbox, não movendo o nó de
+//   lugar — mover na árvore é desmontar e remontar, e remontar é reanexar.
+// - a barra e a faixa somem com `hidden`, também sem desmontar: elas assinam
+//   queries do Convex e piscar subscrição a cada expandir/restaurar é ruído
+//   gratuito.
+//
+// Por que NÃO virou `ScrollArea` (a convenção da fase pediria): o `Viewport` do
+// Radix embrulha os filhos num elemento `display: table`, o pai deixa de ser
+// flex e o `flex-1` da região de vídeo vira letra morta. Regressão de vídeo é
+// pior que um `overflow-y-auto` sobrevivente.
 export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+  const { joinedVoiceChannelId } = useSelection()
+  const { screenShareTracks } = useVoice()
+
+  // Mesma regra do `ScreenShareStage`: vídeo é dado efêmero do `Room` e só
+  // existe para o canal realmente conectado. Na prática o palco só é renderizado
+  // para o canal conectado, mas a decisão de layout não depende disso ser
+  // verdade em todo caminho futuro.
+  const shareCount = channelId === joinedVoiceChannelId ? screenShareTracks.length : 0
+
+  const [layout, setLayout] = useState<StageLayout>(shareCount > 0 ? 'share' : 'tiles')
+
+  // Transições automáticas do layout, ajustadas DURANTE a renderização e não num
+  // `useEffect` — é o padrão documentado do React para "estado que se ajusta
+  // quando uma entrada muda", e evita o render em cascata (o palco apareceria
+  // com o layout velho por um quadro antes de corrigir). O `setLayout` só roda
+  // quando `shareCount` de fato mudou, então não há laço.
+  const [previousShareCount, setPreviousShareCount] = useState(shareCount)
+  if (previousShareCount !== shareCount) {
+    setPreviousShareCount(shareCount)
+
+    if (shareCount === 0) {
+      // Sem tela no ar não há o que mostrar — inclusive quando a última some com
+      // o palco expandido, e aí voltar sozinho é o que impede o usuário de ficar
+      // preso numa tela cheia vazia.
+      setLayout('tiles')
+    } else if (previousShareCount === 0) {
+      // Primeira tela aparecendo toma o palco. A segunda não muda nada: se o
+      // usuário acabou de ocultar, reabrir na cara dele seria briga.
+      setLayout('share')
+    }
+  }
+
+  // Esc sai do expandido. O listener só existe enquanto expandido — fora disso
+  // Esc pertence a quem estiver aberto por cima (diálogo, menu, tooltip).
+  //
+  // `defaultPrevented` é a única defesa possível daqui contra roubar o Esc de
+  // uma camada do Radix que esteja aberta em cima do palco. Não é garantia: o
+  // Radix nem sempre chama `preventDefault` ao fechar. Item do checkpoint
+  // humano — não há como observar isto sem tela.
+  useEffect(() => {
+    if (layout !== 'share-expanded') return
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      setLayout('share')
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [layout])
+
+  const isExpanded = layout === 'share-expanded'
+
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-background">
-      <StageBar channelId={channelId} />
-      <div className="flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto p-8">
-        <VoiceParticipantGrid channelId={channelId} />
-        <ScreenShareStage channelId={channelId} />
+      {/* O `hidden` vai no INVÓLUCRO, não na barra: `hidden` e `flex` são o
+          mesmo tipo de utilitário (display) e qual vence depende da ordem no CSS
+          gerado, não da ordem no atributo. */}
+      <div className={cn('flex-none', isExpanded && 'hidden')}>
+        <StageBar
+          channelId={channelId}
+          layout={layout}
+          shareCount={shareCount}
+          onLayoutChange={setLayout}
+        />
+      </div>
+
+      <div className="flex-1 min-h-0 flex flex-col">
+        {/* REGIÃO DE VÍDEO — posição fixa na árvore, tamanho pela classe. */}
+        <div
+          className={cn(
+            'relative',
+            layout === 'tiles' && 'order-2 flex-none px-8 pb-8',
+            layout === 'tiles' && shareCount > 0 && 'hidden',
+            layout === 'share' && 'order-1 flex-1 min-h-0 p-4',
+            isExpanded && 'order-1 flex-1 min-h-0'
+          )}
+        >
+          <ScreenShareStage channelId={channelId} />
+          {isExpanded ? (
+            <div className="absolute right-3 top-3 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1">
+              <ShareLayoutControls
+                layout={layout}
+                shareCount={shareCount}
+                onLayoutChange={setLayout}
+              />
+            </div>
+          ) : null}
+        </div>
+
+        <div
+          className={cn(
+            'order-1 flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto p-8',
+            layout !== 'tiles' && 'hidden'
+          )}
+        >
+          <VoiceParticipantGrid channelId={channelId} />
+        </div>
+
+        {/* A faixa: altura fixa, `flex-none`, e some com `hidden` nos outros dois
+            layouts. */}
+        <div
+          className={cn(
+            'order-3 flex-none h-20 border-t border-border px-4',
+            layout !== 'share' && 'hidden'
+          )}
+        >
+          <ParticipantStrip channelId={channelId} />
+        </div>
       </div>
     </div>
   )

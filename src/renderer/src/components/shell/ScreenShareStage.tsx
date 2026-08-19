@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react'
 import { MonitorUp } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
+import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice, type ScreenShareTrack } from '@/state/voice-context'
 
@@ -23,6 +24,42 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // renderização condicional envolve este componente enquanto há track. Quem
 // trocar isso por um ternário traz de volta o frame congelado que o Plano
 // 08-06 existiu para matar.
+
+// Moldura tracejada usada nos dois estados "não há vídeo aqui". Fica neste
+// arquivo porque a região de vídeo é dele; quem renderiza a prévia de canal de
+// voz (`VoiceParticipantGrid`, em `CallStage.tsx`) importa o aviso em vez de
+// copiar a moldura.
+function ShareNotice({
+  className,
+  children
+}: {
+  className?: string
+  children: string
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        'flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-muted-foreground',
+        className
+      )}
+    >
+      <MonitorUp className="size-8" aria-hidden="true" />
+      <span className="text-sm">{children}</span>
+    </div>
+  )
+}
+
+// O convite que a prévia de canal de voz (canal onde você NÃO está) perdeu no
+// Plano 08.5-03, quando a região de vídeo saiu de lá — registrado no summary
+// daquele plano como pendência deste. `flex-none`: na prévia a moldura mora
+// dentro de um container rolável e não deve esticar até o rodapé.
+export function ScreenSharePreviewNotice(): React.JSX.Element {
+  return (
+    <ShareNotice className="min-h-40 flex-none">
+      Entre no canal para ver a tela compartilhada
+    </ShareNotice>
+  )
+}
 
 // SHARE-02 (Plano 08-06): um `<video>` de tela compartilhada.
 //
@@ -114,21 +151,22 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
 
   const tracks = isConnectedHere ? screenShareTracks : []
 
+  // `h-full` em vez de `flex-1`: a partir do Plano 08.5-07 quem dimensiona esta
+  // região é o container do `CallStage`, que muda de tamanho conforme o layout
+  // do palco (ladrilhos / compartilhamento / expandido). O componente só
+  // preenche o espaço que recebe.
   if (tracks.length === 0) {
     return (
-      <div className="flex-1 min-h-40 w-full flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-muted-foreground">
-        <MonitorUp className="size-8" aria-hidden="true" />
-        <span className="text-sm">
-          {isConnectedHere
-            ? 'Ninguém está compartilhando a tela'
-            : 'Entre no canal para ver a tela compartilhada'}
-        </span>
-      </div>
+      <ShareNotice className="h-full min-h-40">
+        {isConnectedHere
+          ? 'Ninguém está compartilhando a tela'
+          : 'Entre no canal para ver a tela compartilhada'}
+      </ShareNotice>
     )
   }
 
   return (
-    <div className="flex-1 min-h-40 w-full flex flex-wrap items-stretch justify-center gap-3">
+    <div className="h-full min-h-40 w-full flex flex-wrap items-stretch justify-center gap-3">
       {tracks.map((entry) => (
         <div key={entry.trackSid} className="relative flex min-h-40 min-w-64 flex-1 flex-col">
           <ScreenShareTile entry={entry} />
