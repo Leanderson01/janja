@@ -236,9 +236,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // completar um novo join (abaixo). Não faz nada se não há canal
   // conectado agora.
   function applyVoicePreferences(): void {
+    const prefs = loadVoicePreferences()
+
+    // Plano 07-06 (VOICE-11): o processo main só mantém a captura nativa do
+    // hook global de teclado ligada enquanto o modo salvo é 'ptt' — nunca
+    // captura teclado à toa em modo 'vad' (o padrão). Sincroniza a cada vez
+    // que a preferência é (re)aplicada, independente de haver canal
+    // conectado agora (ver src/main/voice/ptt.ts).
+    window.voice.setPttModeActive(prefs.mode === 'ptt')
+
     if (activeChannelRef.current === null) return
 
-    const prefs = loadVoicePreferences()
     stopVadMonitor()
 
     if (prefs.mode === 'vad') {
@@ -343,6 +351,49 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       clearSpeakingAndQuality()
       stopVadMonitor()
       void room.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Plano 07-06 (VOICE-11): push-to-talk real, via hook global de teclado
+  // no processo main — `globalShortcut` do Electron não separa
+  // keydown/keyup, então não dá pra fazer "segurar para falar" com ele.
+  // Registrado uma única vez, no mount do provider — não depende de estar
+  // conectado, já que o usuário pode segurar a tecla antes mesmo de entrar
+  // num canal; nesses dois handlers, `activeChannelRef.current === null`
+  // faz o early-return e nada acontece.
+  useEffect(() => {
+    // Sincroniza o processo main com o modo salvo agora, no boot do
+    // provider — reaproveita `applyVoicePreferences` (que já notifica o
+    // main e, se houver canal conectado, também religa o VAD/PTT sobre a
+    // track publicada) em vez de duplicar essa lógica aqui.
+    applyVoicePreferences()
+
+    const offKeyDown = window.voice.onPttKeyDown(() => {
+      if (activeChannelRef.current === null) return
+      if (loadVoicePreferences().mode !== 'ptt') return
+      // Mute manual sempre vence — mesma regra do VAD (ver
+      // `startVadMonitor` acima): segurar a tecla de PTT nunca reabre o
+      // microfone se o usuário mutou pelo botão do rodapé.
+      if (manualMuteRef.current) return
+      void room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
+    })
+
+    const offKeyUp = window.voice.onPttKeyUp(() => {
+      if (activeChannelRef.current === null) return
+      if (loadVoicePreferences().mode !== 'ptt') return
+      // Desligar é sempre permitido, mesmo com mute manual ativo — harmless,
+      // a track já estaria desabilitada.
+      void room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+    })
+
+    return () => {
+      offKeyDown()
+      offKeyUp()
+      // Nunca deixar a captura nativa do teclado ligada além da vida deste
+      // provider (hot-reload/remontagem inclusos) — o mount seguinte
+      // ressincroniza via `applyVoicePreferences()` acima.
+      window.voice.setPttModeActive(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

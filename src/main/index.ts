@@ -9,6 +9,8 @@ import {
 } from './auth/deep-link-handler'
 import { handleCallback, getUser } from './auth/auth'
 import { setupAuthIpcHandlers, notifyAuthChange } from './auth/ipc-handlers'
+import { startPttHook, setPttModeActive, stopPttHook } from './voice/ptt'
+import { VOICE_CHANNELS } from './voice/types'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -161,6 +163,19 @@ if (!gotTheLock) {
     if (mainWindow) {
       setupAuthIpcHandlers(mainWindow)
 
+      // Plano 07-06 (VOICE-11): hook global de teclado para push-to-talk.
+      // Só registra os listeners — a captura nativa (`uIOhook.start()`) só
+      // liga quando o renderer informar (via IPC) que o modo salvo é 'ptt'
+      // (ver `src/main/voice/ptt.ts` para o que exatamente é observado e
+      // quando roda).
+      const activeWindow = mainWindow
+      startPttHook((channel) => {
+        if (!activeWindow.isDestroyed()) activeWindow.webContents.send(channel)
+      })
+      ipcMain.on(VOICE_CHANNELS.SET_PTT_MODE_ACTIVE, (_event, active: boolean) => {
+        setPttModeActive(Boolean(active))
+      })
+
       // Restore an existing (persisted) session on startup, without waiting
       // for a fresh login. Sent only after the renderer has actually
       // finished loading, so window.auth.onAuthChange has a listener
@@ -191,6 +206,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Plano 07-06: nunca deixar o hook nativo de teclado (uiohook-napi) vivo
+// depois que o processo Electron começa a encerrar.
+app.on('before-quit', () => {
+  stopPttHook()
 })
 
 // In this file you can include the rest of your app's specific main process

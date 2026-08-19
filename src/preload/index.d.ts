@@ -9,10 +9,17 @@ interface AuthApi {
   onAuthChange(callback: (data: { user: AuthUser | null }) => void): () => void
 }
 
+interface VoiceApi {
+  onPttKeyDown(callback: () => void): () => void
+  onPttKeyUp(callback: () => void): () => void
+  setPttModeActive(active: boolean): void
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
     api: unknown
     auth: AuthApi
+    voice: VoiceApi
   }
 }

@@ -10,10 +10,10 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana
+Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído)
 Plan: 1 of 5 concluído na Fase 3
-Status: Fase 3 onda 2 em execução
-Last activity: 2026-08-18 — Roadmap criado (10 fases, 59/59 requisitos mapeados)
+Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08)
+Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08)
 
 Progress: [█████░░░░░] 55%
 
@@ -58,6 +58,12 @@ diretamente o roadmap:
   fixas, sem componente de resize arrastável — Discord real não permite
   arrastar essas bordas, e usar `Resizable` do shadcn introduziria risco de
   API sem ganho de UX. Ver `.planning/phases/03-shell-da-ui/03-RESEARCH.md`.
+- [07-06]: hook global de teclado (`uiohook-napi`) só liga a captura nativa
+  (`uIOhook.start()`) quando o renderer confirma que o modo de voz salvo é
+  'ptt' (IPC `SET_PTT_MODE_ACTIVE`) — nunca captura teclado do SO à toa em
+  modo VAD (o padrão). Extensão sobre o desenho original de
+  `07-RESEARCH.md §7` (que previa o hook sempre rodando). Ver
+  `07-06-SUMMARY.md`.
 
 ### Pending Todos
 
@@ -105,12 +111,15 @@ Nenhum ainda.
 
 ## Session Continuity
 
-Last session: 2026-08-18
-Stopped at: Fases 1 (2 plans) e 3 (5 plans) planejadas e commitadas.
-Fase 0 sendo replanejada após o incidente registrado em Blockers/Concerns.
-Repo sincronizado com origin/main, working tree limpo, cobertura de
-requisitos reverificada em 59/59 após a recuperação.
-Próximo passo: executar Fase 0, depois Fase 3.
+Last session: 2026-08-19
+Stopped at: Concluído 07-06-push-to-talk-PLAN.md (código de push-to-talk
+completo — hook global de teclado no processo main, IPC, VoiceProvider
+reagindo aos eventos). Arquivos não commitados (NO_GIT no prompt de
+execução) — orquestrador commita. 173 testes passam, typecheck/build
+limpos. Verificação de "funciona sem foco" continua pendente do Plano
+07-08 (Windows nativo).
+Próximo passo: 07-07 (sons de canal) e/ou 07-08 (verificação final humana
+em Windows).
 Resume file: None
 
 ## Decisão registrada — 2026-08-18

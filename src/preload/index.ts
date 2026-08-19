@@ -32,6 +32,34 @@ const authApi = {
   }
 }
 
+// Superfície de push-to-talk exposta ao renderer (Plano 07-06, VOICE-11),
+// matching src/main/voice/types.ts (VOICE_CHANNELS) exatamente. Nunca expõe
+// ipcRenderer bruto — só estes canais já nomeados.
+const VOICE_CHANNELS = {
+  PTT_KEY_DOWN: 'voice:ptt-key-down',
+  PTT_KEY_UP: 'voice:ptt-key-up',
+  SET_PTT_MODE_ACTIVE: 'voice:set-ptt-mode-active'
+} as const
+
+const voiceApi = {
+  onPttKeyDown: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(VOICE_CHANNELS.PTT_KEY_DOWN, listener)
+    return () => ipcRenderer.removeListener(VOICE_CHANNELS.PTT_KEY_DOWN, listener)
+  },
+  onPttKeyUp: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(VOICE_CHANNELS.PTT_KEY_UP, listener)
+    return () => ipcRenderer.removeListener(VOICE_CHANNELS.PTT_KEY_UP, listener)
+  },
+  // Informa o processo main se o modo de voz salvo agora é 'ptt', para ele
+  // ligar/desligar a captura nativa do hook global de teclado de acordo —
+  // um comando de uma via, sem retorno (ver src/main/voice/ptt.ts).
+  setPttModeActive: (active: boolean): void => {
+    ipcRenderer.send(VOICE_CHANNELS.SET_PTT_MODE_ACTIVE, active)
+  }
+}
+
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise
 // just add to the DOM global.
@@ -40,6 +68,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('auth', authApi)
+    contextBridge.exposeInMainWorld('voice', voiceApi)
   } catch (error) {
     console.error(error)
   }
@@ -50,4 +79,6 @@ if (process.contextIsolated) {
   window.api = api
   // @ts-ignore (define in dts)
   window.auth = authApi
+  // @ts-ignore (define in dts)
+  window.voice = voiceApi
 }
