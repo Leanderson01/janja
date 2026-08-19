@@ -1,15 +1,15 @@
-import { useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { MicOff, MonitorUp } from 'lucide-react'
-import { useState } from 'react'
 
 import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { mockMembers, mockMessages, mockVoiceParticipants, type Message } from '@/data/mock-data'
+import { mockMembers, mockVoiceParticipants } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
 
 import { api } from '../../../../../convex/_generated/api'
+import type { Id } from '../../../../../convex/_generated/dataModel'
 
 function initialsFor(username: string): string {
   return username.slice(0, 2).toUpperCase()
@@ -69,44 +69,21 @@ function VoiceChannelView({ channelId }: { channelId: string }): React.JSX.Eleme
   )
 }
 
-// Visão de chat para canal de texto: mensagens mockadas + eco local das
-// mensagens enviadas nesta sessão. `sentMessages` reseta a cada troca de
-// canal porque este componente é remontado com `key={channelId}` pelo
-// chamador (ConversationArea) — o eco local não deve "vazar" para outro
-// canal nem persistir, é puramente uma simulação de UI desta fase. Remontar
-// via `key` é preferível a um `useEffect` que chama `setState` só para
-// zerar estado no mount (anti-padrão sinalizado por
-// `react-hooks/set-state-in-effect`).
-function TextChannelView({
-  channelId,
-  firstUnreadMessageId
-}: {
-  channelId: string
-  firstUnreadMessageId?: string
-}): React.JSX.Element {
-  const [sentMessages, setSentMessages] = useState<Message[]>([])
-
-  const messages = [...mockMessages.filter((m) => m.channelId === channelId), ...sentMessages].sort(
-    (a, b) => a.createdAt - b.createdAt
-  )
+// Visão de chat para canal de texto: histórico real e envio real, ambos via
+// Convex. `MessageList` é remontada com `key={channelId}` pelo chamador
+// (ConversationArea) ao trocar de canal — reseta o estado interno de scroll
+// da lista (mesmo padrão de remount por `key` já usado desde a Fase 3).
+function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+  const sendMessage = useMutation(api.messages.sendMessage)
 
   function handleSend(content: string): void {
-    setSentMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        channelId,
-        authorId: 'me',
-        content,
-        createdAt: Date.now()
-      }
-    ])
+    sendMessage({ channelId, content }).catch(() => {})
   }
 
   return (
     <>
       <div className="flex-1 min-h-0">
-        <MessageList messages={messages} firstUnreadMessageId={firstUnreadMessageId} />
+        <MessageList channelId={channelId} />
       </div>
       <MessageInput onSend={handleSend} />
     </>
@@ -115,11 +92,11 @@ function TextChannelView({
 
 // Área de conversa (Plano 03-03) — alterna entre a visão de chat (canal de
 // texto) e a visão de participantes de voz, orientada por `selectedChannelId`
-// do SelectionProvider. A partir do plano 04-06, o canal em si vem de
-// `api.channels.getChannel` (mesma query de ChannelHeader — subscrição
-// duplicada é esperada e barata) em vez de `mock-data.ts`; `mockMessages`/
-// `mockVoiceParticipants` seguem como stub de chat/voz (F5/F7), já que
-// nenhum id mockado bate com um `Id<'channels'>` real.
+// do SelectionProvider. O canal em si vem de `api.channels.getChannel` (mesma
+// query de ChannelHeader — subscrição duplicada é esperada e barata). A
+// partir do plano 05-04, `TextChannelView` usa mensagens/envio reais
+// (`convex/messages.ts`) — só `mockVoiceParticipants` segue como stub de voz
+// (F7), já que nenhum id mockado bate com um `Id<'channels'>` real.
 export function ConversationArea(): React.JSX.Element {
   const { selectedChannelId } = useSelection()
   const channel = useQuery(

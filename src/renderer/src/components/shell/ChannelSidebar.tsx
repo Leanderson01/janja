@@ -6,6 +6,7 @@ import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
 import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
 import { UserPanel } from '@/features/auth/UserPanel'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -22,10 +23,10 @@ import type { Doc } from '../../../../../convex/_generated/dataModel'
 //
 // Agrupamento fixo em duas seções (TEXTO/VOZ) — o modelo real de canal desta
 // fase não tem `category` (era um campo só do mock). Badge de não lidas por
-// canal (F5) e lista de participantes de voz aninhados sob o canal (F7) não
-// são renderizados aqui: os campos que os alimentariam
-// (`channel.unreadCount`, `voiceStates`) não existem no backend desta fase —
-// reintroduzidos com dado real quando F5/F7 chegarem.
+// canal (CHAT-06, plano 05-04) alimentado por `getUnreadCounts` — só canais
+// de texto ganham badge, a query já filtra canal de voz. Lista de
+// participantes de voz aninhados sob o canal segue fora de escopo (F7):
+// `voiceStates` não existe no backend ainda.
 export function ChannelSidebar(): React.JSX.Element {
   const {
     servers,
@@ -43,6 +44,11 @@ export function ChannelSidebar(): React.JSX.Element {
     api.channels.listChannels,
     selectedServerId ? { serverId: selectedServerId } : 'skip'
   )
+  const unreadCounts = useQuery(
+    api.channelReadState.getUnreadCounts,
+    selectedServerId ? { serverId: selectedServerId } : 'skip'
+  )
+  const unreadByChannel = new Map((unreadCounts ?? []).map((u) => [u.channelId, u.unreadCount]))
 
   function handleTextChannelClick(channel: Doc<'channels'>): void {
     setSelectedChannelId(channel._id)
@@ -124,6 +130,7 @@ export function ChannelSidebar(): React.JSX.Element {
                     key={channel._id}
                     channel={channel}
                     isSelected={channel._id === selectedChannelId}
+                    unreadCount={unreadByChannel.get(channel._id) ?? 0}
                     onClick={() => handleTextChannelClick(channel)}
                   />
                 ))}
@@ -170,10 +177,12 @@ export function ChannelSidebar(): React.JSX.Element {
 function TextChannelRow({
   channel,
   isSelected,
+  unreadCount,
   onClick
 }: {
   channel: Doc<'channels'>
   isSelected: boolean
+  unreadCount: number
   onClick: () => void
 }): React.JSX.Element {
   return (
@@ -189,9 +198,11 @@ function TextChannelRow({
     >
       <Hash className="size-4 shrink-0" />
       <span className="flex-1 truncate">{channel.name}</span>
-      {/* Badge de não lidas (F5): channel.unreadCount não existe no modelo
-          real de canal desta fase (é channelReadState) — nada a renderizar
-          aqui até F5. */}
+      {unreadCount > 0 && (
+        <Badge variant="secondary" className="shrink-0">
+          {unreadCount}
+        </Badge>
+      )}
     </button>
   )
 }
