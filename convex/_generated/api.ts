@@ -21,6 +21,7 @@ import type * as members from "../members.js";
 import type * as messages from "../messages.js";
 import type * as presence from "../presence.js";
 import type * as servers from "../servers.js";
+import type * as typing from "../typing.js";
 import type * as users from "../users.js";
 
 /**
@@ -43,6 +44,7 @@ const fullApi: ApiFromModules<{
   messages: typeof messages;
   presence: typeof presence;
   servers: typeof servers;
+  typing: typeof typing;
   users: typeof users;
 }> = anyApi as any;
 
