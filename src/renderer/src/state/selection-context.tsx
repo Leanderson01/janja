@@ -16,6 +16,7 @@ import type { Doc, Id } from '../../../../convex/_generated/dataModel'
 // nunca sincronizado por efeito colateral copiando resultado de query para
 // useState.
 export type SelectionContextValue = {
+  view: 'server' | 'home'
   servers: Doc<'servers'>[] | undefined // undefined = ainda carregando
   selectedServerId: Id<'servers'> | null // null = nenhum servidor (lista vazia)
   setSelectedServerId: (id: Id<'servers'>) => void
@@ -23,14 +24,19 @@ export type SelectionContextValue = {
   setSelectedChannelId: (id: Id<'channels'>) => void
   joinedVoiceChannelId: Id<'channels'> | null
   setJoinedVoiceChannelId: (id: Id<'channels'> | null) => void
+  goHome: () => void
+  selectedDmChannelId: Id<'dmChannels'> | null
+  setSelectedDmChannelId: (id: Id<'dmChannels'> | null) => void
 }
 
 const SelectionContext = createContext<SelectionContextValue | undefined>(undefined)
 
 export function SelectionProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const [manualServerId, setManualServerId] = useState<Id<'servers'> | null>(null)
+  const [view, setView] = useState<'server' | 'home'>('server')
+  const [manualServerId, setManualServerIdState] = useState<Id<'servers'> | null>(null)
   const [manualChannelId, setManualChannelId] = useState<Id<'channels'> | null>(null)
   const [joinedVoiceChannelId, setJoinedVoiceChannelId] = useState<Id<'channels'> | null>(null)
+  const [selectedDmChannelId, setSelectedDmChannelId] = useState<Id<'dmChannels'> | null>(null)
 
   const servers = useQuery(api.servers.listMyServers)
 
@@ -55,20 +61,37 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     return firstText?._id ?? channels[0]?._id ?? null
   }, [channels, manualChannelId])
 
+  // Selecionar qualquer servidor sai do modo Início — mesmo padrão de efeito
+  // colateral único já usado para `setSelectedServerId`/`setManualChannelId`
+  // acima, não dois setters que o chamador precisa lembrar de coordenar.
+  function selectServer(id: Id<'servers'>): void {
+    setManualServerIdState(id)
+    setManualChannelId(null) // força reseleção do 1º canal de texto do novo servidor
+    setView('server')
+  }
+
+  // Entrar no Início sempre volta pro painel de amigos, nunca deixa uma DM
+  // "grudada" de uma visita anterior.
+  function goHome(): void {
+    setView('home')
+    setSelectedDmChannelId(null)
+  }
+
   const value = useMemo<SelectionContextValue>(
     () => ({
+      view,
       servers,
       selectedServerId,
-      setSelectedServerId: (id) => {
-        setManualServerId(id)
-        setManualChannelId(null) // força reseleção do 1º canal de texto do novo servidor
-      },
+      setSelectedServerId: selectServer,
       selectedChannelId,
       setSelectedChannelId: setManualChannelId,
       joinedVoiceChannelId,
-      setJoinedVoiceChannelId
+      setJoinedVoiceChannelId,
+      goHome,
+      selectedDmChannelId,
+      setSelectedDmChannelId
     }),
-    [servers, selectedServerId, selectedChannelId, joinedVoiceChannelId]
+    [view, servers, selectedServerId, selectedChannelId, joinedVoiceChannelId, selectedDmChannelId]
   )
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>
