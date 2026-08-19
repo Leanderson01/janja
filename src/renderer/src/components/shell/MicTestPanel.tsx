@@ -206,8 +206,17 @@ export function MicTestPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
+        {/* Plano 08.5-09: o espaçamento vertical deste painel passou a ser
+            `flex flex-col gap-*` (convenção da fase), no lugar do seletor
+            `> * + *` que a utilidade antiga do Tailwind aplicava.
+            Onde o bloco contém um botão de largura intrínseca, o container
+            leva `items-start`: sem ele o botão passaria a esticar para a
+            largura toda do diálogo, que seria mudança de layout — e esta fase
+            não muda nada do testador de microfone. Parágrafo em `items-start`
+            continua quebrando na largura disponível (`fit-content` é limitado
+            pelo espaço livre), então o texto fica idêntico. */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <span className="text-xs font-medium text-muted-foreground">Microfone</span>
             <Select value={selectedDeviceId} onValueChange={(value) => setSelectedDeviceId(value)}>
               <SelectTrigger className="w-full">
@@ -223,7 +232,7 @@ export function MicTestPanel({
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <span className="text-xs font-medium text-muted-foreground">
               Nível ao vivo — a marca é o limiar do detector de voz
             </span>
@@ -240,7 +249,7 @@ export function MicTestPanel({
             </div>
           </div>
 
-          <div className="space-y-2 border-t border-border pt-4">
+          <div className="flex flex-col items-start gap-2 border-t border-border pt-4">
             <span className="text-xs font-medium text-muted-foreground">
               Teste completo pelo servidor — use fone de ouvido
             </span>
@@ -259,7 +268,7 @@ export function MicTestPanel({
               <p className="text-xs text-muted-foreground">Conectando...</p>
             )}
             {serverTest.status === 'running' && (
-              <div className="space-y-2">
+              <div className="flex flex-col items-start gap-2">
                 <p className="text-sm">Fale agora — você deve se ouvir com um pequeno atraso.</p>
                 <p className="text-xs text-muted-foreground">
                   Caminho ICE: {ICE_PATH_LABEL[serverTest.icePath]}
@@ -275,7 +284,7 @@ export function MicTestPanel({
               </div>
             )}
             {serverTest.status === 'error' && (
-              <div className="space-y-2">
+              <div className="flex flex-col items-start gap-2">
                 <p className="text-xs text-destructive">{serverTest.message}</p>
                 <Button type="button" size="sm" onClick={() => void handleRunServerTest()}>
                   Tentar de novo

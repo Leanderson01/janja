@@ -255,7 +255,12 @@ export function VoiceSettingsPopover({
         <TooltipContent>Configurações de voz</TooltipContent>
       </Tooltip>
 
-      <PopoverContent align="end" className="w-80 space-y-4">
+      {/* Plano 08.5-09: espaçamento vertical por `flex flex-col gap-*`
+          (convenção da fase) no lugar do seletor `> * + *` da utilidade antiga
+          do Tailwind. Todos os blocos abaixo já ocupavam a largura inteira do
+          popover, então o `stretch` padrão do flex reproduz o layout de antes
+          sem nenhum ajuste extra. */}
+      <PopoverContent align="end" className="w-80 flex flex-col gap-4">
         <PopoverHeader>
           <PopoverTitle>Configurações de voz</PopoverTitle>
         </PopoverHeader>
@@ -287,7 +292,7 @@ export function VoiceSettingsPopover({
             compartilhamento — trocar aqui não reinicia a track no ar, só
             muda a qualidade do próximo compartilhamento (ver
             `handleScreenShareQualityChange`). */}
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-muted-foreground">
             Qualidade do compartilhamento de tela
           </span>
@@ -331,7 +336,7 @@ export function VoiceSettingsPopover({
 
         {hasVoiceIntention && (
           <>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <span className="text-xs font-medium text-muted-foreground">Modo de transmissão</span>
               <div className="flex gap-2">
                 <Button
@@ -357,7 +362,7 @@ export function VoiceSettingsPopover({
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <span className="text-xs font-medium text-muted-foreground">
                 Limiar do detector de voz
               </span>
@@ -378,7 +383,7 @@ export function VoiceSettingsPopover({
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <span className="text-xs font-medium text-muted-foreground">Microfone</span>
               <Select
                 value={activeInputId}
@@ -397,7 +402,7 @@ export function VoiceSettingsPopover({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <span className="text-xs font-medium text-muted-foreground">Saída de áudio</span>
               <Select
                 value={activeOutputId}
