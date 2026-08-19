@@ -13,7 +13,7 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 9 em execução (09-01 e 09-02 concluídos)
 Plan: 1 of 5 concluído na Fase 3; 2 of 3 concluídos na Fase 9
 Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) e página de conclusão de login/AUTH-07 (09-02) implementados e verificados no que dá para verificar em WSL2, aguardando o checkpoint humano de 09-03 em Windows (que inclui trocar o redirect URI no dashboard da WorkOS — ver ordem obrigatória em 09-02-SUMMARY.md)
-Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
+Last activity: 2026-08-19 — Executada quick task 001 (deadlock do VAD): Tasks 1 e 2 no código, Task 3 (checkpoint humano em Windows) PENDENTE. Antes: concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
 
 Progress: [█████░░░░░] 56%
 
@@ -103,6 +103,27 @@ diretamente o roadmap:
 
 - [F7/voz] Voz não sai no modo VAD (padrão) — usuário novo fica mudo até trocar
   para push-to-talk. `.planning/todos/pending/2026-08-19-voz-nao-sai-em-modo-vad-no-primeiro-uso.md`
+  **Correção escrita** em `quick/001` (commits `fcecbed`, `a20786a`) — continua em
+  `pending/` de propósito: só sai depois do checkpoint humano em Windows nativo
+  (Task 3 de `.planning/quick/001-corrigir-deadlock-do-vad-microfone-mudo/001-PLAN.md`),
+  que exige duas máquinas. Enquanto isso não passar, o defeito está aberto.
+
+- [quick/001]: o VAD não pode analisar a track que ele mesmo silencia.
+  `LocalTrack.setTrackMuted` do livekit-client 2.22 faz
+  `_mediaStreamTrack.enabled = false`, e track desabilitada entrega SILÊNCIO
+  DIGITAL ao Web Audio — não "menos volume". O `AnalyserNode` passou a ler um
+  `clone()` da track publicada (mesma fonte de captura, `enabled` próprio e
+  independente, nunca publicado), em vez de um segundo `getUserMedia`: não abre
+  dispositivo novo (evita `NotReadableError` em drivers Windows de modo
+  exclusivo), é síncrono e herda `AUDIO_CAPTURE_OPTIONS` da captura original, então
+  VOICE-16 continua satisfeito sem um terceiro call-site. Mesma classe de defeito
+  corrigida no medidor de nível do painel de configurações. Ver
+  `.planning/quick/001-corrigir-deadlock-do-vad-microfone-mudo/001-SUMMARY.md`.
+- [quick/001]: setup de captura é FAIL-OPEN — falha ao instalar o VAD deixa o
+  microfone ABERTO com erro no console, nunca mudo silencioso. Um microfone
+  aberto por engano é constrangedor; um microfone mudo por engano foi o bug.
+  Consequência: o mute do VAD só roda depois de o monitor estar comprovadamente
+  de pé (`startVadMonitor` retorna `boolean`), nunca antes.
 
 ### Blockers/Concerns
 
@@ -142,6 +163,14 @@ diretamente o roadmap:
   ponta a ponta numa máquina Windows nativa — WSL2 não tem `wine`, então a
   etapa de compilação do instalador NSIS (`.exe`) não roda aqui. `--win --dir`
   (sem NSIS) já foi verificado com sucesso neste ambiente. Ver `09-01-SUMMARY.md`.
+- [quick/001] A correção do deadlock do VAD **não está verificada**. WSL2 não tem
+  microfone, Windows nem alto-falante; o que foi provado é `typecheck:web` limpo,
+  173 testes passando, `lint` sem achados novos sobre o baseline, e a revisão por
+  leitura dos 6 caminhos de cleanup do clone. Nada disso prova que a voz sai. O
+  roteiro de 8 passos (perfil limpo, mute manual, PTT→VAD, troca de microfone,
+  medidor, vazamento de microfone, eco) exige Windows nativo e duas máquinas —
+  encaixa na mesma sessão já reservada para 07-08 e 09-03.
+
 - [Processo] **Escrita concorrente em arquivos compartilhados.** Três
   planejadores paralelos editaram `ROADMAP.md` ao mesmo tempo e a entrada da
   Fase 0 foi sobrescrita e perdida — problema independente do incidente acima.
@@ -151,7 +180,9 @@ diretamente o roadmap:
 ## Session Continuity
 
 Last session: 2026-08-19
-Stopped at: Concluído 09-02-pagina-de-conclusao-de-login-PLAN.md (AUTH-07 —
+Stopped at: Quick task 001 (deadlock do VAD) — Tasks 1 e 2 commitadas
+(`fcecbed`, `a20786a`), Task 3 é checkpoint humano em Windows e continua
+PENDENTE. Antes disso: concluído 09-02-pagina-de-conclusao-de-login-PLAN.md (AUTH-07 —
 rota `/auth/complete` no Convex, `redirectUri` da WorkOS migrado para ela,
 crash de módulo em `convex-client.ts` corrigido). Arquivos não commitados
 (NO_GIT no prompt de execução) — orquestrador commita. 173 testes passam,
@@ -160,7 +191,9 @@ crash de módulo em `convex-client.ts` corrigido). Arquivos não commitados
 de teclado no processo main, IPC, VoiceProvider reagindo aos eventos).
 Verificação de "funciona sem foco" continua pendente do Plano 07-08
 (Windows nativo).
-Próximo passo: 09-03 (checkpoint humano em Windows — trocar redirect URI
+Próximo passo: checkpoint humano em Windows da quick/001 (roteiro de 8 passos
+na Task 3 de `.planning/quick/001-corrigir-deadlock-do-vad-microfone-mudo/001-PLAN.md`);
+09-03 (checkpoint humano em Windows — trocar redirect URI
 no dashboard da WorkOS seguindo a ordem obrigatória documentada em
 09-02-SUMMARY.md, testar login de ponta a ponta e o Brave); 07-07 (sons de
 canal) e/ou 07-08 (verificação final humana
