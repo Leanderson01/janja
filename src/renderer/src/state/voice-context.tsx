@@ -384,6 +384,29 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
         if (target !== null) {
           try {
+            // Trava defensiva contra conexão duplicada.
+            //
+            // Um testador produziu um log com DUAS conexões ao LiveKit numa única
+            // entrada: dois tokens distintos, dois `signal connecting`, dois
+            // `connected to LiveKit Server` — e um só `publishing track`. Como as duas
+            // usam a mesma identidade, o SFU derruba a mais antiga, e o áudio funciona
+            // ou não conforme qual sobreviveu. O sintoma relatado foi "do nada começou
+            // a funcionar", assinatura de corrida.
+            //
+            // A fila serializada acima deveria bastar, e na outra máquina bastou. Não
+            // consegui explicar a divergência a partir do log, então esta checagem não
+            // é a correção da causa raiz — é uma barreira no ponto onde o dano
+            // acontece. `room.state` é a verdade do SDK sobre a conexão, não uma
+            // suposição nossa sobre o que a fila garantiu.
+            if (room.state !== ConnectionState.Disconnected) {
+              console.warn(
+                '[voice] conexão já em andamento ou ativa (%s) — ignorando join duplicado',
+                room.state
+              )
+              activeChannelRef.current = target
+              return
+            }
+
             const { token, url } = await joinVoiceChannel({ channelId: target })
             await room.connect(url, token)
             // VOICE-16: cancelamento de eco, supressão de ruído e ganho
