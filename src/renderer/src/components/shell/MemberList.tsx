@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
@@ -31,7 +32,7 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 type ServerMember = FunctionReturnType<typeof api.members.listServerMembers>[number]
 type VoiceParticipant = FunctionReturnType<typeof api.voice.voiceParticipantsByServer>[number]
 
-// Overlay de fala/mute/compartilhamento (anel verde + ícones sobre o
+// Overlay de fala/mute/compartilhamento (anel de `--success` + ícones sobre o
 // avatar): desde o Plano 07-04, `muted` vem sempre de `voiceStates` real
 // (via `voiceParticipantsByServer`) — presente para todo membro em qualquer
 // canal de voz do servidor, esteja o usuário local conectado junto ou não.
@@ -88,11 +89,11 @@ function MemberAvatar({
 
   return (
     <div className="relative shrink-0">
-      <Avatar className={showSpeakingRing ? 'ring-2 ring-green-500' : undefined}>
+      <Avatar className={cn(showSpeakingRing && 'ring-2 ring-success')}>
         <AvatarFallback>{initialsFor(member.username)}</AvatarFallback>
       </Avatar>
       <AvatarBadge
-        className={member.online ? 'bg-green-500' : 'bg-muted-foreground'}
+        className={cn(member.online ? 'bg-success' : 'bg-muted-foreground')}
         aria-label={member.online ? 'online' : 'offline'}
       />
       {voiceState.muted ? (
@@ -107,10 +108,11 @@ function MemberAvatar({
           têm dono (mute em cima à direita, presença online embaixo à direita,
           esta última vinda do `AvatarBadge` do design system) e empilhar dois
           ícones no mesmo canto tornaria os dois ilegíveis num avatar de 32px.
-          Verde porque o estado é ativo/positivo, ao contrário do mute. */}
+          `text-success` porque o estado é ativo/positivo, ao contrário do
+          mute — token semântico, nunca cor direta do Tailwind (08.5-01). */}
       {voiceState.sharing ? (
         <span
-          className="absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-background text-green-500 ring-1 ring-background"
+          className="absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-background text-success ring-1 ring-background"
           aria-label="compartilhando a tela"
         >
           <MonitorUp className="size-2.5" />
