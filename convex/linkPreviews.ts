@@ -141,7 +141,12 @@ export function isBlockedHost(hostname: string): boolean {
   // Nome de rótulo único (`http://intranet/`): na internet pública isso não
   // resolve para nada; numa rede interna, resolve para a própria rede. Não há
   // caso legítimo de link de chat apontando para um deles.
-  if (!host.includes('.')) return true
+  //
+  // A exceção do `:` não é detalhe: um literal IPv6 (`[2606:4700::1111]`) não
+  // tem ponto nenhum, e sem esta ressalva TODO endereço IPv6 público cairia
+  // nesta regra — uma guarda que bloqueia meia internet não é guarda, é bug.
+  // Quem julga IPv6 é `isBlockedIpv6`, acima.
+  if (!host.includes('.') && !host.includes(':')) return true
 
   return false
 }
