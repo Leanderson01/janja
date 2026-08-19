@@ -127,10 +127,17 @@ function ScreenShareTile({ entry }: { entry: ScreenShareTrack }): React.JSX.Elem
 
     const element = entry.track.attach()
     element.className = 'h-full w-full object-contain'
-    // A auto-visualização precisa ser muda mesmo sem track de áudio anexada:
-    // um `<video>` de tela própria com som seria realimentação garantida se
-    // o áudio de sistema um dia passar por aqui.
-    element.muted = entry.isLocal
+    // Nada de mexer em `element.muted` aqui. `attachToElement` do SDK já faz
+    // `element.muted = mediaStream.getAudioTracks().length === 0` — e a
+    // stream de uma track de tela é só vídeo, então o elemento SEMPRE nasce
+    // mudo. Setar `muted = false` por conta própria (a primeira versão deste
+    // efeito fazia isso nas telas remotas) desarma justamente a salvaguarda
+    // que garante o autoplay: elemento com som e sem gesto do usuário é
+    // `NotAllowedError` na política do Chromium, e o sintoma seria "o vídeo
+    // remoto não aparece" — longe da causa. O áudio de sistema do
+    // compartilhamento (SHARE-03) não passa por aqui: é uma track separada
+    // (`ScreenShareAudio`), anexada ao container invisível de áudio do
+    // `voice-context`.
     container.appendChild(element)
 
     return () => {
@@ -143,7 +150,7 @@ function ScreenShareTile({ entry }: { entry: ScreenShareTrack }): React.JSX.Elem
       entry.track.detach(element)
       element.remove()
     }
-  }, [entry.track, entry.isLocal])
+  }, [entry.track])
 
   return (
     <div
