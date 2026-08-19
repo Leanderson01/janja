@@ -355,7 +355,13 @@ describe('friends.listFriends', () => {
     })
 
     const asAna = t.withIdentity({ subject: 'workos_ana' })
-    const friends = await asAna.query(anyApi.friends.listFriends, {})
+    // anyApi devolve `any`, então o retorno precisa de forma explícita aqui —
+    // sem isso o parâmetro do find fica implicitamente any e o typecheck da
+    // raiz (que, ao contrário do convex/tsconfig.json, inclui os testes) falha.
+    const friends: Array<{ userId: Id<'users'>; online: boolean }> = await asAna.query(
+      anyApi.friends.listFriends,
+      {}
+    )
 
     const brunoEntry = friends.find((f) => f.userId === brunoId)
     const carlaEntry = friends.find((f) => f.userId === carlaId)
