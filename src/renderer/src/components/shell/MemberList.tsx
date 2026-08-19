@@ -1,8 +1,16 @@
+import { useState } from 'react'
 import { MicOff, MonitorUp } from 'lucide-react'
-import { useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
+import { toast } from 'sonner'
 
 import { Avatar, AvatarBadge, AvatarFallback } from '@/components/ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -112,18 +120,104 @@ function MemberAvatar({
   )
 }
 
-function MemberRow({
+/** Assinatura mínima da mutation `friends.sendFriendRequest`. A linha recebe a
+ * função por prop em vez de chamar `useMutation` ela mesma porque
+ * `useMutation` exige estar sob um `ConvexProvider` — e a linha precisa ser
+ * montável sozinha em teste (jsdom), sem levantar cliente do Convex junto.
+ * Quem chama `useMutation` de verdade é `MemberList`, uma vez só. */
+export type SendFriendRequest = (args: {
+  username: string
+  tag: string
+}) => Promise<unknown>
+
+/** A mutation lança mensagens legíveis em português ("Usuário não encontrado",
+ * "Você não pode adicionar a si mesmo"), mas o cliente do Convex embrulha isso
+ * num texto de várias linhas com ID de request e stack do servidor. Mostrar o
+ * embrulho inteiro num toast enterraria justamente a frase que interessa, então
+ * extraímos a linha `Uncaught Error: <mensagem>`. Sem casamento, cai no texto
+ * cru — melhor um toast feio do que um toast vazio. */
+function readableConvexError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const match = /Uncaught Error:\s*([^\n]+)/.exec(raw)
+  return (match?.[1] ?? raw).trim()
+}
+
+export function MemberRow({
   member,
-  voiceState
+  voiceState,
+  sendFriendRequest
 }: {
   member: ServerMember
   voiceState: VoiceState
+  sendFriendRequest: SendFriendRequest
 }): React.JSX.Element {
+  // Menu CONTROLADO de propósito (padrão único de menu da fase, Plano
+  // 08.5-02): `context-menu` do Radix não foi instalado, e um segundo
+  // primitivo de menu significaria dois caminhos de teclado para manter. Aqui
+  // o MESMO menu abre por clique/Enter no gatilho e por botão direito na
+  // linha. Custo aceito e registrado: o menu ancora na linha, não na posição
+  // do cursor.
+  const [open, setOpen] = useState(false)
+  const identifier = `${member.username}#${member.tag}`
+
+  async function handleCopyIdentifier(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(identifier)
+      toast.success('Identificador copiado')
+    } catch {
+      toast.error('Não foi possível copiar o identificador')
+    }
+  }
+
+  async function handleSendFriendRequest(): Promise<void> {
+    try {
+      await sendFriendRequest({ username: member.username, tag: member.tag })
+      toast.success('Pedido de amizade enviado')
+    } catch (err) {
+      toast.error(readableConvexError(err))
+    }
+  }
+
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent/50">
-      <MemberAvatar member={member} voiceState={voiceState} />
-      <MemberName username={member.username} tag={member.tag} />
-    </div>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>
+        {/* Era um `<div>` até o Plano 08.5-04: linha com menu e sem semântica
+            de botão é inalcançável por Tab, o defeito de acessibilidade
+            clássico. Como `<button>`, a linha entra na ordem de tabulação, o
+            Radix já liga Enter/Espaço ao menu e o anel de foco do tema
+            (`--ring`, Plano 08.5-01) aparece sem CSS extra. */}
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent/50"
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setOpen(true)
+          }}
+        >
+          <MemberAvatar member={member} voiceState={voiceState} />
+          <MemberName username={member.username} tag={member.tag} />
+        </button>
+      </DropdownMenuTrigger>
+      {/* SÓ ações que já existem no backend hoje. Fora, por decisão explícita:
+          - "Enviar mensagem direta": `dms.getOrCreateDmChannel` exige amizade e
+            falharia para a maioria dos membros da lista;
+          - expulsar/silenciar/gerenciar cargo: não existe mutation, e criá-la
+            seria reescrever a autorização do backend — fora desta fase. */}
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem onSelect={() => void handleCopyIdentifier()}>
+          Copiar identificador
+        </DropdownMenuItem>
+        {/* O item aparece para TODO mundo, inclusive para você mesmo e para
+            quem já é seu amigo: `listServerMembers` não devolve amizade nem
+            identidade do chamador, e descobrir isso exigiria query nova. A
+            mutation já responde "Você não pode adicionar a si mesmo" / "Vocês
+            já são amigos" em português, e esse erro vira toast — o que é mais
+            claro do que um item que some sem explicação. */}
+        <DropdownMenuItem onSelect={() => void handleSendFriendRequest()}>
+          Adicionar amigo
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -133,6 +227,7 @@ function MemberGroup({
   voiceStateByUserId,
   joinedVoiceChannelId,
   speakingUserIds,
+  sendFriendRequest,
   dimmed = false
 }: {
   label: string
@@ -140,6 +235,7 @@ function MemberGroup({
   voiceStateByUserId: Map<Id<'users'>, VoiceParticipant>
   joinedVoiceChannelId: Id<'channels'> | null
   speakingUserIds: Set<string>
+  sendFriendRequest: SendFriendRequest
   dimmed?: boolean
 }): React.JSX.Element {
   return (
@@ -156,6 +252,7 @@ function MemberGroup({
               joinedVoiceChannelId,
               speakingUserIds
             )}
+            sendFriendRequest={sendFriendRequest}
           />
         ))}
       </div>
@@ -166,6 +263,9 @@ function MemberGroup({
 export function MemberList(): React.JSX.Element {
   const { selectedServerId, joinedVoiceChannelId } = useSelection()
   const { speakingUserIds } = useVoice()
+  // Uma única assinatura de mutation para a lista inteira, repassada às linhas
+  // (ver `SendFriendRequest` acima).
+  const sendFriendRequest = useMutation(api.friends.sendFriendRequest)
 
   const members = useQuery(
     api.members.listServerMembers,
@@ -191,6 +291,7 @@ export function MemberList(): React.JSX.Element {
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
               speakingUserIds={speakingUserIds}
+              sendFriendRequest={sendFriendRequest}
             />
           ) : null}
           {offlineMembers.length > 0 ? (
@@ -200,6 +301,7 @@ export function MemberList(): React.JSX.Element {
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
               speakingUserIds={speakingUserIds}
+              sendFriendRequest={sendFriendRequest}
               dimmed
             />
           ) : null}
