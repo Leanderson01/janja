@@ -10,6 +10,7 @@ import {
 import { handleCallback, getUser } from './auth/auth'
 import { setupAuthIpcHandlers, notifyAuthChange } from './auth/ipc-handlers'
 import { startPttHook, setPttModeActive, stopPttHook } from './voice/ptt'
+import { registerScreenShareHandler } from './screenshare'
 import { VOICE_CHANNELS } from './voice/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -157,6 +158,13 @@ if (!gotTheLock) {
 
     // IPC test
     ipcMain.on('ping', () => console.log('pong'))
+
+    // Plano 08-02 (SHARE-01): handler de captura de tela/áudio de sistema.
+    // Aqui dentro do `whenReady` de propósito — `session.defaultSession` não
+    // existe antes disso. Registrado uma única vez, no boot: chamar de novo
+    // substituiria o handler anterior sem avisar (ver src/main/screenshare.ts).
+    // Independe de janela: quem dispara é o renderer, via `getDisplayMedia`.
+    registerScreenShareHandler()
 
     createWindow()
 
