@@ -288,8 +288,8 @@ VOICE-15, VOICE-16, VOICE-17
 **Plans**: 9 plans
 
 Plans:
-- [ ] 07-00 — Credenciais do LiveKit no Convex (checkpoint humano)
-- [ ] 07-01 — Schema voiceStates + join/leave/mute/deafen com autorização (TDD)
+- [x] 07-00 — Credenciais do LiveKit no Convex (checkpoint humano)
+- [x] 07-01 — Schema voiceStates + join/leave/mute/deafen com autorização (TDD)
 - [ ] 07-02 — Webhook de reconciliação — o antídoto do usuário-fantasma (TDD)
 - [ ] 07-03 — Conexão real do cliente LiveKit
 - [ ] 07-04 — Presença de participantes, indicador de fala e qualidade de conexão
@@ -391,7 +391,7 @@ implementadores distintos).
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
 | 5. Chat em tempo real | 4/6 | In progress | - |
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
-| 7. Voz | 0/9 | In progress | - |
+| 7. Voz | 2/9 | In progress | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
