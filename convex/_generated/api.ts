@@ -10,6 +10,7 @@
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 import { anyApi } from "convex/server";
+import type * as channelReadState from "../channelReadState.js";
 import type * as channels from "../channels.js";
 import type * as dms from "../dms.js";
 import type * as friends from "../friends.js";
@@ -33,6 +34,7 @@ import type * as users from "../users.js";
  * ```
  */
 const fullApi: ApiFromModules<{
+  channelReadState: typeof channelReadState;
   channels: typeof channels;
   dms: typeof dms;
   friends: typeof friends;
