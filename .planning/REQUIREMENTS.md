@@ -70,6 +70,8 @@
 - [ ] **VOICE-15**: Usuário vê indicador de qualidade de conexão por participante
 - [ ] **VOICE-16**: Cancelamento de eco e supressão de ruído ativos na captura do microfone
 - [ ] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
+- [ ] **VOICE-21**: Usuário testa o próprio microfone sozinho, vendo o nível de entrada e ouvindo a própria voz de volta
+- [ ] **VOICE-22**: O teste tem um modo que passa pelo servidor, provando a corrente completa sem depender de outra pessoa
 
 ### Compartilhamento de tela
 
@@ -184,6 +186,8 @@
 | VOICE-15 | Fase 7 | Pendente |
 | VOICE-16 | Fase 7 | Pendente |
 | VOICE-17 | Fase 7 | Pendente |
+| VOICE-21 | Fase 7 | Pendente |
+| VOICE-22 | Fase 7 | Pendente |
 | SHARE-01 | Fase 8 | Pendente |
 | SHARE-02 | Fase 8 | Pendente |
 | SHARE-03 | Fase 8 | Pendente |
@@ -198,8 +202,8 @@
 | APP-04 | Fase 0 | Pendente |
 
 **Coverage:**
-- v1 requirements: 60 total
-- Mapped to phases: 60
+- v1 requirements: 62 total
+- Mapped to phases: 62
 - Unmapped: 0 ✓
 
 ---

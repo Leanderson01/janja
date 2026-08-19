@@ -296,6 +296,7 @@ Plans:
 - [ ] 07-05 — VAD, seleção de dispositivo e preferências persistentes
 - [ ] 07-06 — Push-to-talk com uiohook-napi (módulo nativo)
 - [ ] 07-07 — Sons de entrada e saída de canal
+- [ ] 07-09 — Testador de microfone: nível de entrada, retorno local e volta pelo servidor
 - [ ] 07-08 — Verificação final no Windows com 10 pessoas (checkpoint)
 
 **Nota de dependência cruzada**: push-to-talk (VOICE-11) exige o módulo nativo
@@ -391,7 +392,7 @@ implementadores distintos).
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
 | 5. Chat em tempo real | 4/6 | In progress | - |
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
-| 7. Voz | 2/9 | In progress | - |
+| 7. Voz | 3/10 | In progress | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
