@@ -3,7 +3,7 @@ import type { TestConvex } from 'convex-test'
 import { anyApi } from 'convex/server'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import schema from './schema'
-import { isBlockedHost, PREVIEW_TTL_MS } from './linkPreviews'
+import { isBlockedHost, MAX_REDIRECT_HOPS, PREVIEW_TTL_MS } from './linkPreviews'
 import type { Mock } from 'vitest'
 import type { Doc, Id } from './_generated/dataModel'
 
@@ -43,7 +43,7 @@ async function insertUser(t: T): Promise<Id<'users'>> {
       workosId: WORKOS_ID,
       username: 'ana',
       tag: '0001',
-      displayName: 'Ana',
+      displayName: 'Ana'
     })
   )
 }
@@ -67,6 +67,16 @@ const PAGE = `<html><head>
   <meta property="og:description" content="Descrição do site">
   <meta property="og:image" content="/capa.png">
 </head><body></body></html>`
+
+/** 3xx com `Location`. `Response.redirect()` não serve aqui: ele exige URL
+ * absoluta e recusa status fora da lista de redirect, e os testes abaixo
+ * precisam justamente dos casos torto (Location relativo, sem Location). */
+function redirectResponse(location: string | null, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: location === null ? {} : { location }
+  })
+}
 
 function stubFetch(impl: (input: unknown, init?: unknown) => Promise<Response>): Mock {
   const spy = vi.fn(impl)
@@ -99,7 +109,7 @@ describe('isBlockedHost', () => {
     '[fd12:3456::1]',
     '[fe80::1]',
     '[::ffff:127.0.0.1]',
-    '[::ffff:7f00:1]',
+    '[::ffff:7f00:1]'
   ])('bloqueia %s', (host) => {
     expect(isBlockedHost(host)).toBe(true)
   })
@@ -112,7 +122,7 @@ describe('isBlockedHost', () => {
     '172.32.0.1',
     '192.169.0.1',
     'localhost.exemplo.com',
-    '[2606:4700:4700::1111]',
+    '[2606:4700:4700::1111]'
   ])('permite %s', (host) => {
     expect(isBlockedHost(host)).toBe(false)
   })
@@ -138,7 +148,7 @@ describe('fetchPreview — guardas antes da rede', () => {
     'http://192.168.0.1/roteador',
     'http://169.254.169.254/latest/meta-data/',
     'http://[::1]:8080/',
-    'http://10.0.0.5/',
+    'http://10.0.0.5/'
   ])('destino privado (%s): grava failed e NÃO chama fetch', async (url) => {
     const t = convexTest(schema, modules)
     const asAna = t.withIdentity({ subject: WORKOS_ID })
@@ -177,7 +187,7 @@ describe('fetchPreview — cache', () => {
       title: 'Título do site',
       description: 'Descrição do site',
       imageUrl: 'https://exemplo.com/capa.png',
-      siteName: 'exemplo.com',
+      siteName: 'exemplo.com'
     })
     expect(row?.fetchedAt).toBeGreaterThan(0)
   })
@@ -191,7 +201,10 @@ describe('fetchPreview — cache', () => {
 
     const init = spy.mock.calls[0][1] as RequestInit
     expect(init.signal).toBeInstanceOf(AbortSignal)
-    expect(init.redirect).toBe('follow')
+    // 'manual' é o que torna a guarda de destino privado real: com 'follow' o
+    // `fetch` seguiria a cadeia por dentro e só a primeira URL teria sido
+    // validada. Ver `fetchValidatingEachHop`.
+    expect(init.redirect).toBe('manual')
     expect((init.headers as Record<string, string>)['user-agent']).toBe('janja-link-preview/1.0')
   })
 
@@ -204,7 +217,7 @@ describe('fetchPreview — cache', () => {
         url,
         status: 'ok',
         title: 'Já buscado',
-        fetchedAt: Date.now(),
+        fetchedAt: Date.now()
       })
     )
     const spy = stubFetch(async () => htmlResponse(PAGE))
@@ -237,7 +250,7 @@ describe('fetchPreview — cache', () => {
       ctx.db.insert('linkPreviews', {
         url,
         status: 'failed',
-        fetchedAt: Date.now() - PREVIEW_TTL_MS - 1,
+        fetchedAt: Date.now() - PREVIEW_TTL_MS - 1
       })
     )
     const spy = stubFetch(async () => htmlResponse(PAGE))
@@ -260,7 +273,7 @@ describe('fetchPreview — cache', () => {
         status: 'ok',
         title: 'Título antigo',
         description: 'Descrição antiga',
-        fetchedAt: Date.now() - PREVIEW_TTL_MS - 1,
+        fetchedAt: Date.now() - PREVIEW_TTL_MS - 1
       })
     )
     stubFetch(async () => new Response('erro', { status: 500 }))
@@ -323,8 +336,8 @@ describe('fetchPreview — respostas ruins viram cache de falha, nunca exceção
           status: 200,
           headers: {
             'content-type': 'text/html',
-            'content-length': String(2 * 1024 * 1024),
-          },
+            'content-length': String(2 * 1024 * 1024)
+          }
         })
     )
 
@@ -373,7 +386,7 @@ describe('getPreview', () => {
     const spy = stubFetch(async () => htmlResponse(PAGE))
 
     const result = await asAna.query(anyApi.linkPreviews.getPreview, {
-      url: 'https://exemplo.com/',
+      url: 'https://exemplo.com/'
     })
 
     expect(result).toBeNull()
@@ -401,4 +414,102 @@ describe('getPreview', () => {
   // `internalMutation` vinda de cliente é o servidor do Convex, e isso só se
   // observa depois do push (Plano 08.5-17). A proteção existe no código (o
   // export é `internalMutation`, nunca `mutation`); o que falta é a prova.
+})
+
+describe('fetchPreview — redirects validados a cada salto', () => {
+  test('segue redirect para destino público e usa a página final', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async (input) =>
+      String(input) === 'https://encurtador.com/x'
+        ? redirectResponse('https://exemplo.com/artigo')
+        : htmlResponse(PAGE)
+    )
+    const url = 'https://encurtador.com/x'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    expect(spy).toHaveBeenCalledTimes(2)
+    expect((await readCache(t, url))?.status).toBe('ok')
+  })
+
+  // O caso que motivou a mudança: a URL colada é pública e passa na guarda, e o
+  // destino privado só aparece no salto seguinte.
+  test('recusa redirect de host público para endereço privado', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async () => redirectResponse('http://127.0.0.1/admin'))
+    const url = 'https://armadilha.com/x'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    // Uma chamada só: a do host público. O destino privado NUNCA é buscado.
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect((await readCache(t, url))?.status).toBe('failed')
+  })
+
+  test('recusa redirect para faixa interna de metadata da nuvem', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async () => redirectResponse('http://169.254.169.254/latest/meta-data/'))
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url: 'https://armadilha.com/y' })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  test('resolve Location relativo contra a URL atual', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async (input) =>
+      String(input) === 'https://exemplo.com/velho'
+        ? redirectResponse('/artigo')
+        : htmlResponse(PAGE)
+    )
+    const url = 'https://exemplo.com/velho'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    expect(spy.mock.calls[1][0]).toBe('https://exemplo.com/artigo')
+    expect((await readCache(t, url))?.status).toBe('ok')
+  })
+
+  test('recusa Location com esquema não-HTTP', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async () => redirectResponse('file:///etc/passwd'))
+    const url = 'https://armadilha.com/z'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect((await readCache(t, url))?.status).toBe('failed')
+  })
+
+  test('desiste depois do teto de saltos, em vez de girar para sempre', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    // Laço: cada resposta manda para a próxima URL, sempre pública.
+    const spy = stubFetch(async (input) => redirectResponse(`${String(input)}/mais`))
+    const url = 'https://exemplo.com/laco'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(MAX_REDIRECT_HOPS + 1)
+    expect((await readCache(t, url))?.status).toBe('failed')
+  })
+
+  // 3xx sem `Location` é resposta quebrada, não redirect: vira falha comum, e
+  // não pode virar laço nem exceção.
+  test('trata 3xx sem Location como resposta final', async () => {
+    const t = convexTest(schema, modules)
+    const asAna = t.withIdentity({ subject: WORKOS_ID })
+    const spy = stubFetch(async () => redirectResponse(null))
+    const url = 'https://exemplo.com/quebrado'
+
+    await asAna.action(anyApi.linkPreviews.fetchPreview, { url })
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect((await readCache(t, url))?.status).toBe('failed')
+  })
 })

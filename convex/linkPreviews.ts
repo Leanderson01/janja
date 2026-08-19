@@ -176,7 +176,7 @@ export const getPreview = query({
       .query('linkPreviews')
       .withIndex('by_url', (q) => q.eq('url', url))
       .first()
-  },
+  }
 })
 
 /** Mesma leitura, sem exigir identidade — para a action consultar o cache antes
@@ -189,7 +189,7 @@ export const getCachedPreview = internalQuery({
       .query('linkPreviews')
       .withIndex('by_url', (q) => q.eq('url', url))
       .first()
-  },
+  }
 })
 
 /** Grava ou atualiza a linha de cache. Chamada só pela action — é
@@ -203,7 +203,7 @@ export const cachePreview = internalMutation({
     title: v.optional(v.string()),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
-    siteName: v.optional(v.string()),
+    siteName: v.optional(v.string())
   },
   handler: async (ctx, args): Promise<null> => {
     const existing = await ctx.db
@@ -218,7 +218,7 @@ export const cachePreview = internalMutation({
       description: args.description,
       imageUrl: args.imageUrl,
       siteName: args.siteName,
-      fetchedAt: Date.now(),
+      fetchedAt: Date.now()
     }
 
     if (existing) {
@@ -230,7 +230,7 @@ export const cachePreview = internalMutation({
       await ctx.db.insert('linkPreviews', row)
     }
     return null
-  },
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -246,6 +246,69 @@ export const cachePreview = internalMutation({
  * Fallback para `res.text()` quando `res.body` não é um stream legível (não
  * acontece no runtime do Convex nem sob o vitest, mas o tipo permite `null`).
  */
+/** Quantos redirects seguimos antes de desistir. Encurtador de link legítimo
+ * gasta 1 ou 2 saltos; cadeia mais longa que isso é sinal de armadilha ou de
+ * laço, e nos dois casos parar é a resposta certa. */
+export const MAX_REDIRECT_HOPS = 3
+
+/**
+ * `fetch` com `redirect: 'manual'`, revalidando o destino a CADA salto.
+ *
+ * Com `redirect: 'follow'`, a checagem de `isBlockedHost` só valeria para a URL
+ * que o usuário colou: um site público que responde 302 para `http://127.0.0.1`
+ * ou para o endereço de metadata da nuvem levaria o servidor junto, e a guarda
+ * de destino privado viraria decoração. Quem valida só a primeira URL de uma
+ * cadeia de redirects não validou nada — validou a fachada.
+ *
+ * Devolve `null` quando a cadeia é recusada (destino privado, esquema não-HTTP,
+ * `Location` ausente ou ilegível, saltos demais). Quem chama trata `null` como
+ * falha comum e grava em cache, sem distinguir o motivo: um atacante que
+ * descobre POR QUE foi recusado aprende sobre a rede interna.
+ *
+ * Limitação residual que continua de pé e é honesto repetir: rebind por DNS.
+ * Validamos o hostname, e a resolução acontece dentro do `fetch` — um domínio
+ * que responde IP público na checagem e IP privado no acesso passa. Fechar isso
+ * exigiria resolver o nome nós mesmos e conectar pelo IP, o que o runtime não
+ * expõe.
+ */
+async function fetchValidatingEachHop(startUrl: string): Promise<Response | null> {
+  let current = startUrl
+
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    const res = await fetch(current, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      redirect: 'manual',
+      headers: {
+        'user-agent': 'janja-link-preview/1.0',
+        accept: 'text/html'
+      }
+    })
+
+    // 3xx com `Location` é a única coisa que continua o laço. Qualquer outra
+    // resposta — inclusive um 3xx sem `Location`, que é resposta quebrada — vai
+    // para quem chamou decidir.
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null
+    if (location === null) return res
+
+    let next: URL
+    try {
+      // `Location` relativo é legal e comum (`/pagina`), então resolvemos contra
+      // a URL atual em vez de exigir absoluto.
+      next = new URL(location, current)
+    } catch {
+      return null
+    }
+
+    if (next.protocol !== 'http:' && next.protocol !== 'https:') return null
+    if (isBlockedHost(next.hostname)) return null
+
+    current = next.toString()
+  }
+
+  // Saiu do laço = excedeu o teto de saltos.
+  return null
+}
+
 async function readCapped(res: Response, maxBytes: number): Promise<string> {
   const body = res.body
   if (!body) return (await res.text()).slice(0, maxBytes)
@@ -313,14 +376,8 @@ export const fetchPreview = action({
       const cached = await ctx.runQuery(internal.linkPreviews.getCachedPreview, { url })
       if (cached && Date.now() - cached.fetchedAt < PREVIEW_TTL_MS) return null
 
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        redirect: 'follow',
-        headers: {
-          'user-agent': 'janja-link-preview/1.0',
-          accept: 'text/html',
-        },
-      })
+      const res = await fetchValidatingEachHop(url)
+      if (res === null) return await fail()
 
       if (!res.ok) return await fail()
 
@@ -348,7 +405,7 @@ export const fetchPreview = action({
         title: preview.title,
         description: preview.description,
         imageUrl: preview.imageUrl,
-        siteName: preview.siteName,
+        siteName: preview.siteName
       })
       return null
     } catch {
@@ -363,5 +420,5 @@ export const fetchPreview = action({
       }
       return null
     }
-  },
+  }
 })
