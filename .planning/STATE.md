@@ -134,3 +134,23 @@ webhook de reconciliação do LiveKit.
 
 **Alocado à Fase 9** (polimento), não à Fase 2: é melhoria de acabamento, não
 bloqueia nenhum fluxo, e a Fase 2 já cumpre AUTH-01..06.
+
+## Marco — 2026-08-19: voz provada ponta a ponta
+
+O teste de ida e volta pelo servidor funcionou na máquina do Leo. Áudio saiu do
+microfone, foi assinado por token do Convex, atravessou o SFU na VPS e voltou audível.
+
+Isso prova a corrente inteira sem depender de uma segunda pessoa: autenticação →
+autorização por participação → assinatura de token → conexão WebRTC → SFU self-hosted →
+retorno. Era o risco central do projeto, e o motivo pelo qual a Fase 1 veio antes de
+qualquer código de produto.
+
+Verificado junto na mesma rodada: `CHAT-14` (posição inicial do scroll) e `VOICE-21`
+(medidor de nível).
+
+**Decisão do Leo:** remover a gravação/reprodução local do testador. O teste pelo
+servidor faz tudo que ela fazia e prova mais. O medidor de nível fica — é o que torna o
+slider de sensibilidade do VAD utilizável, e funciona sem rede.
+
+**O que continua não provado:** duas pessoas se ouvindo. O testador prova que o caminho
+existe e funciona; não prova que dois participantes distintos trocam áudio. Fase 07-08.

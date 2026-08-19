@@ -39,7 +39,7 @@
 - [ ] **CHAT-03**: Usuário rola para cima e carrega histórico mais antigo sem a lista "pular"
 - [ ] **CHAT-04**: Mensagem nova não rouba o scroll de quem está lendo histórico; aparece aviso de nova mensagem
 - [ ] **CHAT-05**: Ao reabrir um canal, usuário vê divisor marcando a primeira mensagem não lida
-- [ ] **CHAT-14**: Ao abrir um canal, o scroll posiciona na primeira mensagem não lida — ou no fim da conversa, se tudo já foi lido
+- [x] **CHAT-14**: Ao abrir um canal, o scroll posiciona na primeira mensagem não lida — ou no fim da conversa, se tudo já foi lido
 - [ ] **CHAT-06**: Sidebar mostra badge de contagem de não lidas por canal
 - [ ] **CHAT-07**: Usuário vê indicação de quem está digitando, que expira sozinha
 
@@ -71,8 +71,8 @@
 - [ ] **VOICE-15**: Usuário vê indicador de qualidade de conexão por participante
 - [ ] **VOICE-16**: Cancelamento de eco e supressão de ruído ativos na captura do microfone
 - [ ] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
-- [ ] **VOICE-21**: Usuário testa o próprio microfone sozinho, vendo o nível de entrada e ouvindo a própria voz de volta
-- [ ] **VOICE-22**: O teste tem um modo que passa pelo servidor, provando a corrente completa sem depender de outra pessoa
+- [x] **VOICE-21**: Usuário vê o nível do próprio microfone em tempo real, com a marca do limiar do VAD
+- [x] **VOICE-22**: O teste passa pelo servidor, provando a corrente completa sem depender de outra pessoa
 
 ### Compartilhamento de tela
 
@@ -162,7 +162,7 @@
 | CHAT-03 | Fase 5 | Pendente |
 | CHAT-04 | Fase 5 | Pendente |
 | CHAT-05 | Fase 5 | Pendente |
-| CHAT-14 | Fase 5 | Pendente |
+| CHAT-14 | Fase 5 | Verificado 2026-08-19 |
 | CHAT-06 | Fase 5 | Pendente |
 | CHAT-07 | Fase 5 | Pendente |
 | SOCIAL-01 | Fase 6 | Pendente |
@@ -188,8 +188,8 @@
 | VOICE-15 | Fase 7 | Pendente |
 | VOICE-16 | Fase 7 | Pendente |
 | VOICE-17 | Fase 7 | Pendente |
-| VOICE-21 | Fase 7 | Pendente |
-| VOICE-22 | Fase 7 | Pendente |
+| VOICE-21 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-22 | Fase 7 | Verificado 2026-08-19 |
 | SHARE-01 | Fase 8 | Pendente |
 | SHARE-02 | Fase 8 | Pendente |
 | SHARE-03 | Fase 8 | Pendente |
