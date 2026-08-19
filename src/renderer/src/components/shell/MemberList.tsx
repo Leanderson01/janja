@@ -15,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
+import { readableConvexError } from '@/lib/convex-error'
 
 import { MemberName } from './MemberName'
 import { MemberSectionHeader } from './MemberSectionHeader'
@@ -127,22 +128,7 @@ function MemberAvatar({
  * `useMutation` exige estar sob um `ConvexProvider` — e a linha precisa ser
  * montável sozinha em teste (jsdom), sem levantar cliente do Convex junto.
  * Quem chama `useMutation` de verdade é `MemberList`, uma vez só. */
-export type SendFriendRequest = (args: {
-  username: string
-  tag: string
-}) => Promise<unknown>
-
-/** A mutation lança mensagens legíveis em português ("Usuário não encontrado",
- * "Você não pode adicionar a si mesmo"), mas o cliente do Convex embrulha isso
- * num texto de várias linhas com ID de request e stack do servidor. Mostrar o
- * embrulho inteiro num toast enterraria justamente a frase que interessa, então
- * extraímos a linha `Uncaught Error: <mensagem>`. Sem casamento, cai no texto
- * cru — melhor um toast feio do que um toast vazio. */
-function readableConvexError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err)
-  const match = /Uncaught Error:\s*([^\n]+)/.exec(raw)
-  return (match?.[1] ?? raw).trim()
-}
+export type SendFriendRequest = (args: { username: string; tag: string }) => Promise<unknown>
 
 export function MemberRow({
   member,

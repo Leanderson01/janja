@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { parseUserTag } from '@/lib/user-tag'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
+import { readableConvexError } from '@/lib/convex-error'
 
 import { api } from '../../../../../convex/_generated/api'
 
@@ -102,8 +103,11 @@ function MyIdentifierBadge({
 // Ela vira a *descrição* do toast, nunca o título: o título diz o que falhou em
 // português, a descrição preserva o que a UI antiga mostrava inline e é o que
 // ainda serve para depurar.
+// Antes devolvia `err.message` cru — o que colocava o ID de request e o stack do
+// servidor na `description` de cinco toasts, enterrando a frase em português que a
+// mutation escreveu para o usuário. Ver `lib/convex-error.ts`.
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return readableConvexError(err)
 }
 
 function FriendRow({
