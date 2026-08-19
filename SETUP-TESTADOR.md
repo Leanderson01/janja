@@ -81,6 +81,7 @@ erro. O app não tem permissão de fechar aba que não abriu.
 | `Error: Electron uninstall` | Rode `node node_modules/electron/install.js` |
 | Login trava escolhendo a conta | Você está no Brave. Use Chrome ou Edge |
 | Abre mas não aparece servidor nenhum | Normal na primeira vez — peça um convite ao Leo |
+| Entra no canal de voz mas ninguém se ouve | O app já restringe o WebRTC à interface da rota padrão. Se persistir, mande o log — pode ser porta bloqueada na sua rede |
 
 Se travar em outra coisa: abra o DevTools com `Ctrl+Shift+I`, aba **Console**, e mande o
 texto em vermelho para o Leo.

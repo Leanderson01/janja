@@ -55,6 +55,22 @@ function createWindow(): void {
 // lost. The lock must be requested before any window is created, and the
 // `second-instance` handler must be registered before `app.whenReady()`
 // resolves.
+// Restringe a coleta de candidatos ICE à interface da rota padrão.
+//
+// Sem isto, o Chromium enumera TODAS as interfaces de rede para montar candidatos —
+// incluindo adaptadores virtuais de VPN, VMware, VirtualBox, Hyper-V, Docker Desktop e
+// WSL, que existem em quase toda máquina de quem mexe com desenvolvimento. Um adaptador
+// que não roteia envenena a coleta: o log mostra falha de resolução de nome e timeout de
+// STUN a partir de um IP que não é o da rede real, e a mídia nunca conecta.
+//
+// Aconteceu com um testador: DNS resolvia, as portas 5349 e 7881 respondiam pela Wi-Fi
+// (192.168.x), e o WebRTC insistia em tentar por uma interface 172.16.x que não levava a
+// lugar nenhum. Sinalização funcionava, áudio não.
+//
+// `default_public_interface_only` mantém a interface da rota padrão — a Wi-Fi, no caso —
+// e descarta as outras. Não é medida de privacidade aqui, é de conectividade.
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_interface_only')
+
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
