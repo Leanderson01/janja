@@ -10,10 +10,10 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído)
-Plan: 1 of 5 concluído na Fase 3
-Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08)
-Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08)
+Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 9 em execução (09-01 concluído)
+Plan: 1 of 5 concluído na Fase 3; 1 of 3 concluído na Fase 9
+Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) corrigido e verificado no que dá para verificar em WSL2, aguardando 09-02 e o checkpoint humano de 09-03 em Windows
+Last activity: 2026-08-19 — Concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md
 
 Progress: [█████░░░░░] 55%
 
@@ -64,6 +64,23 @@ diretamente o roadmap:
   modo VAD (o padrão). Extensão sobre o desenho original de
   `07-RESEARCH.md §7` (que previa o hook sempre rodando). Ver
   `07-06-SUMMARY.md`.
+- [09-01]: `electron-builder install-app-deps` (usado no `postinstall`) quebra
+  `npm install` em qualquer máquina sem toolchain C/C++ completo — achado novo,
+  confirmado rodando o comando de verdade: `@electron/rebuild` não reconhece o
+  nome de arquivo que `uiohook-napi` usa para seus prebuilds
+  (`uiohook-napi.node`, não `node.napi.node`), então tenta recompilar via
+  `node-gyp` e falha. `npmRebuild: false` no `electron-builder.yml` não evita
+  isso (só é lido pelo pipeline de empacotamento real, não pelo comando
+  standalone de postinstall). Isolado num wrapper
+  (`scripts/postinstall-rebuild.mjs`) que nunca deixa essa falha abortar o
+  `npm install`. Ver `09-01-SUMMARY.md`.
+- [09-01]: confirmado por build real gerado em WSL2 (`electron-builder --win
+  --dir`) que `uiohook-napi` sai do asar corretamente
+  (`app.asar.unpacked/node_modules/uiohook-napi/prebuilds/win32-x64/
+  uiohook-napi.node`, verificado com `asar list`/`asar extract-file`). O
+  instalador NSIS completo (`.exe`) não roda em WSL2 por falta de `wine`
+  (`spawn wine ENOENT`) — limitação de ambiente conhecida, prova final fica
+  para o checkpoint humano do Plano 09-03.
 
 ### Pending Todos
 
@@ -103,6 +120,10 @@ Nenhum ainda.
   4. `git push` a cada commit de planejamento, não em lote — foi o push
      antecipado que salvou o projeto.
 
+- [F9] `build:win` (o comando que gera o instalador Windows) só é testável de
+  ponta a ponta numa máquina Windows nativa — WSL2 não tem `wine`, então a
+  etapa de compilação do instalador NSIS (`.exe`) não roda aqui. `--win --dir`
+  (sem NSIS) já foi verificado com sucesso neste ambiente. Ver `09-01-SUMMARY.md`.
 - [Processo] **Escrita concorrente em arquivos compartilhados.** Três
   planejadores paralelos editaram `ROADMAP.md` ao mesmo tempo e a entrada da
   Fase 0 foi sobrescrita e perdida — problema independente do incidente acima.

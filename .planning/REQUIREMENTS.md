@@ -57,14 +57,14 @@
 - [x] **VOICE-01**: Usuário entra num canal de voz e ouve os outros participantes
 - [ ] **VOICE-02**: Dez pessoas permanecem no mesmo canal com áudio estável
 - [x] **VOICE-03**: Usuário sai do canal de voz
-- [ ] **VOICE-04**: Usuário que perde conexão ou fecha o app à força desaparece do canal para os outros
+- [x] **VOICE-04**: Usuário que perde conexão ou fecha o app à força desaparece do canal para os outros
 - [x] **VOICE-05**: Sidebar mostra quem está em cada canal de voz, mesmo para quem não entrou
 - [x] **VOICE-06**: Usuário muta e desmuta o próprio microfone, e os outros veem o ícone
 - [x] **VOICE-07**: Usuário ensurdece e desensurdece; ensurdecer também muta
 - [x] **VOICE-08**: Avatar de quem está falando é destacado, sem piscar em micropausas
 - [x] **VOICE-09**: Usuário escolhe entre transmissão por detecção de voz e push-to-talk
 - [x] **VOICE-10**: Usuário ajusta o limiar de sensibilidade da detecção de voz
-- [ ] **VOICE-11**: Push-to-talk funciona com o app sem foco
+- [x] **VOICE-11**: Push-to-talk funciona com o app sem foco
 - [x] **VOICE-12**: Preferência de transmissão persiste entre reinícios
 - [x] **VOICE-13**: Usuário escolhe qual microfone e qual saída de áudio usar, com troca sem reconectar
 - [x] **VOICE-14**: Usuário vê o estado da própria conexão de voz (conectando, conectado, reconectando)
@@ -172,16 +172,16 @@
 | SOCIAL-05 | Fase 6 | Pendente |
 | SOCIAL-06 | Fase 6 | Pendente |
 | VOICE-01 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-02 | Fase 7 | Pendente |
+| VOICE-02 | Fase 7 | Pendente — falta o teste com dez |
 | VOICE-03 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-04 | Fase 7 | Pendente |
+| VOICE-04 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-05 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-06 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-07 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-08 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-09 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-10 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-11 | Fase 7 | Pendente |
+| VOICE-11 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-12 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-13 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-14 | Fase 7 | Verificado 2026-08-19 |

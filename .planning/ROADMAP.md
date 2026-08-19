@@ -393,7 +393,7 @@ implementadores distintos).
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
 | 5. Chat em tempo real | 6/7 | Aguardando verificação com duas contas | - |
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
-| 7. Voz | 11/12 | Aguardando teste com 10 pessoas | - |
+| 7. Voz | 11/12 | Verificada com 2 pessoas; falta o teste com 10 | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
