@@ -55,6 +55,14 @@
   --success-foreground: oklch(0.985 0 0);
   --warning: oklch(0.62 0.14 85);
   --warning-foreground: oklch(0.145 0 0);
+  /* Fundo do palco da call. Mais escuro que `--background` de propósito: no
+     Discord a área de chamada é visivelmente mais funda que a de texto, e é isso
+     que faz o olho entender que saiu do chat sem precisar de rótulo. A escala
+     vai `--sidebar` (mais claro) > `--background` > `--stage` (mais fundo).
+     Cinza puro, chroma 0 — vídeo compartilhado e foto de perfil são o conteúdo;
+     fundo com cor competiria com eles. */
+  --stage: oklch(0.94 0 0);
+  --stage-foreground: oklch(0.145 0 0);
   --highlight: oklch(0.52 0.2 264);
   --highlight-foreground: oklch(0.985 0 0);
 }
@@ -101,6 +109,10 @@
   --success-foreground: oklch(0.145 0 0);
   --warning: oklch(0.8 0.15 85);
   --warning-foreground: oklch(0.145 0 0);
+  /* Ver o racional no `:root`. 0.10 contra 0.145 do `--background`: separação
+     perceptível sem virar preto absoluto, que faria o vídeo parecer recortado. */
+  --stage: oklch(0.1 0 0);
+  --stage-foreground: oklch(0.985 0 0);
   --highlight: oklch(0.6 0.19 264);
   --highlight-foreground: oklch(0.985 0 0);
 }
@@ -125,6 +137,8 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-stage: var(--stage);
+  --color-stage-foreground: var(--stage-foreground);
   --color-highlight: var(--highlight);
   --color-highlight-foreground: var(--highlight-foreground);
   --color-border: var(--border);
