@@ -52,11 +52,37 @@ export default defineSchema({
 
   // --- Fase 5: chat em tempo real ---
 
+  // `attachments` (Fase 8.5, decisão de 2026-08-19 que promoveu CHAT-10 ao v1)
+  // é v.optional por obrigação, não por estilo: o Convex valida TODOS os
+  // documentos já gravados contra o schema no momento do push, e um campo
+  // obrigatório novo faria o push falhar em cima de cada mensagem existente.
+  //
+  // Os anexos moram dentro da própria mensagem, sem tabela própria: um anexo
+  // não tem vida independente da mensagem, e uma tabela extra custaria mais
+  // uma consulta por mensagem no histórico paginado — o caminho mais quente
+  // do chat.
+  //
+  // `name`, `size` e `contentType` são copiados para cá porque o storage do
+  // Convex NÃO guarda o nome original do arquivo (`_storage` só tem sha256,
+  // size e contentType), e é o nome que a UI mostra. `size` é duplicado de
+  // propósito, para a listagem não precisar de um `db.system.get` por anexo.
+  // Ambos são escritos pelo servidor a partir de `_storage`, nunca copiados
+  // do que o cliente afirma (ver sendMessage em messages.ts).
   messages: defineTable({
     channelId: v.id('channels'),
     authorId: v.id('users'),
     content: v.string(),
     createdAt: v.number(),
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id('_storage'),
+          name: v.string(),
+          size: v.number(),
+          contentType: v.optional(v.string()),
+        })
+      )
+    ),
   }).index('by_channel', ['channelId']),
 
   channelReadState: defineTable({
