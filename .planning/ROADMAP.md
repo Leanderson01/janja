@@ -339,6 +339,18 @@ Plans:
 - [ ] 08-06 — Lado receptor: renderização do vídeo e indicadores de quem compartilha
 - [ ] 08-07 — Checkpoint Windows final: SHARE-01..08 completo
 
+### Fase 8.5: Repaginação da UI
+**Goal**: A interface deixa de ser "layout correto" e passa a ser interface acabada:
+responsiva, acessível e consistente nas convenções de composição.
+**Depends on**: Fase 8 (toca os mesmos componentes que F4-F7 estão ligando a dado real)
+**Requirements**: a definir no planejamento — o brief traz itens fora do v1 atual
+**Brief**: `.planning/phases/08.5-repaginacao-da-ui/08.5-BRIEF.md`
+**Bloqueio antes de planejar**: o brief pede cargos e permissões, explicitamente fora
+de escopo em PROJECT.md e contrariando a base de autorização da Fase 4. Precisa de
+decisão do Leo entre repaginar sem cargos, trazer cargos como fase própria de backend,
+ou preparar a UI e deixar para v2.
+**Plans**: TBD
+
 ### Fase 9: Polimento e empacotamento
 **Goal**: Uma pessoa não-técnica instala o app com poucos cliques, e o roteiro
 completo (login → servidor → chat → voz → screenshare) funciona numa instalação
@@ -382,6 +394,7 @@ implementadores distintos).
 | 6. Amigos e DMs | 0/8 | Planned | - |
 | 7. Voz | 0/9 | Planned | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
+| 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
 
 ---
