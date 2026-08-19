@@ -13,12 +13,14 @@ import {
   ConnectionState,
   Room,
   RoomEvent,
+  ScreenSharePresets,
   Track,
   isAudioTrack,
   type LocalTrackPublication,
   type Participant,
   type RemoteTrack,
-  type ScreenShareCaptureOptions
+  type ScreenShareCaptureOptions,
+  type VideoPreset
 } from 'livekit-client'
 
 import { api } from '../../../../convex/_generated/api'
@@ -26,6 +28,7 @@ import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
 import { playSelfLeaveTone } from '../lib/voice-sounds'
+import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
 
 import { useSelection } from './selection-context'
@@ -59,17 +62,41 @@ const AUDIO_CAPTURE_OPTIONS = {
 //   de microfone. Aplicadas a áudio de sistema (música, jogo, vídeo) só
 //   degradam a fidelidade.
 //
-// Sem `publishOptions` (terceiro argumento de `setScreenShareEnabled`):
-// bitrate/fps configuráveis são o Plano 08-05.
-const SCREEN_SHARE_CAPTURE_OPTIONS: ScreenShareCaptureOptions = {
+// `contentHint` NÃO mora aqui: ele muda com a preferência de qualidade
+// (`QUALITY_PRESETS` logo abaixo, Plano 08-05) e por isso é montado por
+// chamada, em `startScreenShare()`. O que fica nesta constante é só o que
+// vale para todo compartilhamento, independente de qualidade.
+const SCREEN_SHARE_CAPTURE_OPTIONS: Omit<ScreenShareCaptureOptions, 'contentHint'> = {
   audio: {
     restrictOwnAudio: true,
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false
   },
-  video: true,
-  contentHint: 'motion'
+  video: true
+}
+
+// SHARE-08 (Plano 08-05): os dois níveis de qualidade oferecidos ao usuário,
+// mapeados conforme `08-RESEARCH.md §5`. Dois níveis nomeados, nunca sliders
+// crus de bitrate/fps — quem escolhe é uma pessoa decidindo entre "quero que
+// não trave" e "quero conseguir ler o texto", não um engenheiro de vídeo.
+//
+// `contentHint` acompanha o preset de propósito: é a dica que o encoder do
+// Chromium usa para decidir o que sacrificar quando a banda aperta.
+// 'motion' sacrifica nitidez para manter fps; 'detail' faz o inverso.
+// Escolher `h720fps30` com hint 'detail' pediria ao encoder exatamente o
+// contrário do que o preset promete.
+//
+// `videoCodec` fica no default (`vp8`) de propósito — `08-RESEARCH.md §5`:
+// é o codec amplamente suportado e não há motivo para desviar nesta fase.
+const QUALITY_PRESETS: Record<
+  ScreenShareQuality,
+  { preset: VideoPreset; contentHint: NonNullable<ScreenShareCaptureOptions['contentHint']> }
+> = {
+  // 1280x720 @ 30fps, ~2.0 Mbps
+  fluida: { preset: ScreenSharePresets.h720fps30, contentHint: 'motion' },
+  // 1920x1080 @ 15fps, ~2.5 Mbps
+  nitida: { preset: ScreenSharePresets.h1080fps15, contentHint: 'detail' }
 }
 
 // VOICE-01/03/06/07: ponte real entre a INTENÇÃO de estar num canal de voz
@@ -147,8 +174,11 @@ export type VoiceContextValue = {
    * casos — o handler do processo main garante que ela nunca fica pendurada,
    * ver `src/main/screenshare.ts`).
    *
-   * Nesta versão não existe seleção de fonte: o processo main sempre concede
-   * a primeira tela. O seletor é o Plano 08-04.
+   * A fonte (tela ou janela) é escolhida pelo usuário no seletor do Plano
+   * 08-04, servido pelo processo main. A QUALIDADE vem da preferência local
+   * salva (`screenshare-preferences.ts`, Plano 08-05), relida a cada
+   * chamada — quem muda o toggle no meio de um compartilhamento só afeta o
+   * próximo, nunca o que já está no ar.
    */
   startScreenShare: () => Promise<void>
   /**
@@ -491,8 +521,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
   // SHARE-01/03/04: publica tela + áudio de sistema. O `getDisplayMedia` que
   // o SDK dispara por baixo é interceptado pelo handler do processo main
-  // (`src/main/screenshare.ts`), que concede a primeira tela com
-  // `audio: 'loopback'`.
+  // (`src/main/screenshare.ts`), que abre o seletor de fontes (Plano 08-04) e
+  // concede a escolha do usuário com `audio: 'loopback'`.
+  //
+  // SHARE-08 (Plano 08-05): a preferência de qualidade é lida AQUI, a cada
+  // início — nunca capturada num estado de React no mount. É o que faz a
+  // escolha valer para o PRÓXIMO compartilhamento sem tocar no que já está
+  // no ar: quem troca o toggle no meio de uma transmissão não tem a imagem
+  // derrubada, e quem troca antes de compartilhar tem a escolha respeitada.
   async function startScreenShare(): Promise<void> {
     // Compartilhar exige estar de fato conectado — o botão do rodapé já é
     // desabilitado fora disso, mas a guarda vale para qualquer outra via
@@ -501,8 +537,20 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       console.warn('[screenshare] ignorando início: sala não conectada (%s)', room.state)
       return
     }
+    const { quality } = loadScreenSharePreferences()
+    const { preset, contentHint } = QUALITY_PRESETS[quality]
+
     try {
-      await room.localParticipant.setScreenShareEnabled(true, SCREEN_SHARE_CAPTURE_OPTIONS)
+      await room.localParticipant.setScreenShareEnabled(
+        true,
+        { ...SCREEN_SHARE_CAPTURE_OPTIONS, contentHint },
+        // Terceiro argumento (`publishOptions`), ausente de propósito em
+        // 08-02. `screenShareEncoding` é o campo SEPARADO de
+        // `videoEncoding` (`08-RESEARCH.md §5`): escrever no segundo não
+        // afeta compartilhamento de tela nenhum, e a falha seria silenciosa
+        // (publica, só que na qualidade default).
+        { screenShareEncoding: preset.encoding }
+      )
     } catch (err) {
       // Caminho ESPERADO, não excepcional: o usuário cancela, ou nenhuma
       // tela está disponível (`callback({})` no processo main faz o
