@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 
 import type { Doc } from '../../../../../convex/_generated/dataModel'
@@ -33,10 +34,10 @@ function HomeButton(): React.JSX.Element {
       <TooltipTrigger asChild>
         <div className="relative flex items-center justify-center py-1">
           <span
-            className={
-              'absolute left-0 h-2 w-1 rounded-r-full bg-foreground transition-all ' +
-              (isActive ? 'h-8 opacity-100' : 'h-2 opacity-0')
-            }
+            className={cn(
+              'absolute left-0 w-1 rounded-r-full bg-highlight transition-all',
+              isActive ? 'h-8 opacity-100' : 'h-2 opacity-0'
+            )}
             aria-hidden="true"
           />
           <button
@@ -44,10 +45,10 @@ function HomeButton(): React.JSX.Element {
             onClick={() => goHome()}
             aria-label="Início"
             aria-current={isActive ? 'true' : undefined}
-            className={
-              'flex items-center justify-center rounded-full transition-all ' +
-              (isActive ? 'ring-2 ring-foreground' : '')
-            }
+            className={cn(
+              'flex items-center justify-center rounded-full transition-all',
+              isActive && 'ring-2 ring-highlight'
+            )}
           >
             <Avatar size="lg">
               <AvatarFallback>
@@ -70,12 +71,16 @@ function ServerIcon({ server }: { server: Doc<'servers'> }): React.JSX.Element {
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="relative flex items-center justify-center py-1">
-          {/* Indicador de servidor ativo: barra vertical à esquerda do avatar */}
+          {/* Indicador de servidor ativo: barra vertical à esquerda do avatar.
+              Usa `--highlight` (Plano 08.5-01) e não `--foreground`: estado
+              ativo/selecionado é um dos três usos autorizados do tom de
+              destaque, e é o mesmo vocabulário do canal selecionado na
+              sidebar. */}
           <span
-            className={
-              'absolute left-0 h-2 w-1 rounded-r-full bg-foreground transition-all ' +
-              (isActive ? 'h-8 opacity-100' : 'h-2 opacity-0')
-            }
+            className={cn(
+              'absolute left-0 w-1 rounded-r-full bg-highlight transition-all',
+              isActive ? 'h-8 opacity-100' : 'h-2 opacity-0'
+            )}
             aria-hidden="true"
           />
           <button
@@ -83,10 +88,10 @@ function ServerIcon({ server }: { server: Doc<'servers'> }): React.JSX.Element {
             onClick={() => setSelectedServerId(server._id)}
             aria-label={server.name}
             aria-current={isActive ? 'true' : undefined}
-            className={
-              'flex items-center justify-center rounded-full transition-all ' +
-              (isActive ? 'ring-2 ring-foreground' : '')
-            }
+            className={cn(
+              'flex items-center justify-center rounded-full transition-all',
+              isActive && 'ring-2 ring-highlight'
+            )}
           >
             <Avatar size="lg">
               {server.iconUrl ? <AvatarImage src={server.iconUrl} alt={server.name} /> : null}
