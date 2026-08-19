@@ -14,9 +14,11 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node node_modules/electron/install.js && node scripts/postinstall-rebuild.mjs",
+    "verify:build-env": "node scripts/verify-build-env.mjs",
+    "verify:no-secrets": "node scripts/verify-no-secrets.mjs",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "npm run verify:build-env && npm run build && npm run verify:no-secrets && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "typecheck:convex": "tsc --noEmit -p tsconfig.convex.json"
