@@ -60,9 +60,18 @@ export function ChannelSidebar(): React.JSX.Element {
     setSelectedChannelId(channel._id)
   }
 
+  // Clicar num canal de voz NUNCA desconecta — só entra, ou navega para o canal
+  // em que já se está. Sair é ação exclusiva do botão de desconectar da
+  // `VoiceControlBar` (`PhoneOff`, rotulado "Desconectar"). O comportamento
+  // anterior era um toggle: clicar no canal em que você já estava te derrubava da
+  // call. Isso é falha de affordance, não atalho — o mesmo gesto que serve para
+  // "ver quem está aqui" não pode ser o gesto que encerra a chamada, e no Discord
+  // real não é. Relatado pelo Leo em uso real, 2026-08-19.
   function handleVoiceChannelClick(channel: Doc<'channels'>): void {
     setSelectedChannelId(channel._id)
-    setJoinedVoiceChannelId(joinedVoiceChannelId === channel._id ? null : channel._id)
+    if (joinedVoiceChannelId !== channel._id) {
+      setJoinedVoiceChannelId(channel._id)
+    }
   }
 
   // Zero servidores (estado possível vindo do plano 04-05): não há
