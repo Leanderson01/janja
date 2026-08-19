@@ -343,14 +343,39 @@ Plans:
 
 ### Fase 8.5: Repaginação da UI
 **Goal**: A interface deixa de ser "layout correto" e passa a ser interface acabada:
-responsiva, acessível e consistente nas convenções de composição.
-**Depends on**: Fase 8 (toca os mesmos componentes que F4-F7 estão ligando a dado real)
-**Requirements**: a definir no planejamento — o brief traz itens fora do v1 atual
+tema escuro de fato aplicado, um palco que alterna entre texto e call sem derrubar a
+call, compartilhamento de tela com layout próprio, controle de volume por pessoa,
+navegação por teclado, e as convenções de composição valendo em todo componente.
+**Depends on**: Fase 8 (toca os mesmos componentes que F4-F8 ligaram a dado real)
+**Requirements**: APP-01; e três requisitos promovidos do v2 para o v1 por decisão do
+usuário em 2026-08-19 — CHAT-10 (anexos), VOICE-18 (volume individual por
+participante) e CHAT-15 (prévias de link, identificador novo proposto no
+Plano 08.5-16). `REQUIREMENTS.md` e `PROJECT.md` são atualizados ao fechar a fase.
 **Brief**: `.planning/phases/08.5-repaginacao-da-ui/08.5-BRIEF.md`
+**Contexto/Pesquisa**: `08.5-CONTEXT.md`, `08.5-RESEARCH.md`
 **Cargos**: decidido em 2026-08-18 — ficam para o v2. Esta fase prepara a interface
 estruturalmente para recebê-los, sem introduzir o conceito em schema, query, mutation
 ou tipo. Ver o brief para o recorte exato entre preparar e construir.
-**Plans**: TBD
+**Plans**: 17 plans, em 8 ondas
+
+Plans:
+- [ ] 08.5-01 — Tema escuro forçado, tom de destaque único e tokens --success/--warning (onda 1)
+- [ ] 08.5-02 — Collapsible/DropdownMenu/Sonner sem next-themes + base de teste jsdom (onda 2)
+- [ ] 08.5-03 — Palco da call: modo de visualização, CallStage e caminho de volta (onda 3)
+- [ ] 08.5-04 — Lista de membros: seção reutilizável, nome em componente próprio, menu (onda 3)
+- [ ] 08.5-05 — Moldura: rail, cabeçalho e janela estreita com lista de membros alternável (onda 3)
+- [ ] 08.5-06 — Chat, amigos e seletor: não lidas em destaque, tokens e toasts (onda 3)
+- [ ] 08.5-07 — Compartilhamento no palco: faixa de participantes, expandir e recolher (onda 4)
+- [ ] 08.5-08 — Sidebar: categorias recolhíveis com estado persistido (onda 4)
+- [ ] 08.5-09 — Rodapé de voz e menu do usuário (onda 4)
+- [ ] 08.5-10 — Composer: IME, Enter/Shift+Enter e feedback de envio (onda 4)
+- [ ] 08.5-11 — VOICE-18: volume e silenciamento por participante (onda 5)
+- [ ] 08.5-12 — Menus de servidor e de canal (onda 5)
+- [ ] 08.5-13 — Anexos: schema, upload autorizado e leitura tolerante (onda 5)
+- [ ] 08.5-14 — Anexos: composer, upload e renderização no histórico (onda 6)
+- [ ] 08.5-15 — Prévias de link: cache, parser e action do Convex (onda 6)
+- [ ] 08.5-16 — Prévias de link: cartão no histórico (onda 7)
+- [ ] 08.5-17 — Checkpoint humano em Windows: 47 itens, com push do Convex primeiro (onda 8)
 
 ### Fase 9: Polimento e empacotamento
 **Goal**: Uma pessoa não-técnica instala o app com poucos cliques, e o roteiro
@@ -395,7 +420,7 @@ implementadores distintos).
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
 | 7. Voz | 11/12 | Verificada com 2 pessoas; falta o teste com 10 | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
-| 8.5. Repaginação da UI | 0/TBD | Brief registrado | - |
+| 8.5. Repaginação da UI | 0/17 | Planned | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
 
 ---
