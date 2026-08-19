@@ -45,6 +45,16 @@ type EnrichedMessage = {
 // Divisor "novas mensagens" (CHAT-05) — linha horizontal com rótulo
 // centralizado em cor de destaque, imediatamente antes da mensagem marcada
 // como primeira não lida pela mutation openChannel.
+//
+// O tom é `--highlight`, não `--destructive`: neste app vermelho significa erro
+// e ação destrutiva (mute, desconectar, sair da conta, conexão perdida). Uma
+// mensagem não lida não é nenhuma dessas coisas. A regra do tom único da Fase
+// 8.5 (08.5-01-SUMMARY.md) autoriza o destaque em estado ativo, anel de foco e
+// marcador de não-lido — e é o mesmo tom do badge de não lidas da sidebar, para
+// os dois marcadores do mesmo conceito combinarem.
+//
+// `data-unread-divider="true"` é gancho de lógica de scroll (CHAT-14, usado no
+// useLayoutEffect abaixo), não é enfeite: não remover nem renomear.
 function UnreadDivider(): React.JSX.Element {
   return (
     <div
@@ -53,9 +63,11 @@ function UnreadDivider(): React.JSX.Element {
       aria-label="Novas mensagens"
       data-unread-divider="true"
     >
-      <Separator className="flex-1 bg-red-500" />
-      <span className="text-xs font-semibold text-red-500 whitespace-nowrap">NOVAS MENSAGENS</span>
-      <Separator className="flex-1 bg-red-500" />
+      <Separator className="flex-1 bg-highlight" />
+      <span className="text-xs font-semibold text-highlight whitespace-nowrap">
+        NOVAS MENSAGENS
+      </span>
+      <Separator className="flex-1 bg-highlight" />
     </div>
   )
 }
