@@ -16,9 +16,14 @@ import {
   ScreenSharePresets,
   Track,
   isAudioTrack,
+  isVideoTrack,
   type LocalTrackPublication,
+  type LocalVideoTrack,
   type Participant,
+  type RemoteParticipant,
   type RemoteTrack,
+  type RemoteTrackPublication,
+  type RemoteVideoTrack,
   type ScreenShareCaptureOptions,
   type VideoPreset
 } from 'livekit-client'
@@ -29,6 +34,13 @@ import type { Id } from '../../../../convex/_generated/dataModel'
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
 import { playSelfLeaveTone } from '../lib/voice-sounds'
 import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
+import {
+  addScreenShareEntry,
+  clearScreenShareEntries,
+  removeScreenShareEntriesOfParticipant,
+  removeScreenShareEntryBySid,
+  type ScreenShareEntry
+} from '../lib/screenshare-tracks'
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
 
 import { useSelection } from './selection-context'
@@ -111,6 +123,15 @@ const QUALITY_PRESETS: Record<
 export type VoiceConnectionState =
   'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'signalReconnecting'
 
+/**
+ * SHARE-02 (Plano 08-06): uma tela sendo compartilhada AGORA no `Room`
+ * conectado — a própria (`isLocal: true`) ou a de outro participante. A track
+ * é entregue crua para quem renderiza: o elemento `<video>` tem que sair de
+ * `track.attach()`, nunca de um `<video src>` montado à mão (08-RESEARCH.md
+ * §6).
+ */
+export type ScreenShareTrack = ScreenShareEntry<LocalVideoTrack | RemoteVideoTrack>
+
 export type VoiceContextValue = {
   room: Room
   connectionState: VoiceConnectionState
@@ -167,6 +188,20 @@ export type VoiceContextValue = {
    * existe.
    */
   isSharing: boolean
+  /**
+   * SHARE-02/SHARE-06 (Plano 08-06): telas sendo compartilhadas AGORA no
+   * `Room` conectado — a própria e as dos outros, na ordem em que
+   * apareceram. Dado 100% efêmero do LiveKit, com a mesma ressalva de
+   * `speakingUserIds`/`connectionQualities`: só é significativo para o canal
+   * ao qual este `Room` está de fato conectado. Quem visualiza outro canal
+   * sem entrar nele não tem — e não pode ter — nenhuma track aqui.
+   *
+   * Vazio em toda desconexão, e sem a entrada de quem caiu assim que o
+   * `Room` reporta a queda: é essa lista que faz a região de vídeo sumir
+   * sozinha, e um `<video>` que sobrevive a ela é exatamente o frame
+   * congelado que a fase decidiu não aceitar.
+   */
+  screenShareTracks: ScreenShareTrack[]
   /**
    * Publica tela + áudio de sistema no canal de voz conectado. Não lança:
    * cancelamento pelo usuário e falha de captura viram log, com `isSharing`
@@ -232,6 +267,13 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // Ver `isSharing` no valor do contexto: espelho do que o `Room` de fato
   // publicou, nunca da intenção de quem clicou.
   const [isSharing, setIsSharing] = useState(false)
+
+  // Ver `screenShareTracks` no valor do contexto. Estado (não ref) porque a
+  // UI renderiza diretamente a partir dele — cada evento do `Room` que muda
+  // a lista tem que virar re-render, senão o vídeo aparece/some com atraso
+  // arbitrário. A reconciliação em si mora em `lib/screenshare-tracks.ts`,
+  // pura e testada.
+  const [screenShareTracks, setScreenShareTracks] = useState<ScreenShareTrack[]>([])
 
   // Canal ao qual o `Room` está de fato conectado agora (não a intenção).
   // Usado para: (1) decidir se uma transição de `joinedVoiceChannelId`
@@ -629,6 +671,146 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }, [room])
 
+  // SHARE-02/SHARE-06 (Plano 08-06): quais telas estão no ar AGORA. Efeito
+  // separado do de áudio remoto de propósito — os dois escutam
+  // `TrackSubscribed`/`TrackUnsubscribed`, mas resolvem problemas opostos: o
+  // de áudio ANEXA o elemento ele mesmo (som não tem UI, o `<audio>` vive num
+  // container invisível); este aqui não toca em DOM nenhum, só mantém a
+  // lista que a `ConversationArea` renderiza — quem anexa o `<video>` é o
+  // componente, porque é ele que sabe onde na tela o vídeo cabe.
+  //
+  // A track de ÁUDIO do compartilhamento (`Track.Source.ScreenShareAudio`)
+  // não passa por aqui e não precisa: `isAudioTrack` a captura no efeito
+  // acima e ela toca pelo mesmo caminho do microfone dos outros, sem UI
+  // própria — que é o objetivo (SHARE-03: ser ouvida).
+  //
+  // Cinco eventos, e nenhum deles é redundante — cada um cobre um jeito
+  // diferente de o vídeo precisar sumir:
+  //
+  // | Evento                    | Cenário                                       |
+  // |---------------------------|-----------------------------------------------|
+  // | TrackUnsubscribed         | apresentador clicou em "parar" (caminho limpo) |
+  // | TrackUnpublished          | despublicação sem passar por desinscrição      |
+  // | ParticipantDisconnected   | apresentador FECHOU O APP / caiu da rede       |
+  // | LocalTrackUnpublished     | fui EU que parei de compartilhar               |
+  // | Disconnected              | fui EU que caí/saí do canal                    |
+  //
+  // Os quatro primeiros são idempotentes entre si (remover um `trackSid` que
+  // já saiu é no-op), e essa redundância é deliberada: verificado no bundle
+  // instalado do `livekit-client` 2.22 que `RemoteParticipant.unpublishTrack`
+  // chama `track.stop()` — que só desabilita a `MediaStreamTrack`, sem
+  // desanexar nem remover elemento nenhum do DOM. Ou seja: se o app não tirar
+  // o `<video>` da tela por conta própria, ele FICA lá. O frame congelado do
+  // HANDOFF não é hipótese, é o comportamento padrão de quem não faz nada.
+  useEffect(() => {
+    function handleTrackSubscribed(
+      track: RemoteTrack,
+      publication: RemoteTrackPublication,
+      participant: RemoteParticipant
+    ): void {
+      if (track.source !== Track.Source.ScreenShare) return
+      // Guarda de tipo, não paranoia: `Track.Source.ScreenShare` é só a
+      // ORIGEM, e `isVideoTrack` é o que garante ao TypeScript (e a quem
+      // chama `attach()` depois) que existe um `<video>` do outro lado.
+      if (!isVideoTrack(track)) return
+
+      setScreenShareTracks((prev) =>
+        addScreenShareEntry(prev, {
+          trackSid: publication.trackSid,
+          participantIdentity: participant.identity,
+          isLocal: false,
+          track
+        })
+      )
+    }
+
+    // Remoção nunca filtra por origem: `removeScreenShareEntryBySid` é no-op
+    // para um sid que não está na lista, então despublicação de microfone ou
+    // de câmera passa reto sem custo. Uma condição a menos para errar no
+    // caminho que precisa ser infalível.
+    function handleTrackUnsubscribed(
+      _track: RemoteTrack,
+      publication: RemoteTrackPublication
+    ): void {
+      setScreenShareTracks((prev) => removeScreenShareEntryBySid(prev, publication.trackSid))
+    }
+
+    function handleTrackUnpublished(publication: RemoteTrackPublication): void {
+      setScreenShareTracks((prev) => removeScreenShareEntryBySid(prev, publication.trackSid))
+    }
+
+    // O caminho SUJO de SHARE-06, e o motivo de este plano existir: quem
+    // compartilhava fechou o app à força, perdeu a rede ou foi derrubado pelo
+    // SFU. Não há promessa de evento por track nesse cenário — mas
+    // `ParticipantDisconnected` chega, e ele basta para limpar tudo o que era
+    // daquela pessoa.
+    function handleParticipantDisconnected(participant: RemoteParticipant): void {
+      setScreenShareTracks((prev) =>
+        removeScreenShareEntriesOfParticipant(prev, participant.identity)
+      )
+    }
+
+    // A própria tela: `TrackSubscribed` só existe para tracks REMOTAS (o
+    // cliente não se inscreve no que ele mesmo publica), então a
+    // auto-visualização vem do par local — o mesmo que 08-02/08-05 já usam
+    // para `isSharing` e para `voiceStates.sharing`.
+    function handleLocalTrackPublished(publication: LocalTrackPublication): void {
+      if (publication.source !== Track.Source.ScreenShare) return
+      const track = publication.track
+      if (!isVideoTrack(track)) return
+
+      setScreenShareTracks((prev) =>
+        addScreenShareEntry(prev, {
+          trackSid: publication.trackSid,
+          participantIdentity: room.localParticipant.identity,
+          isLocal: true,
+          track
+        })
+      )
+    }
+
+    function handleLocalTrackUnpublished(publication: LocalTrackPublication): void {
+      setScreenShareTracks((prev) => removeScreenShareEntryBySid(prev, publication.trackSid))
+    }
+
+    // Sair (ou cair) do canal derruba TODA tela em exibição, inclusive a
+    // própria. Mesma justificativa do reset de `isSharing` em 08-02: uma
+    // queda abrupta não garante evento nenhum por track.
+    function handleDisconnected(): void {
+      setScreenShareTracks((prev) => clearScreenShareEntries(prev))
+    }
+
+    // Higiene de hot-reload/remontagem, espelhando o efeito de áudio acima:
+    // cobre tracks de tela que já estavam inscritas antes destes listeners
+    // existirem.
+    room.remoteParticipants.forEach((participant) => {
+      participant.trackPublications.forEach((publication) => {
+        const track = publication.track
+        if (!track) return
+        handleTrackSubscribed(track, publication, participant)
+      })
+    })
+
+    room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
+    room.on(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
+    room.on(RoomEvent.TrackUnpublished, handleTrackUnpublished)
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
+    room.on(RoomEvent.LocalTrackPublished, handleLocalTrackPublished)
+    room.on(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
+    room.on(RoomEvent.Disconnected, handleDisconnected)
+
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
+      room.off(RoomEvent.TrackUnsubscribed, handleTrackUnsubscribed)
+      room.off(RoomEvent.TrackUnpublished, handleTrackUnpublished)
+      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
+      room.off(RoomEvent.LocalTrackPublished, handleLocalTrackPublished)
+      room.off(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
+      room.off(RoomEvent.Disconnected, handleDisconnected)
+      setScreenShareTracks((prev) => clearScreenShareEntries(prev))
+    }
+  }, [room])
+
   // Listeners do Room: registrados uma única vez, na vida do `Room`.
   // `setJoinedVoiceChannelId` é o setter cru de um `useState` de
   // SelectionProvider — estável por toda a vida do componente, não precisa
@@ -979,6 +1161,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     setManualMute,
     setDeafened,
     isSharing,
+    screenShareTracks,
     startScreenShare,
     stopScreenShare,
     getVadAnalysisTrack

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from 'convex/react'
 import { ConnectionQuality } from 'livekit-client'
 import { MicOff, MonitorUp, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { ChannelHeader } from '@/components/shell/ChannelHeader'
 import { MessageInput } from '@/components/shell/MessageInput'
@@ -9,7 +9,7 @@ import { MessageList } from '@/components/shell/MessageList'
 import { TypingIndicator } from '@/components/shell/TypingIndicator'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useSelection } from '@/state/selection-context'
-import { useVoice } from '@/state/voice-context'
+import { useVoice, type ScreenShareTrack } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -104,18 +104,127 @@ function VoiceParticipantGrid({ channelId }: { channelId: Id<'channels'> }): Rea
   )
 }
 
-// Visão alternativa para canal de voz: grid de participantes + placeholder
-// de compartilhamento de tela (F8). O placeholder já reserva o layout final
-// (região com `flex-1 min-h-0` abaixo do grid) para que F8 só troque o
-// conteúdo interno, sem redesenhar esta região.
+// SHARE-02 (Plano 08-06): um `<video>` de tela compartilhada.
+//
+// O elemento NUNCA é escrito em JSX (`<video src=...>`) — ele nasce de
+// `track.attach()` e é enxertado no container por este efeito
+// (08-RESEARCH.md §6). Não é preferência de estilo: `attach()` registra o
+// elemento na track, e é isso que permite ao SDK alcançá-lo depois
+// (`switchActiveDevice`, `setSinkId`, limpeza na desinscrição). Um `<video>`
+// com `srcObject` setado à mão é invisível para o SDK.
+//
+// O cleanup roda em 100% dos caminhos de desmonte porque quem o dispara é o
+// React, não um evento do LiveKit: a track sai de `screenShareTracks` (por
+// despublicação, queda do apresentador ou desconexão nossa) → o componente
+// desmonta → `detach` + `remove`. Mesma classe de vazamento que a quick task
+// 001 corrigiu na voz: elemento de mídia sobrevivendo ao dono da stream.
+function ScreenShareTile({ entry }: { entry: ScreenShareTrack }): React.JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const element = entry.track.attach()
+    element.className = 'h-full w-full object-contain'
+    // A auto-visualização precisa ser muda mesmo sem track de áudio anexada:
+    // um `<video>` de tela própria com som seria realimentação garantida se
+    // o áudio de sistema um dia passar por aqui.
+    element.muted = entry.isLocal
+    container.appendChild(element)
+
+    return () => {
+      // `detach(element)` (com argumento) desfaz só o NOSSO elemento — outro
+      // consumidor da mesma track, se existir, não é afetado. É no-op seguro
+      // quando o SDK já desanexou tudo sozinho, o que acontece na
+      // desinscrição (`RemoteTrackPublication.setTrack(undefined)` chama
+      // `detach()`) — mas ele não REMOVE o elemento do DOM, e é essa remoção
+      // aqui que impede o quadrado morto na tela.
+      entry.track.detach(element)
+      element.remove()
+    }
+  }, [entry.track, entry.isLocal])
+
+  return (
+    <div
+      ref={containerRef}
+      data-screenshare-tile={entry.trackSid}
+      className="relative flex h-full min-h-40 min-w-64 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black"
+    />
+  )
+}
+
+// Região de compartilhamento de tela do canal de voz. Duas fontes distintas,
+// como o Plano 07-04 já estabeleceu para fala/qualidade:
+//
+// - o VÍDEO só existe para quem está conectado a ESTE canal (`isConnectedHere`)
+//   — dado efêmero do `Room` local, nunca do Convex. Um canal apenas
+//   visualizado não tem track nenhuma para ler, e fingir que tem seria
+//   mostrar vídeo de outro canal.
+// - o ÍCONE de "está compartilhando" para quem está de fora vive na sidebar e
+//   na lista de membros (Task 2), alimentado por `voiceStates.sharing`.
+//
+// MVP explícito: mais de uma tela ao mesmo tempo cai num grid `flex-wrap`
+// simples, sem UI de destacar/focar um stream (nenhum requisito pede, e não
+// há sinal de que o grupo compartilhe em paralelo com frequência).
+function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+  const { joinedVoiceChannelId } = useSelection()
+  const { screenShareTracks } = useVoice()
+  const isConnectedHere = channelId === joinedVoiceChannelId
+
+  // Só para rotular cada tela com o nome de quem compartilha: `identity` do
+  // LiveKit é o `users._id`, que não se mostra a ninguém. Mesma query que
+  // `VoiceParticipantGrid` já assina (o cliente do Convex compartilha a
+  // subscrição por query+args, não abre uma segunda), e `'skip'` quando não
+  // há vídeo possível para rotular.
+  const participants = useQuery(
+    api.voice.voiceParticipantsByChannel,
+    isConnectedHere ? { channelId } : 'skip'
+  )
+  const usernameByIdentity = new Map(
+    (participants ?? []).map((participant) => [String(participant.userId), participant.username])
+  )
+
+  const tracks = isConnectedHere ? screenShareTracks : []
+
+  if (tracks.length === 0) {
+    return (
+      <div className="flex-1 min-h-40 w-full flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-muted-foreground">
+        <MonitorUp className="size-8" aria-hidden="true" />
+        <span className="text-sm">
+          {isConnectedHere
+            ? 'Ninguém está compartilhando a tela'
+            : 'Entre no canal para ver a tela compartilhada'}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 min-h-40 w-full flex flex-wrap items-stretch justify-center gap-3">
+      {tracks.map((entry) => (
+        <div key={entry.trackSid} className="relative flex min-h-40 min-w-64 flex-1 flex-col">
+          <ScreenShareTile entry={entry} />
+          <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/80 px-1.5 py-0.5 text-xs text-foreground">
+            {entry.isLocal
+              ? 'Sua tela'
+              : (usernameByIdentity.get(entry.participantIdentity) ?? 'Tela compartilhada')}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Visão alternativa para canal de voz: grid de participantes + região de
+// compartilhamento de tela. A região com `flex-1 min-h-0` abaixo do grid foi
+// reservada pela Fase 3 exatamente para isto; a partir do Plano 08-06 ela
+// carrega vídeo real em vez do placeholder.
 function VoiceChannelView({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   return (
     <div className="flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto p-8">
       <VoiceParticipantGrid channelId={channelId} />
-      <div className="flex-1 min-h-40 w-full flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-muted-foreground">
-        <MonitorUp className="size-8" aria-hidden="true" />
-        <span className="text-sm">Área de compartilhamento de tela — chega em F8</span>
-      </div>
+      <ScreenShareStage channelId={channelId} />
     </div>
   )
 }
