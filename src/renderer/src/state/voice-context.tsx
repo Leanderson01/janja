@@ -123,6 +123,32 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // um novo `start`.
   const vadMonitorRef = useRef<VadMonitor | null>(null)
 
+  // Track de ANÁLISE do VAD: um `clone()` da `MediaStreamTrack` publicada,
+  // que NUNCA é publicado (não passa por `setMicrophoneEnabled`,
+  // `publishTrack` nem `switchActiveDevice` — só por `createVadMonitor`,
+  // que é Web Audio puro e não liga nada ao `destination`).
+  //
+  // Existe exatamente porque o LiveKit muta fazendo
+  // `_mediaStreamTrack.enabled = false` na track publicada
+  // (`LocalTrack.setTrackMuted`, livekit-client 2.22) — e track com
+  // `enabled = false` entrega SILÊNCIO DIGITAL ao Web Audio, não "menos
+  // volume". Analisar a própria track publicada, como se fazia antes,
+  // criava um deadlock permanente: microfone fechado pelo VAD → RMS ≈ 0 →
+  // limiar nunca cruzado → microfone nunca reabre. O clone compartilha a
+  // MESMA fonte de captura (mesmo dispositivo, mesmo getUserMedia, mesmo
+  // eco/ruído/ganho de `AUDIO_CAPTURE_OPTIONS`), mas tem `enabled` próprio
+  // e independente — continua entregando áudio real com a publicação
+  // mutada.
+  const vadAnalysisTrackRef = useRef<MediaStreamTrack | null>(null)
+
+  // Geração do VAD, incrementada por todo `stopVadMonitor()`. Serve para
+  // invalidar um `applyVoicePreferencesAsync` em voo: como ele agora tem
+  // `await`, um leave/troca de canal/troca de modo pode acontecer no meio
+  // do setup — quem passou por um `await` compara a geração que capturou
+  // com a atual e aborta se mudou, em vez de mutar um microfone que já
+  // pertence a outra sessão.
+  const vadGenerationRef = useRef(0)
+
   // Espelha o mute MANUAL (botão do rodapé) — ver `setManualMute` no valor
   // do contexto. Resetado a cada novo join bem-sucedido (nova intenção =
   // sempre destravado, mesma linha de base do resto da reconciliação
@@ -221,39 +247,104 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   }
 
   function stopVadMonitor(): void {
+    // Invalida qualquer aplicação de preferências em voo (ver
+    // `applyVoicePreferencesAsync`).
+    vadGenerationRef.current += 1
     vadMonitorRef.current?.stop()
     vadMonitorRef.current = null
+    // Parar o CLONE não para a track publicada: a fonte de captura só
+    // encerra quando TODAS as tracks derivadas dela param, e a track do
+    // LiveKit continua viva. Mas não parar aqui deixa o microfone aberto
+    // para sempre — é o vazamento que ninguém vê e todo mundo sente na
+    // bateria (e no ícone de microfone em uso do Windows).
+    vadAnalysisTrackRef.current?.stop()
+    vadAnalysisTrackRef.current = null
   }
 
-  // Liga o VAD sobre a `MediaStreamTrack` do microfone publicado agora. Se
-  // não houver track de microfone publicada (ex.: chamado fora de ordem),
-  // não faz nada — quem chama é responsável por só invocar isto depois de
-  // `setMicrophoneEnabled` já ter resolvido.
-  function startVadMonitor(prefs: VoicePreferences): void {
+  // Liga o VAD sobre um CLONE da `MediaStreamTrack` do microfone publicado
+  // agora (ver `vadAnalysisTrackRef` para o porquê do clone). Retorna
+  // `true` só se o monitor ficou de fato de pé.
+  //
+  // FAIL-OPEN: todo caminho de falha aqui devolve `false` COM erro no
+  // console, e quem chama nunca muta o microfone nesse caso — o microfone
+  // permanece ABERTO. Um microfone aberto por engano é constrangedor; um
+  // microfone mudo por engano é exatamente o bug que este código corrige.
+  // Nenhum `return` silencioso.
+  function startVadMonitor(prefs: VoicePreferences): boolean {
     const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
-    const mediaStreamTrack = micPublication?.track?.mediaStreamTrack
-    if (!mediaStreamTrack) return
+    const publishedTrack = micPublication?.track?.mediaStreamTrack
+    if (!publishedTrack) {
+      console.error('[voice] VAD: sem track de microfone publicada — microfone permanece ABERTO')
+      return false
+    }
 
-    vadMonitorRef.current = createVadMonitor(mediaStreamTrack, {
-      threshold: prefs.vadThreshold,
-      onSpeakingChange: (speaking) => {
-        // Mute manual sempre vence: se o usuário mutou pelo botão do
-        // rodapé, o VAD detectar fala não deve reabrir o microfone —
-        // só desligar continua permitido (harmless, já estaria desligado).
-        if (speaking && manualMuteRef.current) return
-        // Transmissão automática do VAD — nunca passa pela mutation
-        // `setMuted` do Convex, que reflete só o mute manual do botão
-        // (07-05-PLAN.md Task 2). Comanda a track diretamente.
-        void room.localParticipant.setMicrophoneEnabled(speaking, AUDIO_CAPTURE_OPTIONS)
-      }
-    })
+    let analysisTrack: MediaStreamTrack
+    try {
+      analysisTrack = publishedTrack.clone()
+    } catch (err) {
+      console.error(
+        '[voice] VAD: falha ao clonar a track de microfone para análise — microfone permanece ABERTO',
+        err
+      )
+      return false
+    }
+
+    if (analysisTrack.readyState !== 'live') {
+      analysisTrack.stop()
+      console.error(
+        '[voice] VAD: clone de análise nasceu morto (readyState=%s) — microfone permanece ABERTO',
+        analysisTrack.readyState
+      )
+      return false
+    }
+
+    vadAnalysisTrackRef.current = analysisTrack
+
+    try {
+      vadMonitorRef.current = createVadMonitor(analysisTrack, {
+        threshold: prefs.vadThreshold,
+        onSpeakingChange: (speaking) => {
+          // Mute manual sempre vence: se o usuário mutou pelo botão do
+          // rodapé, o VAD detectar fala não deve reabrir o microfone —
+          // só desligar continua permitido (harmless, já estaria desligado).
+          if (speaking && manualMuteRef.current) return
+          // Transmissão automática do VAD — nunca passa pela mutation
+          // `setMuted` do Convex, que reflete só o mute manual do botão
+          // (07-05-PLAN.md Task 2). Comanda a track diretamente.
+          void room.localParticipant.setMicrophoneEnabled(speaking, AUDIO_CAPTURE_OPTIONS)
+        }
+      })
+    } catch (err) {
+      // Falha no meio do setup: solta o clone que já tinha sido criado
+      // antes de sair, senão fica um microfone aberto sem dono.
+      analysisTrack.stop()
+      vadAnalysisTrackRef.current = null
+      vadMonitorRef.current = null
+      console.error(
+        '[voice] VAD: falha ao criar o monitor de detecção de voz — microfone permanece ABERTO',
+        err
+      )
+      return false
+    }
+
+    // Este log é o que torna o checkpoint humano em Windows diagnosticável
+    // pelo DevTools sem outra rodada de ida e volta.
+    console.info('[voice] VAD ativo sobre clone de análise da track publicada')
+    return true
   }
 
   // Relê a preferência salva e reconfigura o VAD ativo sem reconectar à
-  // sala — chamado pelo painel de configurações (Task 3) e internamente ao
-  // completar um novo join (abaixo). Não faz nada se não há canal
-  // conectado agora.
-  function applyVoicePreferences(): void {
+  // sala — chamado pelo painel de configurações, pela troca de dispositivo
+  // de entrada e internamente ao completar um novo join (abaixo). Não faz
+  // nada se não há canal conectado agora.
+  //
+  // ORDEM OBRIGATÓRIA: obter track → clonar → iniciar monitor → SÓ ENTÃO
+  // mutar. Se qualquer passo antes do mute falhar, o microfone permanece
+  // aberto e transmitindo, com erro no console. Efeito colateral aceito: no
+  // join o microfone fica aberto por alguns milissegundos entre
+  // `setMicrophoneEnabled(true)` e o mute do VAD — mesmo comportamento do
+  // Discord, e preferível a ficar mudo por falha de setup.
+  async function applyVoicePreferencesAsync(): Promise<void> {
     const prefs = loadVoicePreferences()
 
     // Plano 07-06 (VOICE-11): o processo main só mantém a captura nativa do
@@ -265,17 +356,40 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     if (activeChannelRef.current === null) return
 
+    // Solta monitor e clone da configuração anterior (troca de modo, troca
+    // de dispositivo, reaplicação de limiar) e reivindica uma geração nova.
     stopVadMonitor()
+    const generation = vadGenerationRef.current
 
-    if (prefs.mode === 'vad') {
-      // A track existe mas começa desabilitada — o VAD é quem liga/desliga
-      // a partir daqui, nunca o usuário diretamente enquanto este modo
-      // estiver ativo.
-      void room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
-      startVadMonitor(prefs)
-    }
     // modo 'ptt': não inicia o VAD — o Plano 07-06 assume o controle da
     // track nesse modo.
+    if (prefs.mode !== 'vad') return
+
+    // FAIL-OPEN: não muta o que não está sendo monitorado.
+    if (!startVadMonitor(prefs)) return
+
+    // Um `stopVadMonitor()` rodou durante o setup (leave, troca de canal,
+    // troca de modo, desmonte) — o monitor que acabamos de criar já foi
+    // derrubado por ele; mutar agora seria mutar a sessão de outra pessoa.
+    if (vadGenerationRef.current !== generation) return
+
+    try {
+      // A track existe mas fica desabilitada — o VAD é quem liga/desliga a
+      // partir daqui, nunca o usuário diretamente enquanto este modo
+      // estiver ativo.
+      await room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+    } catch (err) {
+      console.error('[voice] VAD: falha ao fechar o microfone após iniciar o monitor', err)
+    }
+  }
+
+  // Fachada síncrona: o painel de configurações, o efeito de PTT e o
+  // handler de troca de dispositivo chamam sem `await` — a assinatura
+  // `() => void` de `VoiceContextValue` não muda.
+  function applyVoicePreferences(): void {
+    void applyVoicePreferencesAsync().catch((err) =>
+      console.error('[voice] applyVoicePreferences falhou', err)
+    )
   }
 
   function setManualMute(muted: boolean): void {
@@ -552,8 +666,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // Aplica a preferência de transmissão salva (VAD por padrão) à
             // track recém-publicada. Em modo VAD, a track existe mas
             // começa desabilitada — o VAD é quem liga/desliga a partir
-            // daqui (07-05-PLAN.md Task 2).
-            applyVoicePreferences()
+            // daqui (07-05-PLAN.md Task 2). Com `await`: o join só termina
+            // com o estado de transmissão de fato aplicado, então um leave
+            // imediatamente depois não corre contra um setup pela metade.
+            await applyVoicePreferencesAsync()
           } catch (err) {
             console.error('[voice] falha ao entrar no canal de voz', err)
             // A intenção não pôde ser cumprida — devolve a UI para o estado
