@@ -6,6 +6,7 @@ import { ServerRail } from '@/components/shell/ServerRail'
 import { DmConversationView } from '@/components/friends/DmConversationView'
 import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
+import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
 import { VoiceProvider } from '@/state/voice-context'
@@ -78,6 +79,17 @@ export function AppShell(): React.JSX.Element {
               dentro do VoiceProvider por vizinhança de assunto; não consome
               o contexto de voz. */}
           <ScreenSharePicker />
+          {/* Toasts são o canal de feedback padrão da Fase 8.5: envio de
+              mensagem que falhou, ação de menu concluída, convite copiado.
+              Substituem os `.catch(() => {})` mudos que hoje engolem o erro
+              sem contar nada a quem está usando o app.
+
+              Uma única instância no app inteiro — `toast()` de `sonner` é uma
+              API global e um segundo <Toaster /> renderizaria cada toast duas
+              vezes. `richColors={false}` porque a UI é escura e monocromática:
+              as cores próprias do sonner brigariam com os tokens do Plano
+              08.5-01 (--success / --warning / --destructive). */}
+          <Toaster position="bottom-right" richColors={false} />
         </TooltipProvider>
       </VoiceProvider>
     </SelectionProvider>
