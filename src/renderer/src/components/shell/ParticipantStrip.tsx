@@ -2,6 +2,10 @@ import { useQuery } from 'convex/react'
 import { ConnectionQuality } from 'livekit-client'
 import { MicOff, MonitorUp, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react'
 
+import {
+  ParticipantAudioMenu,
+  ParticipantVolumeHint
+} from '@/components/shell/ParticipantAudioMenu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
@@ -110,8 +114,27 @@ export function useVoiceParticipants(
 // fundo é `--stage`. A grade grande (`VoiceParticipantGrid`) continua com
 // `ring-background` porque ela também é renderizada na PRÉVIA de canal de voz,
 // que fica sobre `--background`.
+//
+// VOICE-18 na faixa: cada item de OUTRA pessoa é gatilho do
+// `ParticipantAudioMenu` (volume + "silenciar para mim"), o mesmo componente
+// que a grade usa. Isto não é enfeite — a faixa só aparece no layout `share`,
+// e é exatamente aí que a grade fica `hidden`. Sem o menu aqui, o volume ficava
+// inalcançável no caso que mais o pede: alguém compartilhando um vídeo alto.
+// (Desvio 2 do 08.5-11-SUMMARY, fechado.)
+//
+// O `role="listitem"` fica num invólucro e o `<button>` do menu vai DENTRO
+// dele: `role="listitem"` no próprio botão apagaria a semântica de botão, que é
+// o que anuncia a ação para o leitor de tela.
 export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+  const { joinedVoiceChannelId } = useSelection()
+  const { room, participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
   const participants = useVoiceParticipants(channelId)
+
+  // Na prática o palco só renderiza a faixa para o canal CONECTADO, mas a
+  // condição é escrita mesmo assim: é a MESMA regra da grade (`CallStage`), e
+  // repeti-la aqui custa uma linha contra depender de um invariante de
+  // renderização que nada obriga a continuar verdadeiro.
+  const isConnectedHere = channelId === joinedVoiceChannelId
 
   if (!participants || participants.length === 0) {
     return (
@@ -127,42 +150,81 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
       role="list"
       aria-label="Participantes do canal de voz"
     >
-      {participants.map((participant) => (
-        <div
-          key={participant.userId}
-          role="listitem"
-          className="flex shrink-0 items-center gap-2 rounded-md px-1"
-        >
-          <div className="relative">
-            <Avatar className={cn('size-9', participant.isSpeaking && 'ring-2 ring-success')}>
-              <AvatarFallback className="text-xs">
-                {initialsFor(participant.username)}
-              </AvatarFallback>
-            </Avatar>
-            {participant.muted ? (
-              <span
-                className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-stage"
-                aria-label="Microfone desativado"
+      {participants.map((participant) => {
+        // `room.localParticipant.identity` é o `users._id` do Convex — a MESMA
+        // chave de `voiceParticipantsByChannel` e do mapa de volumes
+        // (07-RESEARCH.md §6). Idêntico ao que a grade faz.
+        const isSelf = participant.userId === room.localParticipant.identity
+        const canControl = isConnectedHere && !isSelf
+        const preference = participantVolumes[participant.userId]
+        const silenced = preference?.silenced ?? false
+
+        const tile = (
+          <>
+            <div className="relative">
+              <Avatar
+                className={cn(
+                  'size-9',
+                  participant.isSpeaking && 'ring-2 ring-success',
+                  silenced && 'opacity-60'
+                )}
               >
-                <MicOff className="size-2.5" aria-hidden="true" />
-              </span>
-            ) : null}
-            {/* Canto superior ESQUERDO, mesma convenção da `MemberList` (Plano
-                08-06): direita inferior é do mute e direita superior fica livre
-                para o badge de presença quando ele chegar aqui. */}
-            {participant.sharing ? (
-              <span
-                className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-stage"
-                aria-label="Compartilhando a tela"
+                <AvatarFallback className="text-xs">
+                  {initialsFor(participant.username)}
+                </AvatarFallback>
+              </Avatar>
+              {participant.muted ? (
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-stage"
+                  aria-label="Microfone desativado"
+                >
+                  <MicOff className="size-2.5" aria-hidden="true" />
+                </span>
+              ) : null}
+              {/* Canto superior ESQUERDO, mesma convenção da `MemberList` (Plano
+                  08-06): direita inferior é do mute e direita superior fica livre
+                  para o badge de presença quando ele chegar aqui. */}
+              {participant.sharing ? (
+                <span
+                  className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-success text-success-foreground ring-2 ring-stage"
+                  aria-label="Compartilhando a tela"
+                >
+                  <MonitorUp className="size-2.5" aria-hidden="true" />
+                </span>
+              ) : null}
+            </div>
+            <span className="max-w-28 truncate text-xs text-foreground">
+              {participant.username}
+            </span>
+            {/* `showSilenced` aqui é `true`, ao contrário da grade: nos avatares
+                de 36px da faixa o canto superior esquerdo já é do badge de
+                "compartilhando", e empilhar dois badges nele seria ilegível.
+                O sinal vai inline, ao lado do nome — e ele PRECISA existir,
+                porque é justamente nesta faixa (layout de compartilhamento) que
+                a pessoa vai ser silenciada, com a grade escondida. */}
+            <ParticipantVolumeHint preference={preference} showSilenced />
+            <ConnectionQualityIcon quality={participant.quality} />
+          </>
+        )
+
+        return (
+          <div key={participant.userId} role="listitem" className="shrink-0">
+            {canControl ? (
+              <ParticipantAudioMenu
+                username={participant.username}
+                preference={preference}
+                onVolumeChange={(volume) => setParticipantVolume(participant.userId, volume)}
+                onToggleSilenced={() => toggleParticipantSilenced(participant.userId)}
+                triggerClassName="flex items-center gap-2 rounded-md px-1"
               >
-                <MonitorUp className="size-2.5" aria-hidden="true" />
-              </span>
-            ) : null}
+                {tile}
+              </ParticipantAudioMenu>
+            ) : (
+              <div className="flex items-center gap-2 rounded-md px-1">{tile}</div>
+            )}
           </div>
-          <span className="max-w-28 truncate text-xs text-foreground">{participant.username}</span>
-          <ConnectionQualityIcon quality={participant.quality} />
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
