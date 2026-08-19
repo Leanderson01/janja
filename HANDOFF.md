@@ -167,6 +167,96 @@ de áudio, não tem acesso à VPS nem sessão autenticada do Convex.
 
 ---
 
-## Estado ao fim da Fase 7
+## Estado em 2026-08-19
 
-Preenchido quando a fase fechar. Ver `.planning/ROADMAP.md` para a tabela viva.
+**125 commits · 173 testes passando · 63 requisitos v1, 19 verificados**
+
+| Fase | Planos | Estado |
+|---|---|---|
+| 0 Bootstrap | 4/4 | ✅ Verificada no Windows |
+| 1 LiveKit na VPS | 2/2 | ✅ 4/4 critérios, incluindo TURN em 5G real |
+| 2 Convex + auth | 9/9 | ✅ AUTH-01..06 verificados |
+| 3 Shell da UI | 5/5 | ✅ Verificada no Windows |
+| 4 Servidores e canais | 7/8 | Código pronto; falta verificação com duas contas |
+| 5 Chat em tempo real | 6/7 | Código pronto; parte solo verificada |
+| 6 Amigos e DMs | 7/8 | Código pronto; falta verificação com duas contas |
+| 7 Voz | 11/12 | **Verificada com duas pessoas**; falta o teste com dez |
+| 8 Compartilhamento de tela | 0/7 | Planejada |
+| 8.5 Repaginação da UI | 0/TBD | Brief registrado; um colaborador externo pode assumir |
+| 9 Polimento e empacotamento | 2/3 | Instalador e página de login prontos; falta o checkpoint |
+
+### O que funciona de verdade hoje
+
+Login com Google, sessão persistente, `USER#123`. Servidores com convite reutilizável e
+revogável, canais de texto e voz, lista de membros com presença. Chat em tempo real com
+histórico paginado, não lidas e indicador de digitação. Amigos e DMs. **Voz entre duas
+pessoas**, com mute, deafen, indicador de fala, VAD com limiar, push-to-talk, seleção de
+dispositivo, sons de canal e um testador de microfone que prova o caminho até o servidor
+sem depender de outra pessoa. Instalador Windows com portões de verificação.
+
+### O que ainda não foi provado
+
+- **VOICE-02: dez pessoas por 30+ minutos.** É o critério de sucesso do projeto e não pode
+  ser simulado.
+- Fases 4, 5 e 6 com duas contas simultâneas — o código está pronto e a parte solo passou.
+- Fase 8 inteira: compartilhamento de tela. **É a fase mais arriscada do projeto.**
+
+---
+
+## Próximos passos, em ordem
+
+### 1. Fase 8 — compartilhamento de tela
+
+Sete planos escritos, ordenados por risco. O `08-03` é um checkpoint no Windows **no meio
+da fase**, com três máquinas, provando que o áudio chega sem eco antes de qualquer UI ser
+construída em volta. Se o caminho de captura não funcionar, isso aparece com dois planos
+escritos, não com a fase montada.
+
+Pontos que já estão pesquisados e não devem ser redescobertos:
+
+- Electron >= 43.4.0 e `restrictOwnAudio: true` — abaixo disso, eco garantido
+- O handler precisa chamar `callback()` em **todos** os caminhos, inclusive cancelamento e
+  lista vazia; senão o compartilhamento trava pelo resto da sessão
+- **Electron não tem seletor de tela nativo** — a UI é construída do zero sobre
+  `desktopCapturer.getSources()`
+- SHARE-06 (apresentador cai) estende o **mesmo** webhook da Fase 7, não um segundo
+- Teste de eco precisa de **3+ máquinas**, não 2: alguém precisa falar enquanto outro
+  compartilha
+
+### 2. Fase 8.5 — repaginação da UI
+
+Brief completo em `.planning/phases/08.5-repaginacao-da-ui/08.5-BRIEF.md`, e um prompt
+autocontido para colaborador externo em `PROMPT-COLABORADOR-UI.md`. Decisão registrada:
+cargos ficam para v2, e a UI pode preparar o lugar sem introduzir o conceito em schema,
+query, mutation ou tipo.
+
+### 3. Fase 9 — fechar o empacotamento
+
+Falta o `09-03`: instalador rodado em máquina limpa, push-to-talk confirmado no pacote, e
+a regressão completa com dez pessoas.
+
+---
+
+## Pendências que dependem do Leo
+
+| O quê | Por quê |
+|---|---|
+| Teste com dez pessoas | Critério de sucesso; não simulável |
+| Verificação de F4/F5/F6 com duas contas | Trava de instância única impede duas na mesma máquina |
+| Trocar o redirect URI no WorkOS | Só depois de todos atualizarem o app — ver `09-02-SUMMARY.md` |
+| Distribuir o instalador | O `.exe` não é assinado; o SmartScreen vai avisar, e os amigos precisam saber disso antes |
+
+---
+
+## Riscos abertos
+
+**TURN roda na 5349, não na 443.** A doc do LiveKit recomenda 443, impossível aqui porque
+o Traefik do Coolify a ocupa. Testado e funcionando em 5G real. Se alguém não tiver áudio
+de uma rede específica — corporativa, universitária — esta é a primeira hipótese.
+
+**O `.exe` não é assinado.** Certificado de code signing custa 200-400 dólares por ano.
+Para dez amigos não compensa, mas cada instalação vai passar pelo aviso do SmartScreen.
+
+**A repaginação da UI colide com qualquer fase em voo.** Ela toca os mesmos componentes.
+Se um colaborador externo entrar, precisa ser em branch e com a lista de arquivos
+proibidos do `PROMPT-COLABORADOR-UI.md`.
