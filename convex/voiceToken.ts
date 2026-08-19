@@ -47,6 +47,12 @@ const upsertVoiceStateRef = makeFunctionReference<
   null
 >('voice:upsertVoiceState')
 
+const resolveAuthenticatedUserIdRef = makeFunctionReference<
+  'query',
+  Record<string, never>,
+  { userId: Id<'users'> }
+>('voice:resolveAuthenticatedUserId')
+
 export const joinVoiceChannel = action({
   args: { channelId: v.id('channels') },
   handler: async (ctx, { channelId }): Promise<{ token: string; url: string }> => {
@@ -84,6 +90,73 @@ export const joinVoiceChannel = action({
 
     return { token: jwt, url }
   },
+})
+
+/**
+ * Testador de microfone (Plano 07-09, VOICE-21/VOICE-22): assina DOIS tokens para uma
+ * sala efêmera dedicada — nunca criada em `channels`, nunca gera linha em
+ * `voiceStates`, nunca aparece para o resto do grupo. LiveKit cria a sala sozinho na
+ * primeira conexão e a fecha sozinho quando fica vazia (comportamento padrão do
+ * servidor, sem `room.create` explícito).
+ *
+ * `joinVoiceChannel` (acima) não serve para este teste: ele sempre assina
+ * `identity: userId`, e duas conexões SIMULTÂNEAS com o MESMO identity no MESMO room
+ * fazem o LiveKit derrubar a sessão mais antiga assim que a segunda entra (dedup de
+ * identity é o comportamento padrão do SFU). O teste de ida-e-volta precisa das duas
+ * conexões vivas ao mesmo tempo — por isso dois identities distintos para a mesma
+ * pessoa (`${userId}-mictest-pub` / `${userId}-mictest-sub`).
+ *
+ * TTL curto (5 minutos): não existe nenhuma linha em tabela nenhuma para revogar
+ * depois — o próprio token expirando é o único mecanismo que fecha o acesso a essa
+ * sala.
+ */
+export const mintMicTestTokens = action({
+  args: {},
+  handler: async (
+    ctx
+  ): Promise<{
+    url: string
+    publisherToken: string
+    subscriberToken: string
+    roomName: string
+  }> => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Não autenticado')
+
+    const { userId } = await ctx.runQuery(resolveAuthenticatedUserIdRef, {})
+
+    const apiKey = process.env.LIVEKIT_API_KEY
+    const apiSecret = process.env.LIVEKIT_API_SECRET
+    const url = process.env.LIVEKIT_URL
+    if (!apiKey || !apiSecret || !url) {
+      throw new Error(
+        'LiveKit não configurado — defina LIVEKIT_API_KEY, LIVEKIT_API_SECRET e LIVEKIT_URL ' +
+          'nas variáveis de ambiente do Convex (ver Plano 07-00)'
+      )
+    }
+
+    // Nome único por execução — nunca colide com uma sala de teste anterior que por
+    // algum motivo ainda não tenha fechado.
+    const roomName = `mic-test-${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+    async function mint(role: 'pub' | 'sub'): Promise<string> {
+      const accessToken = new AccessToken(apiKey, apiSecret, {
+        identity: `${userId}-mictest-${role}`,
+        ttl: '5m'
+      })
+      accessToken.addGrant({
+        room: roomName,
+        roomJoin: true,
+        canPublish: true,
+        canSubscribe: true
+      })
+      return accessToken.toJwt()
+    }
+
+    const [publisherToken, subscriberToken] = await Promise.all([mint('pub'), mint('sub')])
+
+    return { url, publisherToken, subscriberToken, roomName }
+  }
 })
 
 /**

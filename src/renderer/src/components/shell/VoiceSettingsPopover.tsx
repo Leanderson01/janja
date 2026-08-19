@@ -23,13 +23,29 @@ import { useVoice } from '@/state/voice-context'
 import { createVadMonitor, type VadMonitor } from '@/lib/vad'
 import { loadVoicePreferences, saveVoicePreferences, type VoiceMode } from '@/lib/voice-preferences'
 
+import { MicTestPanel } from './MicTestPanel'
+
 // Painel de configurações de voz (Plano 07-05): modo de transmissão
 // (detecção de voz vs push-to-talk), limiar do VAD com medidor de nível ao
 // vivo, e seleção de microfone/saída de áudio. Toda escolha persiste via
 // `voice-preferences.ts` (localStorage, estado de MÁQUINA — nunca Convex,
 // 07-RESEARCH.md §7) e aplica em runtime chamando `applyVoicePreferences()`
 // / `room.switchActiveDevice(...)`, nunca reconectando a sala (VOICE-13).
-export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): React.JSX.Element {
+export function VoiceSettingsPopover({
+  disabled,
+  hasVoiceIntention = true
+}: {
+  disabled?: boolean
+  /**
+   * Plano 07-09: o testador de microfone precisa funcionar sem nenhum canal
+   * conectado (VOICE-21) — `VoiceControlBar` agora renderiza este popover sempre,
+   * não só quando há intenção de canal. As seções que dependem de um `Room` real
+   * (modo, limiar com nível ao vivo do próprio VAD, seleção de dispositivo do
+   * `Room`) continuam condicionadas a `hasVoiceIntention`; o botão de teste de
+   * microfone não.
+   */
+  hasVoiceIntention?: boolean
+}): React.JSX.Element {
   const { room, applyVoicePreferences } = useVoice()
 
   const [open, setOpen] = useState(false)
@@ -57,10 +73,11 @@ export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): Reac
   }
 
   // `enumerateDevices()` é assíncrono (pode pedir permissão) — fica num
-  // efeito de verdade, só ativo enquanto o popover está aberto, para não
-  // rodar o tempo todo por uma UI que nem está visível.
+  // efeito de verdade, só ativo enquanto o popover está aberto E há um canal
+  // conectado (Plano 07-09: sem `hasVoiceIntention`, esta seção nem aparece —
+  // ver o JSX abaixo — então não há Select nenhum para popular).
   useEffect(() => {
-    if (!open) return
+    if (!open || !hasVoiceIntention) return
     let cancelled = false
 
     async function loadDevices(): Promise<void> {
@@ -82,7 +99,7 @@ export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): Reac
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, hasVoiceIntention])
 
   // Medidor de nível ao vivo para o usuário calibrar o limiar vendo a
   // própria voz. Cria SEU PRÓPRIO monitor (threshold acima de qualquer
@@ -94,7 +111,7 @@ export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): Reac
   // `AudioContext`s de curta duração possivelmente simultâneos apenas
   // enquanto o painel está aberto, sempre fechados ao fechar o painel.
   useEffect(() => {
-    if (!open) return
+    if (!open || !hasVoiceIntention) return
 
     const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
     const mediaStreamTrack = micPublication?.track?.mediaStreamTrack
@@ -117,7 +134,7 @@ export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): Reac
       monitor?.stop()
       setLevel(0)
     }
-  }, [open, room])
+  }, [open, room, hasVoiceIntention])
 
   function handleModeChange(mode: VoiceMode): void {
     const next = saveVoicePreferences({ mode })
@@ -177,84 +194,104 @@ export function VoiceSettingsPopover({ disabled }: { disabled?: boolean }): Reac
           <PopoverTitle>Configurações de voz</PopoverTitle>
         </PopoverHeader>
 
-        <div className="space-y-2">
-          <span className="text-xs font-medium text-muted-foreground">Modo de transmissão</span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={prefs.mode === 'vad' ? 'default' : 'outline'}
-              className="flex-1"
-              aria-pressed={prefs.mode === 'vad'}
-              onClick={() => handleModeChange('vad')}
-            >
-              Detecção de voz
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={prefs.mode === 'ptt' ? 'default' : 'outline'}
-              className="flex-1"
-              aria-pressed={prefs.mode === 'ptt'}
-              onClick={() => handleModeChange('ptt')}
-            >
-              Push-to-talk
-            </Button>
-          </div>
-        </div>
+        {/* Plano 07-09: único item que funciona sem canal nenhum conectado
+            (VOICE-21) — sempre visível, mesmo fora de uma chamada. */}
+        <MicTestPanel vadThreshold={prefs.vadThreshold} />
 
-        <div className="space-y-2">
-          <span className="text-xs font-medium text-muted-foreground">
-            Limiar do detector de voz
-          </span>
-          <Slider
-            min={0}
-            max={1}
-            step={0.01}
-            value={[prefs.vadThreshold]}
-            disabled={prefs.mode !== 'vad'}
-            onValueChange={handleThresholdChange}
-            aria-label="Limiar do detector de voz"
-          />
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full bg-primary transition-[width]"
-              style={{ width: `${Math.min(level, 1) * 100}%` }}
-            />
-          </div>
-        </div>
+        {!hasVoiceIntention && (
+          <p className="text-xs text-muted-foreground">
+            Entre em um canal de voz para ajustar modo, limiar e dispositivos ao vivo.
+          </p>
+        )}
 
-        <div className="space-y-2">
-          <span className="text-xs font-medium text-muted-foreground">Microfone</span>
-          <Select value={activeInputId} onValueChange={(value) => void handleInputChange(value)}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Selecionar microfone" />
-            </SelectTrigger>
-            <SelectContent>
-              {inputDevices.map((device) => (
-                <SelectItem key={device.deviceId} value={device.deviceId}>
-                  {device.label || 'Microfone'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {hasVoiceIntention && (
+          <>
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-muted-foreground">Modo de transmissão</span>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={prefs.mode === 'vad' ? 'default' : 'outline'}
+                  className="flex-1"
+                  aria-pressed={prefs.mode === 'vad'}
+                  onClick={() => handleModeChange('vad')}
+                >
+                  Detecção de voz
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={prefs.mode === 'ptt' ? 'default' : 'outline'}
+                  className="flex-1"
+                  aria-pressed={prefs.mode === 'ptt'}
+                  onClick={() => handleModeChange('ptt')}
+                >
+                  Push-to-talk
+                </Button>
+              </div>
+            </div>
 
-        <div className="space-y-2">
-          <span className="text-xs font-medium text-muted-foreground">Saída de áudio</span>
-          <Select value={activeOutputId} onValueChange={(value) => void handleOutputChange(value)}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Selecionar saída" />
-            </SelectTrigger>
-            <SelectContent>
-              {outputDevices.map((device) => (
-                <SelectItem key={device.deviceId} value={device.deviceId}>
-                  {device.label || 'Saída de áudio'}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Limiar do detector de voz
+              </span>
+              <Slider
+                min={0}
+                max={1}
+                step={0.01}
+                value={[prefs.vadThreshold]}
+                disabled={prefs.mode !== 'vad'}
+                onValueChange={handleThresholdChange}
+                aria-label="Limiar do detector de voz"
+              />
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-primary transition-[width]"
+                  style={{ width: `${Math.min(level, 1) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-muted-foreground">Microfone</span>
+              <Select
+                value={activeInputId}
+                onValueChange={(value) => void handleInputChange(value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecionar microfone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {inputDevices.map((device) => (
+                    <SelectItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Microfone'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-muted-foreground">Saída de áudio</span>
+              <Select
+                value={activeOutputId}
+                onValueChange={(value) => void handleOutputChange(value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Selecionar saída" />
+                </SelectTrigger>
+                <SelectContent>
+                  {outputDevices.map((device) => (
+                    <SelectItem key={device.deviceId} value={device.deviceId}>
+                      {device.label || 'Saída de áudio'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
       </PopoverContent>
     </Popover>
   )

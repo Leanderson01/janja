@@ -16,7 +16,7 @@ describe('spike: livekit-server-sdk roda sem "use node"', () => {
   test('AccessToken assina e produz um JWT decodificável', async () => {
     const token = new AccessToken('fake-api-key', 'fake-api-secret-fake-api-secret', {
       identity: 'user_abc123',
-      ttl: '10m',
+      ttl: '10m'
     })
     token.addGrant({ room: 'channel_xyz', roomJoin: true, canPublish: true, canSubscribe: true })
 
@@ -43,7 +43,7 @@ async function insertUser(
       workosId,
       username,
       tag,
-      displayName: username,
+      displayName: username
     })
   )
 }
@@ -70,22 +70,20 @@ async function addMember(
   serverId: Id<'servers'>,
   userId: Id<'users'>
 ) {
-  return t.run((ctx) =>
-    ctx.db.insert('serverMembers', { serverId, userId, joinedAt: Date.now() })
-  )
+  return t.run((ctx) => ctx.db.insert('serverMembers', { serverId, userId, joinedAt: Date.now() }))
 }
 
 const LIVEKIT_ENV = {
   LIVEKIT_API_KEY: 'fake-api-key',
   LIVEKIT_API_SECRET: 'fake-api-secret-fake-api-secret',
-  LIVEKIT_URL: 'wss://livekit.usesenju.com',
+  LIVEKIT_URL: 'wss://livekit.usesenju.com'
 }
 
 function withLiveKitEnv<T>(fn: () => Promise<T>): Promise<T> {
   const previous = {
     LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY,
     LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET,
-    LIVEKIT_URL: process.env.LIVEKIT_URL,
+    LIVEKIT_URL: process.env.LIVEKIT_URL
   }
   Object.assign(process.env, LIVEKIT_ENV)
   return fn().finally(() => {
@@ -116,7 +114,9 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asGhost = t.withIdentity({ subject: 'workos_sem_documento' })
 
-      await expect(asGhost.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(
+        asGhost.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      ).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -132,7 +132,9 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       await t.run((ctx) => ctx.db.delete(channelId))
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await expect(asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(
+        asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      ).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -147,7 +149,9 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId, 'text')
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await expect(asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(
+        asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      ).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -163,7 +167,9 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asCarla = t.withIdentity({ subject: carlaWorkosId })
 
-      await expect(asCarla.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(
+        asCarla.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      ).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -180,7 +186,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
     const previous = {
       LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY,
       LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET,
-      LIVEKIT_URL: process.env.LIVEKIT_URL,
+      LIVEKIT_URL: process.env.LIVEKIT_URL
     }
     delete process.env.LIVEKIT_API_KEY
     delete process.env.LIVEKIT_API_SECRET
@@ -194,7 +200,8 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
     } finally {
-      if (previous.LIVEKIT_API_KEY !== undefined) process.env.LIVEKIT_API_KEY = previous.LIVEKIT_API_KEY
+      if (previous.LIVEKIT_API_KEY !== undefined)
+        process.env.LIVEKIT_API_KEY = previous.LIVEKIT_API_KEY
       if (previous.LIVEKIT_API_SECRET !== undefined)
         process.env.LIVEKIT_API_SECRET = previous.LIVEKIT_API_SECRET
       if (previous.LIVEKIT_URL !== undefined) process.env.LIVEKIT_URL = previous.LIVEKIT_URL
@@ -264,6 +271,65 @@ describe('voice.joinVoiceChannel — sucesso', () => {
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(1)
       expect(rows[0].muted).toBe(true)
+    })
+  })
+})
+
+describe('voiceToken.mintMicTestTokens (Plano 07-09: testador de microfone)', () => {
+  test('assina dois tokens com identities distintos, para a MESMA sala, sem tocar em channels/voiceStates', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      const result = await asAna.action(anyApi.voiceToken.mintMicTestTokens, {})
+
+      expect(result.url).toBe(LIVEKIT_ENV.LIVEKIT_URL)
+      expect(result.publisherToken).not.toBe(result.subscriberToken)
+
+      const publisherPayload = JSON.parse(
+        Buffer.from(result.publisherToken.split('.')[1], 'base64url').toString('utf8')
+      )
+      const subscriberPayload = JSON.parse(
+        Buffer.from(result.subscriberToken.split('.')[1], 'base64url').toString('utf8')
+      )
+
+      // Mesma sala efêmera para as duas conexões...
+      expect(publisherPayload.video.room).toBe(result.roomName)
+      expect(subscriberPayload.video.room).toBe(result.roomName)
+      // ...mas identities DIFERENTES da mesma pessoa — é o que impede o LiveKit de
+      // derrubar a primeira conexão assim que a segunda entrar (dedup de identity).
+      expect(publisherPayload.sub).not.toBe(subscriberPayload.sub)
+      expect(publisherPayload.sub).toContain(anaId)
+      expect(subscriberPayload.sub).toContain(anaId)
+
+      // Nunca uma sala de canal real, e nunca uma linha em voiceStates — o teste de
+      // microfone nunca aparece para o resto do grupo.
+      expect(result.roomName).not.toBe(anaId)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(0)
+    })
+  })
+
+  test('rejeita sem identidade autenticada', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      await expect(t.action(anyApi.voiceToken.mintMicTestTokens, {})).rejects.toThrow()
+    })
+  })
+
+  test('duas chamadas seguidas produzem salas efêmeras diferentes', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      await insertUser(t, anaWorkosId, 'ana', '0001')
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      const first = await asAna.action(anyApi.voiceToken.mintMicTestTokens, {})
+      const second = await asAna.action(anyApi.voiceToken.mintMicTestTokens, {})
+
+      expect(first.roomName).not.toBe(second.roomName)
     })
   })
 })
@@ -390,7 +456,13 @@ async function insertVoiceState(
   userId: Id<'users'>
 ) {
   return t.run((ctx) =>
-    ctx.db.insert('voiceStates', { channelId, userId, muted: false, deafened: false, sharing: false })
+    ctx.db.insert('voiceStates', {
+      channelId,
+      userId,
+      muted: false,
+      deafened: false,
+      sharing: false
+    })
   )
 }
 
@@ -424,6 +496,24 @@ describe('voice.reconcileParticipantLeft (internalMutation)', () => {
     const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
     expect(rows).toHaveLength(1)
     expect(rows[0].userId).toBe(carlaId)
+  })
+})
+
+describe('voice.resolveAuthenticatedUserId (internalQuery)', () => {
+  test('resolve o users._id do chamador autenticado, sem canal nenhum envolvido', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+
+    const result = await asAna.query(anyApi.voice.resolveAuthenticatedUserId, {})
+
+    expect(result.userId).toBe(anaId)
+  })
+
+  test('lança sem identidade autenticada', async () => {
+    const t = convexTest(schema, modules)
+
+    await expect(t.query(anyApi.voice.resolveAuthenticatedUserId, {})).rejects.toThrow()
   })
 })
 
@@ -514,7 +604,7 @@ describe('POST /livekit/webhook — assinatura', () => {
       const rawBody = webhookBody({
         event: 'participant_left',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
 
       const response = await t.fetch('/livekit/webhook', { method: 'POST', body: rawBody })
@@ -535,13 +625,13 @@ describe('POST /livekit/webhook — assinatura', () => {
       const rawBody = webhookBody({
         event: 'participant_left',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
 
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: 'Bearer nao-e-um-jwt-assinado-de-verdade' },
+        headers: { Authorization: 'Bearer nao-e-um-jwt-assinado-de-verdade' }
       })
 
       expect(response.status).toBe(401)
@@ -560,7 +650,7 @@ describe('POST /livekit/webhook — assinatura', () => {
       const signedBody = webhookBody({
         event: 'participant_left',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
       // Mesmo conteúdo lógico, bytes diferentes (espaçamento) — a assinatura foi
       // calculada sobre `signedBody`, não sobre isto.
@@ -574,7 +664,7 @@ describe('POST /livekit/webhook — assinatura', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: reserializedBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(401)
@@ -587,7 +677,7 @@ describe('POST /livekit/webhook — assinatura', () => {
     const t = convexTest(schema, modules)
     const previous = {
       key: process.env.LIVEKIT_API_KEY,
-      secret: process.env.LIVEKIT_API_SECRET,
+      secret: process.env.LIVEKIT_API_SECRET
     }
     delete process.env.LIVEKIT_API_KEY
     delete process.env.LIVEKIT_API_SECRET
@@ -596,7 +686,7 @@ describe('POST /livekit/webhook — assinatura', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: webhookBody({ event: 'room_finished', room: { name: 'nao-importa' } }),
-        headers: { Authorization: 'qualquer-coisa' },
+        headers: { Authorization: 'qualquer-coisa' }
       })
 
       expect(response.status).toBe(500)
@@ -618,7 +708,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const rawBody = webhookBody({
         event: 'participant_left',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
       const authHeader = await signWebhookAuthHeader(
         rawBody,
@@ -629,7 +719,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(200)
@@ -648,7 +738,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const rawBody = webhookBody({
         event: 'participant_connection_aborted',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
       const authHeader = await signWebhookAuthHeader(
         rawBody,
@@ -659,7 +749,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(200)
@@ -694,7 +784,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(200)
@@ -732,7 +822,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(200)
@@ -752,7 +842,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const rawBody = webhookBody({
         event: 'participant_left',
         room: { name: channelId },
-        participant: { identity: anaId },
+        participant: { identity: anaId }
       })
       const authHeader = await signWebhookAuthHeader(
         rawBody,
@@ -763,7 +853,7 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
       const response = await t.fetch('/livekit/webhook', {
         method: 'POST',
         body: rawBody,
-        headers: { Authorization: authHeader },
+        headers: { Authorization: authHeader }
       })
 
       expect(response.status).toBe(200)

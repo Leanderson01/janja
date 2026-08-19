@@ -42,6 +42,23 @@ export const validateVoiceJoin = internalQuery({
 })
 
 /**
+ * Resolve só o `users._id` do chamador autenticado, sem checar canal ou membership
+ * nenhum — usado pela action `mintMicTestTokens` (voiceToken.ts, Plano 07-09,
+ * testador de microfone) para montar dois identities distintos da MESMA pessoa numa
+ * sala de teste efêmera que nunca vira linha de `voiceStates`. Não reaproveita
+ * `validateVoiceJoin` acima porque aquela function exige um `channelId` real — o
+ * teste de microfone não tem canal nenhum envolvido, de propósito (é o que permite
+ * rodar sem nunca aparecer para o resto do grupo).
+ */
+export const resolveAuthenticatedUserId = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireIdentity(ctx)
+    return { userId: user._id }
+  }
+})
+
+/**
  * Upsert por `by_channel_and_user`: se a linha já existe (reconectar ao mesmo canal),
  * não reseta `muted`/`deafened` de uma sessão anterior — só garante que ela existe.
  * Nunca duplica linha para o mesmo (channelId, userId).

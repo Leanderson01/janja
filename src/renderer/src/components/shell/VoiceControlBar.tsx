@@ -209,7 +209,11 @@ export function VoiceControlBar(): React.JSX.Element {
         <TooltipContent>{deafened ? 'Desativar surdina' : 'Ensurdecer'}</TooltipContent>
       </Tooltip>
 
-      {hasIntention && <VoiceSettingsPopover disabled={!isReady} />}
+      {/* Plano 07-09: sempre renderizado, não só com `hasIntention` — o testador de
+          microfone (VOICE-21) precisa ser alcançável sem nenhum canal conectado. As
+          seções que dependem de um `Room` real continuam gated por
+          `hasVoiceIntention` dentro do próprio popover. */}
+      <VoiceSettingsPopover disabled={hasIntention && !isReady} hasVoiceIntention={hasIntention} />
 
       {hasIntention && (
         <Tooltip>
