@@ -84,6 +84,6 @@ logging:
 # Se um dia isso incomodar, a saída é mover a config inteira para a env var
 # LIVEKIT_CONFIG no Coolify — ao custo de o arquivo sair do Git e perder revisão.
 webhook:
-  api_key: REPLACE_WITH_API_KEY
+  api_key: 22f8fd9299b4e1660819be37dae92ca2433370b14979dfb9b5423fa527128546
   urls:
     - https://impressive-oyster-898.convex.site/livekit/webhook
