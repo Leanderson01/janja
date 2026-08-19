@@ -1,30 +1,10 @@
 import { v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
-import { requireMembership } from './lib/membership'
-import type { MutationCtx, QueryCtx } from './_generated/server'
-import type { Doc, Id } from './_generated/dataModel'
-
-type Ctx = QueryCtx | MutationCtx
+import { requireChannelMembership } from './lib/membership'
 
 // CHAT-01/CHAT-02/CHAT-03 no nível de dados: mensagens de canal (tabela `messages`,
 // separada de `dmMessages` da Fase 6 por design — ver 05-RESEARCH.md §1).
-
-/** Resolve o canal e exige que o chamador seja membro do servidor dono dele
- * (requireMembership, convex/lib/membership.ts — SRV-06 aplicado a mensagens de
- * canal). Local e não-exportado, mesmo padrão de `assertDmMember` em convex/dms.ts
- * (Fase 6): arquivos de domínio de fases diferentes não compartilham helper interno,
- * só os já publicamente exportados de lib/membership.ts. */
-async function requireChannelMembership(
-  ctx: Ctx,
-  channelId: Id<'channels'>
-): Promise<{ channel: Doc<'channels'>; user: Doc<'users'> }> {
-  const channel = await ctx.db.get(channelId)
-  if (!channel) throw new Error('Canal não encontrado')
-
-  const { user } = await requireMembership(ctx, channel.serverId)
-  return { channel, user }
-}
 
 export const sendMessage = mutation({
   args: { channelId: v.id('channels'), content: v.string() },
@@ -44,9 +24,9 @@ export const sendMessage = mutation({
       channelId,
       authorId: user._id,
       content: trimmed,
-      createdAt: Date.now(),
+      createdAt: Date.now()
     })
-  },
+  }
 })
 
 // CHAT-03 no nível de dados: histórico paginado, mais nova primeiro. Nunca .collect()
@@ -81,13 +61,13 @@ export const listMessages = query({
                 username: author.username,
                 tag: author.tag,
                 displayName: author.displayName,
-                avatarUrl: author.avatarUrl,
+                avatarUrl: author.avatarUrl
               }
-            : null,
+            : null
         }
       })
     )
 
     return { ...result, page }
-  },
+  }
 })

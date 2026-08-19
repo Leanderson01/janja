@@ -1,29 +1,9 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requireMembership } from './lib/membership'
-import type { MutationCtx, QueryCtx } from './_generated/server'
-import type { Doc, Id } from './_generated/dataModel'
-
-type Ctx = QueryCtx | MutationCtx
+import { requireChannelMembership } from './lib/membership'
 
 // CHAT-07 no nível de dados: quem está digitando num canal, agora. Metade de backend —
 // expiração/TTL/tick e a UI do indicador são do plano 05-05 (05-RESEARCH.md §7).
-
-/** Resolve o canal e exige que o chamador seja membro do servidor dono dele
- * (requireMembership, convex/lib/membership.ts — SRV-06 aplicado a "digitando").
- * Local e não-exportado, mesma cópia deliberada de convex/messages.ts e
- * convex/channelReadState.ts (05-RESEARCH.md §1/§5: arquivos de domínio diferentes
- * não compartilham helper interno não-exportado entre si). */
-async function requireChannelMembership(
-  ctx: Ctx,
-  channelId: Id<'channels'>
-): Promise<{ channel: Doc<'channels'>; user: Doc<'users'> }> {
-  const channel = await ctx.db.get(channelId)
-  if (!channel) throw new Error('Canal não encontrado')
-
-  const { user } = await requireMembership(ctx, channel.serverId)
-  return { channel, user }
-}
 
 // Registra "estou digitando" no canal. Chamada pelo cliente com throttle (no máximo
 // 1x a cada ~2s enquanto o usuário digita — responsabilidade do cliente, plano 05-05).
@@ -47,7 +27,7 @@ export const setTyping = mutation({
     } else {
       await ctx.db.insert('typing', { channelId, userId: user._id, updatedAt: Date.now() })
     }
-  },
+  }
 })
 
 // Lista quem está digitando no canal, excluindo o próprio chamador — ninguém precisa
@@ -75,9 +55,9 @@ export const listTyping = query({
           userId: row.userId,
           username: author?.username ?? null,
           displayName: author?.displayName ?? null,
-          updatedAt: row.updatedAt,
+          updatedAt: row.updatedAt
         }
       })
     )
-  },
+  }
 })

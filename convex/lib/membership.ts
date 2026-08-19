@@ -47,3 +47,22 @@ export async function requireOwnership(
   if (server.ownerId !== user._id) throw new Error('Apenas o dono do servidor pode fazer isso')
   return { user, server }
 }
+
+/**
+ * Autoriza o chamador para um canal, resolvendo o servidor dono dele.
+ *
+ * Existia em cópia idêntica em messages.ts, typing.ts e channelReadState.ts —
+ * três planos paralelos escreveram a mesma função sem saber uns dos outros.
+ * Três cópias de uma checagem de autorização divergem na primeira alteração, e
+ * o resultado é uma rota mais permissiva que as outras sem ninguém notar.
+ */
+export async function requireChannelMembership(
+  ctx: Ctx,
+  channelId: Id<'channels'>
+): Promise<{ channel: Doc<'channels'>; user: Doc<'users'> }> {
+  const channel = await ctx.db.get(channelId)
+  if (!channel) throw new Error('Canal não encontrado')
+
+  const { user } = await requireMembership(ctx, channel.serverId)
+  return { channel, user }
+}
