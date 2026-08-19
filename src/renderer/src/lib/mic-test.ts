@@ -1,7 +1,14 @@
 // Testador de microfone (Plano 07-09, VOICE-21/VOICE-22): módulo puro (sem React,
-// independente de componente) com as duas etapas do teste — retorno local (nível +
-// gravação, sem entrar em canal nenhum) e ida-e-volta real pelo servidor LiveKit
-// (duas conexões simultâneas numa sala efêmera dedicada, nunca um canal real).
+// independente de componente) com as duas etapas do teste — medidor de nível local
+// (sem entrar em canal nenhum) e ida-e-volta real pelo servidor LiveKit (duas
+// conexões simultâneas numa sala efêmera dedicada, nunca um canal real).
+//
+// A gravação/reprodução local que existia aqui foi removida (Plano 07-09, cleanup
+// pós-verificação): o teste de ida-e-volta pelo servidor cobre tudo que ela provava
+// e mais — token, SFU, codec e o caminho de rede real. O medidor de nível continua
+// porque é o que torna o slider de sensibilidade do VAD usável (ver o ruído da sala
+// cair abaixo da marca e a própria voz cruzá-la) e porque funciona sem rede nenhuma,
+// então ainda diz se o microfone está captando quando o servidor está inalcançável.
 //
 // O medidor de nível REAPROVEITA `createVadMonitor` de `lib/vad.ts` (mesma leitura de
 // `AnalyserNode` que `VoiceSettingsPopover` já usa) em vez de duplicar a leitura de
@@ -21,7 +28,7 @@ const AUDIO_CAPTURE_OPTIONS: MediaTrackConstraints = {
   autoGainControl: true
 }
 
-// --- Retorno local: nível + gravação (Task 1) ---
+// --- Medidor de nível local (Task 1) ---
 
 export type MicCapture = {
   stream: MediaStream
@@ -33,8 +40,8 @@ export type MicCapture = {
 }
 
 /** Abre o microfone selecionado (ou o default do sistema, se `deviceId` for
- * `undefined`) fora de qualquer `Room` do LiveKit — é o que permite medir nível e
- * gravar sem entrar em canal nenhum (VOICE-21). */
+ * `undefined`) fora de qualquer `Room` do LiveKit — é o que permite medir nível sem
+ * entrar em canal nenhum (VOICE-21). */
 export async function openMicCapture(deviceId?: string): Promise<MicCapture> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: deviceId
@@ -66,49 +73,6 @@ export function startLevelMeter(
   onLevel: (level: number) => void
 ): VadMonitor {
   return createVadMonitor(track, { threshold: 2, onSpeakingChange: () => {}, onLevel })
-}
-
-const RECORDING_MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
-
-function pickRecordingMimeType(): string | undefined {
-  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return undefined
-  return RECORDING_MIME_CANDIDATES.find((candidate) => MediaRecorder.isTypeSupported(candidate))
-}
-
-export type MicRecorder = {
-  start: () => void
-  /** Resolve com uma URL de objeto tocável num `<audio>`. Quem chama é responsável
-   * por `URL.revokeObjectURL(url)` quando a reprodução não for mais necessária —
-   * este módulo não guarda a URL depois de devolvê-la. */
-  stop: () => Promise<{ blob: Blob; url: string }>
-}
-
-/** Gravação curta via `MediaRecorder` sobre o MESMO stream do medidor de nível — não
- * abre um segundo `getUserMedia`. */
-export function createMicRecorder(stream: MediaStream): MicRecorder {
-  const mimeType = pickRecordingMimeType()
-  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-  const chunks: BlobPart[] = []
-
-  recorder.ondataavailable = (event: BlobEvent): void => {
-    if (event.data.size > 0) chunks.push(event.data)
-  }
-
-  return {
-    start(): void {
-      chunks.length = 0
-      recorder.start()
-    },
-    stop(): Promise<{ blob: Blob; url: string }> {
-      return new Promise((resolve) => {
-        recorder.onstop = (): void => {
-          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
-          resolve({ blob, url: URL.createObjectURL(blob) })
-        }
-        recorder.stop()
-      })
-    }
-  }
 }
 
 // --- Ida e volta pelo servidor (Task 2) ---

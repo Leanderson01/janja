@@ -301,5 +301,41 @@ Nenhuma configuração externa nova (mesmas credenciais LiveKit do Plano 07-00).
   Required" acima para o roteiro completo pendente no Windows (Plano 07-08).
 
 ---
+
+## Post-verification cleanup (2026-08-19)
+
+O usuário confirmou no Windows que o teste de ida-e-volta pelo servidor funciona
+(item 4 do roteiro de "User Setup Required" acima) e pediu a remoção do retorno
+local (gravação + reprodução) por ser redundante — o teste de servidor exercita
+tudo que o retorno local provava e mais (token, SFU, codec e o caminho de rede
+real), então mantê-los os dois só duplicava UI sem agregar cobertura.
+
+**Removido** (de `src/renderer/src/lib/mic-test.ts` e `MicTestPanel.tsx`):
+- `createMicRecorder` e o tipo `MicRecorder`, `pickRecordingMimeType`,
+  `RECORDING_MIME_CANDIDATES` — todo o wrapper de `MediaRecorder`.
+- Estado `isRecording`/`playbackUrl`, `recorderRef`/`playbackAudioRef`, os
+  handlers `handleStartRecording`/`handleStopRecording`/`handlePlayRecording`, e
+  o bloco de UI "Retorno local — grave alguns segundos e ouça a própria voz"
+  (botões Gravar/Parar/Ouvir e o `<audio>` de reprodução).
+- Imports agora não usados (`Play`, `Square` de `lucide-react`).
+
+**Mantido, sem alteração de comportamento:**
+- `openMicCapture`/`MicCapture` e `startLevelMeter` — o medidor de nível ao vivo
+  com a marca do limiar do VAD continua idêntico; é o que torna o slider de
+  sensibilidade usável e funciona mesmo sem rede, então segue distinto do teste
+  de servidor.
+- `runServerLoopbackTest`, `LoopbackTestHandle`, `readSelectedIceCandidateType` e
+  todo o relatório de caminho ICE — intocados.
+- O teardown ao fechar o painel: como a captura/gravação já viviam sobre o MESMO
+  `MediaStream` (o gravador nunca abria um segundo `getUserMedia`), remover o
+  gravador não deixou nenhuma track órfã — `captureRef.current?.stop()` (efeito
+  de captura) e `loopbackRef.current?.stop()` (efeito de fechamento do Dialog)
+  continuam sendo os dois únicos pontos que encerram track/conexão, e ambos
+  seguem intactos.
+
+**Verificação:** `npm run typecheck`, `npm run build` e `npx vitest run`
+(169/169) passam limpos após a remoção; grep confirmou nenhum import ou estado
+órfão relacionado a gravação/reprodução restante nos dois arquivos.
+
 *Phase: 07-voz*
 *Completed: 2026-08-19*

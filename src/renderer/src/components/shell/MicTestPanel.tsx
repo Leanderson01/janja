@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAction } from 'convex/react'
-import { Mic, Play, Square } from 'lucide-react'
+import { Mic } from 'lucide-react'
 import { Room } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
@@ -21,14 +21,12 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import {
-  createMicRecorder,
   openMicCapture,
   runServerLoopbackTest,
   startLevelMeter,
   type IceCandidateType,
   type LoopbackTestHandle,
-  type MicCapture,
-  type MicRecorder
+  type MicCapture
 } from '@/lib/mic-test'
 
 import { api } from '../../../../../convex/_generated/api'
@@ -73,15 +71,11 @@ export function MicTestPanel({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined)
 
   const [level, setLevel] = useState(0)
-  const [isRecording, setIsRecording] = useState(false)
-  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null)
 
   const [serverTest, setServerTest] = useState<ServerTestState>({ status: 'idle' })
 
   const captureRef = useRef<MicCapture | null>(null)
-  const recorderRef = useRef<MicRecorder | null>(null)
   const loopbackRef = useRef<LoopbackTestHandle | null>(null)
-  const playbackAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Lista os microfones disponíveis assim que o painel abre — `enumerateDevices` é
   // assíncrono (pode pedir permissão), mesmo padrão de `VoiceSettingsPopover`.
@@ -107,8 +101,8 @@ export function MicTestPanel({
   }, [open])
 
   // Captura o microfone selecionado e liga o medidor de nível assim que o painel
-  // abre — é o retorno local (Task 1), nunca exige estar num canal de voz. Reabre a
-  // captura sempre que o dispositivo selecionado muda.
+  // abre — nunca exige estar num canal de voz. Reabre a captura sempre que o
+  // dispositivo selecionado muda.
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -149,55 +143,21 @@ export function MicTestPanel({
     }
   }, [open, selectedDeviceId])
 
-  // Encerra TUDO ao fechar o painel — gravação em andamento e o teste de servidor se
-  // ainda estiver rodando (a captura local já se encerra sozinha via cleanup do
-  // efeito acima). Nenhum destes recursos deve sobreviver ao Dialog fechado, por
-  // qualquer caminho (botão, Esc, clique fora). O reset mora na função de cleanup
-  // (não no corpo do efeito) de propósito — chamar `setState` diretamente no corpo de
-  // um efeito encadeia renders extras; na função de cleanup, dispara junto do
-  // desmonte lógico do que ela está desfazendo, mesmo padrão do medidor de nível
-  // acima.
+  // Encerra TUDO ao fechar o painel — o teste de servidor se ainda estiver rodando (a
+  // captura local já se encerra sozinha via cleanup do efeito acima). Nenhum destes
+  // recursos deve sobreviver ao Dialog fechado, por qualquer caminho (botão, Esc,
+  // clique fora). O reset mora na função de cleanup (não no corpo do efeito) de
+  // propósito — chamar `setState` diretamente no corpo de um efeito encadeia renders
+  // extras; na função de cleanup, dispara junto do desmonte lógico do que ela está
+  // desfazendo, mesmo padrão do medidor de nível acima.
   useEffect(() => {
     if (!open) return
     return () => {
-      recorderRef.current = null
-      setIsRecording(false)
-      setPlaybackUrl((current) => {
-        if (current) URL.revokeObjectURL(current)
-        return null
-      })
       setServerTest({ status: 'idle' })
       void loopbackRef.current?.stop()
       loopbackRef.current = null
     }
   }, [open])
-
-  function handleStartRecording(): void {
-    const capture = captureRef.current
-    if (!capture) return
-    setPlaybackUrl((current) => {
-      if (current) URL.revokeObjectURL(current)
-      return null
-    })
-    const recorder = createMicRecorder(capture.stream)
-    recorderRef.current = recorder
-    recorder.start()
-    setIsRecording(true)
-  }
-
-  async function handleStopRecording(): Promise<void> {
-    const recorder = recorderRef.current
-    if (!recorder) return
-    setIsRecording(false)
-    const { url } = await recorder.stop()
-    setPlaybackUrl(url)
-  }
-
-  function handlePlayRecording(): void {
-    playbackAudioRef.current?.play().catch((err) => {
-      console.error('[mic-test] falha ao reproduzir a gravação', err)
-    })
-  }
 
   async function handleRunServerTest(): Promise<void> {
     setServerTest({ status: 'connecting' })
@@ -277,38 +237,6 @@ export function MicTestPanel({
                 style={{ left: `${thresholdPercent}%` }}
                 aria-label="Limiar do detector de voz"
               />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Retorno local — grave alguns segundos e ouça a própria voz
-            </span>
-            <div className="flex items-center gap-2">
-              {!isRecording ? (
-                <Button type="button" size="sm" variant="outline" onClick={handleStartRecording}>
-                  <Mic /> Gravar
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => void handleStopRecording()}
-                >
-                  <Square /> Parar
-                </Button>
-              )}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!playbackUrl}
-                onClick={handlePlayRecording}
-              >
-                <Play /> Ouvir
-              </Button>
-              {playbackUrl && <audio ref={playbackAudioRef} src={playbackUrl} className="hidden" />}
             </div>
           </div>
 
