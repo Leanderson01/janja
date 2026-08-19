@@ -229,6 +229,32 @@ export function ChannelSidebar(): React.JSX.Element {
 // Quem está CONECTADO não fica sem referência visual porque a
 // `VoiceControlBar` do rodapé continua mostrando "Conectado a {canal}"; é ela
 // que cobre esse caso, e por isso não existe estado especial aqui.
+// Marcador de canal SELECIONADO (Plano 08.5-08). Mesmo vocabulário visual do
+// indicador de servidor ativo do `ServerRail`: barra vertical fina, colada na
+// borda esquerda, arredondada só do lado de fora, em `bg-highlight`.
+//
+// Por que ele existe, já que a linha selecionada tem `bg-accent`: num tema
+// monocromático `bg-accent` é "um cinza a mais" e some ao lado do `hover`.
+// Pela regra do tom único da fase (08.5-01), o destaque só aparece em estado
+// ativo/selecionado, anel de foco e marcador de não-lido — este é o primeiro
+// caso. O marcador COMPLEMENTA o `bg-accent`, não o substitui.
+//
+// Renderizado sempre (não condicionalmente) e escondido por opacidade, como
+// no rail: assim a transição existe nos dois sentidos em vez de o nó aparecer
+// e sumir do DOM. A 16px de altura, centralizado, ele nunca encosta no
+// `rounded-md` de 6px da própria linha.
+function SelectedMarker({ isSelected }: { isSelected: boolean }): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'absolute left-0 top-1/2 w-[3px] -translate-y-1/2 rounded-r-full bg-highlight transition-all',
+        isSelected ? 'h-4 opacity-100' : 'h-1 opacity-0'
+      )}
+      aria-hidden="true"
+    />
+  )
+}
+
 function ChannelSection({
   label,
   open,
@@ -275,18 +301,20 @@ function TextChannelRow({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+        'relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
         isSelected
           ? 'bg-accent text-accent-foreground'
           : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
       )}
     >
+      <SelectedMarker isSelected={isSelected} />
       <Hash className="size-4 shrink-0" />
-      <span className="flex-1 truncate">{channel.name}</span>
+      <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+      {/* CHAT-06: "marcador de não-lido" é um dos três usos autorizados do
+          `--highlight` (Plano 08.5-01). O `variant="secondary"` anterior era
+          cinza sobre fundo cinza — o número existia, mas não chamava. */}
       {unreadCount > 0 && (
-        <Badge variant="secondary" className="shrink-0">
-          {unreadCount}
-        </Badge>
+        <Badge className="shrink-0 bg-highlight text-highlight-foreground">{unreadCount}</Badge>
       )}
     </button>
   )
@@ -315,7 +343,7 @@ function VoiceChannelRow({
         type="button"
         onClick={onClick}
         className={cn(
-          'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+          'relative flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
           isSelected
             ? 'bg-accent text-accent-foreground'
             : isJoined
@@ -323,8 +351,9 @@ function VoiceChannelRow({
               : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
         )}
       >
+        <SelectedMarker isSelected={isSelected} />
         <Volume2 className="size-4 shrink-0" />
-        <span className="flex-1 truncate">{channel.name}</span>
+        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
       </button>
 
       {participants && participants.length > 0 ? (
@@ -340,10 +369,12 @@ function VoiceChannelRow({
                 key={participant.userId}
                 className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
               >
-                <Avatar size="sm" className={isSpeaking ? 'ring-2 ring-green-500' : undefined}>
+                {/* VOICE-08: `--success` é significado (alguém está falando), não
+                    destaque — não conta contra a regra do tom único. */}
+                <Avatar size="sm" className={cn(isSpeaking && 'ring-2 ring-success')}>
                   <AvatarFallback>{initialsFor(participant.username)}</AvatarFallback>
                 </Avatar>
-                <span className="flex-1 truncate">{participant.username}</span>
+                <span className="min-w-0 flex-1 truncate">{participant.username}</span>
                 {/* SHARE-05 (Plano 08-06): `sharing` já vem na mesma linha de
                     `voiceStates` que esta query devolve desde 07-04 — nenhuma
                     query nova. E, ao contrário do anel de fala acima, ele NÃO
@@ -351,7 +382,7 @@ function VoiceChannelRow({
                     ser visto por quem ainda não entrou no canal. */}
                 {participant.sharing ? (
                   <MonitorUp
-                    className="size-3 shrink-0 text-green-500"
+                    className="size-3 shrink-0 text-success"
                     aria-label="compartilhando a tela"
                   />
                 ) : null}
