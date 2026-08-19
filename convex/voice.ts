@@ -137,3 +137,50 @@ export const setDeafened = mutation({
     return null
   },
 })
+
+// VOICE-04 (Pitfall 3, PITFALLS.md): antídoto do usuário-fantasma. As duas mutations
+// abaixo só existem para serem chamadas pela rota de webhook do LiveKit
+// (`convex/http.ts`), nunca pelo cliente — daí `internalMutation`. Nada além delas (e
+// do `leaveVoiceChannel` explícito acima) apaga uma linha de `voiceStates`.
+
+/**
+ * `participant_left` (saída normal, cleanup completo) ou
+ * `participant_connection_aborted` (mídia caiu depois da sinalização — o caso
+ * crash/Alt+F4/queda de rede do Pitfall 3): apaga a linha de `voiceStates` desse
+ * `(channelId, userId)` específico. Idempotente — se a linha já não existir (removida
+ * por `leaveVoiceChannel` do cliente, ou evento duplicado reenviado pelo LiveKit por
+ * falta de 2xx), não lança e não afeta nenhuma outra linha.
+ */
+export const reconcileParticipantLeft = internalMutation({
+  args: { channelId: v.id('channels'), userId: v.id('users') },
+  handler: async (ctx, { channelId, userId }) => {
+    const existing = await ctx.db
+      .query('voiceStates')
+      .withIndex('by_channel_and_user', (q) => q.eq('channelId', channelId).eq('userId', userId))
+      .unique()
+    if (!existing) return null
+
+    await ctx.db.delete(existing._id)
+    return null
+  },
+})
+
+/**
+ * `room_finished` (sala fechou — todos saíram e o timeout expirou, ou `room.close()`):
+ * apaga TODAS as linhas de `voiceStates` daquele canal, como camada extra de segurança
+ * caso algum `participant_left`/`participant_connection_aborted` individual tenha se
+ * perdido. Nunca toca em linhas de outro `channelId` — usa `by_channel`, nunca um scan
+ * de tabela inteira.
+ */
+export const reconcileRoomFinished = internalMutation({
+  args: { channelId: v.id('channels') },
+  handler: async (ctx, { channelId }) => {
+    const rows = await ctx.db
+      .query('voiceStates')
+      .withIndex('by_channel', (q) => q.eq('channelId', channelId))
+      .collect()
+
+    await Promise.all(rows.map((row) => ctx.db.delete(row._id)))
+    return null
+  },
+})

@@ -379,3 +379,396 @@ describe('voice.setMuted / voice.setDeafened — semântica', () => {
     await expect(asAna.mutation(anyApi.voice.setDeafened, { deafened: true })).rejects.toThrow()
   })
 })
+
+// --- VOICE-04 / Pitfall 3 (PITFALLS.md): reconciliação de usuário-fantasma via
+// webhook do LiveKit. Nada além disto apaga uma linha de `voiceStates` quando o app
+// morre sem rodar `leaveVoiceChannel` (crash, Alt+F4, Windows Update, perda de rede).
+
+async function insertVoiceState(
+  t: ReturnType<typeof convexTest>,
+  channelId: Id<'channels'>,
+  userId: Id<'users'>
+) {
+  return t.run((ctx) =>
+    ctx.db.insert('voiceStates', { channelId, userId, muted: false, deafened: false, sharing: false })
+  )
+}
+
+describe('voice.reconcileParticipantLeft (internalMutation)', () => {
+  test('remove a linha (channelId, userId) correspondente', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    await insertVoiceState(t, channelId, anaId)
+
+    await t.mutation(anyApi.voice.reconcileParticipantLeft, { channelId, userId: anaId })
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(0)
+  })
+
+  test('idempotente: chamar duas vezes seguidas não lança e não afeta outras linhas', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+    const { serverId, channelId } = await insertServerWithChannel(t, anaId)
+    await addMember(t, serverId, carlaId)
+    await insertVoiceState(t, channelId, anaId)
+    await insertVoiceState(t, channelId, carlaId)
+
+    await t.mutation(anyApi.voice.reconcileParticipantLeft, { channelId, userId: anaId })
+    await expect(
+      t.mutation(anyApi.voice.reconcileParticipantLeft, { channelId, userId: anaId })
+    ).resolves.not.toThrow()
+
+    const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+    expect(rows).toHaveLength(1)
+    expect(rows[0].userId).toBe(carlaId)
+  })
+})
+
+describe('voice.reconcileRoomFinished (internalMutation)', () => {
+  test('remove todas as linhas do canal informado, preserva as de outro canal', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+    const beloId = await insertUser(t, 'workos_belo', 'belo', '0005')
+    const danId = await insertUser(t, 'workos_dan', 'dan', '0007')
+    const { serverId, channelId: channelA } = await insertServerWithChannel(t, anaId)
+    await addMember(t, serverId, carlaId)
+    await addMember(t, serverId, beloId)
+    await addMember(t, serverId, danId)
+    const channelB = await t.run((ctx) =>
+      ctx.db.insert('channels', { serverId, name: 'outro-canal', type: 'voice', position: 1 })
+    )
+    await insertVoiceState(t, channelA, anaId)
+    await insertVoiceState(t, channelA, carlaId)
+    await insertVoiceState(t, channelA, beloId)
+    await insertVoiceState(t, channelB, danId)
+
+    await t.mutation(anyApi.voice.reconcileRoomFinished, { channelId: channelA })
+
+    const remainingA = await t.run((ctx) =>
+      ctx.db
+        .query('voiceStates')
+        .withIndex('by_channel', (q) => q.eq('channelId', channelA))
+        .collect()
+    )
+    expect(remainingA).toHaveLength(0)
+
+    const remainingB = await t.run((ctx) =>
+      ctx.db
+        .query('voiceStates')
+        .withIndex('by_channel', (q) => q.eq('channelId', channelB))
+        .collect()
+    )
+    expect(remainingB).toHaveLength(1)
+    expect(remainingB[0].userId).toBe(danId)
+  })
+
+  test('canal sem nenhuma linha não lança', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+
+    await expect(
+      t.mutation(anyApi.voice.reconcileRoomFinished, { channelId })
+    ).resolves.not.toThrow()
+  })
+})
+
+/**
+ * Constrói o header `Authorization` exatamente como o `livekit-server` real
+ * constrói: um JWT HS256 (mesmo `AccessToken` do SDK, sem grant de vídeo) cujo claim
+ * `sha256` é o hash SHA-256 em base64 do corpo bruto — o mesmo par (claim, hash) que
+ * `WebhookReceiver.receive` decodifica e confere em `voiceToken.verifyLiveKitWebhook`.
+ */
+async function signWebhookAuthHeader(
+  rawBody: string,
+  apiKey: string,
+  apiSecret: string
+): Promise<string> {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawBody))
+  const hashBase64 = Buffer.from(new Uint8Array(hash)).toString('base64')
+  const token = new AccessToken(apiKey, apiSecret, { ttl: '1m' })
+  token.sha256 = hashBase64
+  return token.toJwt()
+}
+
+function webhookBody(payload: {
+  event: string
+  room?: { name: string }
+  participant?: { identity: string }
+}): string {
+  return JSON.stringify(payload)
+}
+
+describe('POST /livekit/webhook — assinatura', () => {
+  test('sem header Authorization, responde 401 e não altera voiceStates', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const rawBody = webhookBody({
+        event: 'participant_left',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+
+      const response = await t.fetch('/livekit/webhook', { method: 'POST', body: rawBody })
+
+      expect(response.status).toBe(401)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+    })
+  })
+
+  test('assinatura inválida, responde 401 e não altera voiceStates', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const rawBody = webhookBody({
+        event: 'participant_left',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: 'Bearer nao-e-um-jwt-assinado-de-verdade' },
+      })
+
+      expect(response.status).toBe(401)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+    })
+  })
+
+  test('corpo re-serializado (mesmo JSON, espaçamento diferente) falha a verificação — prova que o handler usa o corpo bruto, não uma versão re-parseada', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const signedBody = webhookBody({
+        event: 'participant_left',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+      // Mesmo conteúdo lógico, bytes diferentes (espaçamento) — a assinatura foi
+      // calculada sobre `signedBody`, não sobre isto.
+      const reserializedBody = JSON.stringify(JSON.parse(signedBody), null, 2)
+      const authHeader = await signWebhookAuthHeader(
+        signedBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: reserializedBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(401)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+    })
+  })
+
+  test('sem LIVEKIT_API_KEY/LIVEKIT_API_SECRET configurados, responde 500 sem tentar validar', async () => {
+    const t = convexTest(schema, modules)
+    const previous = {
+      key: process.env.LIVEKIT_API_KEY,
+      secret: process.env.LIVEKIT_API_SECRET,
+    }
+    delete process.env.LIVEKIT_API_KEY
+    delete process.env.LIVEKIT_API_SECRET
+
+    try {
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: webhookBody({ event: 'room_finished', room: { name: 'nao-importa' } }),
+        headers: { Authorization: 'qualquer-coisa' },
+      })
+
+      expect(response.status).toBe(500)
+    } finally {
+      if (previous.key !== undefined) process.env.LIVEKIT_API_KEY = previous.key
+      if (previous.secret !== undefined) process.env.LIVEKIT_API_SECRET = previous.secret
+    }
+  })
+})
+
+describe('POST /livekit/webhook — roteamento por evento', () => {
+  test('participant_left remove a linha correspondente', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const rawBody = webhookBody({
+        event: 'participant_left',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+      const authHeader = await signWebhookAuthHeader(
+        rawBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(0)
+    })
+  })
+
+  test('participant_connection_aborted remove a linha correspondente (caso crash/perda de rede)', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const rawBody = webhookBody({
+        event: 'participant_connection_aborted',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+      const authHeader = await signWebhookAuthHeader(
+        rawBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(0)
+    })
+  })
+
+  test('room_finished remove todas as linhas do canal, preserva outro canal', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+      const danId = await insertUser(t, 'workos_dan', 'dan', '0007')
+      const { serverId, channelId: channelA } = await insertServerWithChannel(t, anaId)
+      await addMember(t, serverId, carlaId)
+      await addMember(t, serverId, danId)
+      const channelB = await t.run((ctx) =>
+        ctx.db.insert('channels', { serverId, name: 'outro-canal', type: 'voice', position: 1 })
+      )
+      await insertVoiceState(t, channelA, anaId)
+      await insertVoiceState(t, channelA, carlaId)
+      await insertVoiceState(t, channelB, danId)
+
+      const rawBody = webhookBody({ event: 'room_finished', room: { name: channelA } })
+      const authHeader = await signWebhookAuthHeader(
+        rawBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(200)
+      const remainingA = await t.run((ctx) =>
+        ctx.db
+          .query('voiceStates')
+          .withIndex('by_channel', (q) => q.eq('channelId', channelA))
+          .collect()
+      )
+      expect(remainingA).toHaveLength(0)
+      const remainingB = await t.run((ctx) =>
+        ctx.db
+          .query('voiceStates')
+          .withIndex('by_channel', (q) => q.eq('channelId', channelB))
+          .collect()
+      )
+      expect(remainingB).toHaveLength(1)
+    })
+  })
+
+  test('evento desconhecido responde 200 e não altera voiceStates (LiveKit reenvia com retry se não vir 2xx)', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      await insertVoiceState(t, channelId, anaId)
+
+      const rawBody = webhookBody({ event: 'track_unpublished', room: { name: channelId } })
+      const authHeader = await signWebhookAuthHeader(
+        rawBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+    })
+  })
+
+  test('participant_left para linha já removida (evento duplicado) responde 200 sem lançar', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      // Nenhuma linha inserida — simula que leaveVoiceChannel do cliente já rodou
+      // antes do webhook chegar, ou que o LiveKit reenviou o mesmo evento.
+
+      const rawBody = webhookBody({
+        event: 'participant_left',
+        room: { name: channelId },
+        participant: { identity: anaId },
+      })
+      const authHeader = await signWebhookAuthHeader(
+        rawBody,
+        LIVEKIT_ENV.LIVEKIT_API_KEY,
+        LIVEKIT_ENV.LIVEKIT_API_SECRET
+      )
+
+      const response = await t.fetch('/livekit/webhook', {
+        method: 'POST',
+        body: rawBody,
+        headers: { Authorization: authHeader },
+      })
+
+      expect(response.status).toBe(200)
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(0)
+    })
+  })
+})

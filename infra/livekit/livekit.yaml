@@ -58,11 +58,32 @@ turn:
 logging:
   level: info
 
-# webhook:
-#   preenchido em F7 (voz) — aponta pra HTTP action do Convex que
-#   reconcilia voiceStates em participant_left/participant_connection_aborted/
-#   room_finished. Ver PITFALLS.md Pitfall 3. Corpo bruto (request.text()),
-#   nunca request.json() antes de validar assinatura.
-#   api_key: REPLACE_WITH_API_KEY
-#   urls:
-#     - https://<convex-deployment>.convex.site/livekit/webhook
+# Plano 07-02 (VOICE-04, Pitfall 3): reconciliação de usuário-fantasma. A rota
+# `convex/http.ts` (POST /livekit/webhook) já existe e está testada — falta só
+# apontar o LiveKit pra ela e fazer o redeploy da stack no Coolify (Plano 07-08).
+#
+# api_key: mesma LIVEKIT_API_KEY já usada em `keys`/LIVEKIT_KEYS (ver passo 6 e 9.1
+# do DEPLOY-RUNBOOK.md) — o LiveKit assina o payload do webhook com o par
+# (api_key, api_secret) correspondente, e `verifyLiveKitWebhook`
+# (convex/voiceToken.ts) confere contra o mesmo par lido de LIVEKIT_API_KEY/
+# LIVEKIT_API_SECRET nas env vars do Convex. Precisam ser IDENTICOS.
+#
+# urls: aponta para o deployment do Convex. É endereço público, não credencial.
+#
+# api_key: PRECISA ser preenchido com o valor real e COMMITADO. Parece contrariar
+# a decisão de tirar as chaves deste arquivo, mas é diferente:
+#
+#   - O que saiu daqui foi o par `keys: chave: segredo`, porque o SEGREDO assina
+#     tokens de sala. Ele vive em LIVEKIT_KEYS, env var do Coolify.
+#   - `webhook.api_key` é só a metade pública, o identificador de qual par usar.
+#     Sozinho não assina nada.
+#   - E precisa estar no arquivo versionado porque edição manual no checkout do
+#     Coolify é revertida no próximo redeploy, em silêncio — a armadilha que o
+#     passo 8 do runbook existia para descrever e que eliminamos.
+#
+# Se um dia isso incomodar, a saída é mover a config inteira para a env var
+# LIVEKIT_CONFIG no Coolify — ao custo de o arquivo sair do Git e perder revisão.
+webhook:
+  api_key: REPLACE_WITH_API_KEY
+  urls:
+    - https://impressive-oyster-898.convex.site/livekit/webhook
