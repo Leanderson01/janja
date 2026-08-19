@@ -5,7 +5,7 @@ import { RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
+import { playMuteStateChangeTone, useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
@@ -37,7 +37,7 @@ import { api } from '../../../../../convex/_generated/api'
 // voltasse a falar, ignorando o mute manual.
 export function VoiceControlBar(): React.JSX.Element {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
-  const { room, connectionState, setManualMute } = useVoice()
+  const { room, connectionState, setManualMute, setDeafened } = useVoice()
 
   // Plano 07-07 (VOICE-17): observa `voiceStates` do canal conectado e toca
   // som de entrada/saída — vive aqui porque este já é o "centro de
@@ -130,11 +130,20 @@ export function VoiceControlBar(): React.JSX.Element {
       autoGainControl: true
     })
     setMutedState(next)
+    // Plano 07-11 (pedido do usuário após teste em Windows): tom de
+    // mute/desmute do PRÓPRIO microfone. Chamado SÓ aqui — o único lugar
+    // onde a mudança de mute é uma decisão manual real (clique no botão do
+    // rodapé). Nunca chamado do VAD nem do push-to-talk (`voice-context.tsx`),
+    // que ligam/desligam a track a cada fala/tecla, nem do lado "ensurdecer
+    // implica mutar" de `toggleDeafened` abaixo — ver justificativa em
+    // `playMuteStateChangeTone` (voice-sounds.ts).
+    playMuteStateChangeTone(next)
     // Desativar mute enquanto ensurdecido também desativa o ensurdecimento
     // — a mutation já aplicou essa semântica no servidor (design §8); aqui
     // só refletimos o resultado na UI e na reprodução local.
     if (!next && deafened) {
       setDeafenedState(false)
+      setDeafened(false)
     }
   }
 
@@ -147,6 +156,11 @@ export function VoiceControlBar(): React.JSX.Element {
       return
     }
     setDeafenedState(next)
+    // Plano 07-11: espelha em `voice-context.tsx` (`deafenedRef`), para que
+    // o tom de "eu saí" (disparado na transição de saída, ver
+    // `voice-context.tsx`) saiba se deve ficar em silêncio — mesma
+    // sincronização de `setManualMute`, mas para ensurdecer.
+    setDeafened(next)
     // Ativar deafen implica mute (design §8) — a mutation já aplicou isso no
     // servidor; aqui refletimos no microfone real e no ícone.
     if (next && !muted) {

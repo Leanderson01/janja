@@ -33,8 +33,43 @@ import { useVoice } from '../state/voice-context'
 // PRÓPRIO usuário (mais rico, mais perceptível — é sobre você) e um
 // "sweep" de nota única para eventos de OUTRO participante (mais discreto).
 // Direção (sobe/desce) sempre marca entrada/saída dentro de cada família.
+//
+// Plano 07-11 (follow-up de VOICE-17, pedido do usuário depois do teste em
+// Windows): dois tons a mais, mute/desmute do PRÓPRIO microfone —
+// `playMuteStateChangeTone`, exportado deste módulo, chamado só de
+// `VoiceControlBar.tsx` no toggle MANUAL do botão de microfone. Nunca do
+// VAD nem do push-to-talk (`voice-context.tsx`), que ligam/desligam a track
+// a cada fala/tecla — tocar aí soaria em todo utterance. Nunca do lado
+// "ensurdecer implica mutar" de `toggleDeafened` — ver comentário em
+// `playMuteStateChangeTone` abaixo.
+//
+// Também no Plano 07-11: correção de defeito relatado após teste em
+// Windows ("quando eu saio da call, nenhum som toca"). `playSelfLeaveTone`
+// passa a ser exportado e chamado direto de `voice-context.tsx`, no ponto
+// da transição de saída própria — o diff deste hook NUNCA detecta a saída
+// do próprio usuário (a query vira `'skip'` no mesmo tick em que
+// `joinedVoiceChannelId` fica `null`, então não existe snapshot seguinte
+// mostrando a ausência dele para comparar). Ver comentário completo em
+// `playSelfLeaveTone` abaixo.
 
-type ToneNote = { freq: number; start: number; duration: number }
+type ToneWaveform = 'sine' | 'triangle'
+
+type ToneNote = {
+  freq: number
+  start: number
+  duration: number
+  /** Default 'sine' — todas as notas de entrada/saída (Plano 07-07) usam
+   * a onda senoidal padrão. Mute/desmute (Plano 07-11) usa 'triangle' de
+   * propósito: precisa soar diferente das quatro notas acima, não só em
+   * pitch, senão "eu me mutei" e "alguém saiu" ficam fáceis de confundir
+   * de ouvido em uma call ao vivo. */
+  waveform?: ToneWaveform
+  /** Default TONE_PEAK_GAIN. Mute/desmute usa um valor menor: o gesto de
+   * mutar é repetido dezenas de vezes por sessão (muito mais que
+   * entrar/sair de canal), então precisa ser discreto o bastante para não
+   * cansar no vigésimo toggle. */
+  gain?: number
+}
 
 let sharedAudioContext: AudioContext | null = null
 
@@ -65,15 +100,15 @@ function playTone(notes: ToneNote[]): void {
       void ctx.resume().catch(() => {})
     }
     const now = ctx.currentTime
-    notes.forEach(({ freq, start, duration }) => {
+    notes.forEach(({ freq, start, duration, waveform, gain: peakGain }) => {
       const oscillator = ctx.createOscillator()
       const gain = ctx.createGain()
-      oscillator.type = 'sine'
+      oscillator.type = waveform ?? 'sine'
       oscillator.frequency.value = freq
       const startTime = now + start
       const endTime = startTime + duration
       gain.gain.setValueAtTime(0, startTime)
-      gain.gain.linearRampToValueAtTime(TONE_PEAK_GAIN, startTime + 0.012)
+      gain.gain.linearRampToValueAtTime(peakGain ?? TONE_PEAK_GAIN, startTime + 0.012)
       gain.gain.linearRampToValueAtTime(0, endTime)
       oscillator.connect(gain)
       gain.connect(ctx.destination)
@@ -93,7 +128,35 @@ function playSelfJoinTone(): void {
     { freq: 784, start: 0.09, duration: 0.14 }
   ])
 }
-function playSelfLeaveTone(): void {
+/**
+ * Plano 07-11 (correção de defeito relatado após teste em Windows: "quando
+ * eu saio da call, nenhum som toca"). Exportado e chamado diretamente de
+ * `voice-context.tsx`, no ponto em que a transição de saída própria
+ * acontece (fila serializada de `joinedVoiceChannelId`) — NUNCA mais a
+ * partir do diff de `voiceParticipantsByChannel` deste módulo.
+ *
+ * Causa raiz do defeito: a query de participantes usa
+ * `joinedVoiceChannelId ? {...} : 'skip'`. No instante em que o próprio
+ * usuário sai, `joinedVoiceChannelId` vira `null` e a query passa a
+ * `'skip'` NO MESMO tick — nunca existe um snapshot seguinte mostrando a
+ * lista sem o próprio usuário, então o diff (`leftIds`) nunca alcança o
+ * caso "eu saí". Mesmo se alcançasse, a janela de graça de
+ * `RECONNECT_GRACE_MS` (2s) ainda seguraria o som até um momento em que
+ * este hook já teria desmontado (o componente que o monta,
+ * `VoiceControlBar`, para de renderizar o botão de desconectar assim que
+ * `hasIntention` vira falso, mas o hook em si continua montado — o
+ * problema real é a ausência estrutural do snapshot, não o desmonte).
+ *
+ * A saída própria é, por natureza, uma AÇÃO do usuário (clique no botão de
+ * desconectar, ou troca de canal), não um dado observado depois — o mesmo
+ * princípio do tom de mute/desmute acima: evento de intenção dispara na
+ * intenção, não no efeito colateral observado depois. Por isso não tem
+ * janela de graça de reconexão aqui (essa janela existe só para a saída de
+ * OUTROS participantes, que É um dado observado via webhook e PODE ser
+ * uma flutuação de rede reconciliada — não faz sentido para uma ação que o
+ * próprio usuário acabou de tomar).
+ */
+export function playSelfLeaveTone(): void {
   playTone([
     { freq: 659, start: 0, duration: 0.09 },
     { freq: 415, start: 0.09, duration: 0.14 }
@@ -108,6 +171,51 @@ function playOtherJoinTone(): void {
 }
 function playOtherLeaveTone(): void {
   playTone([{ freq: 440, start: 0, duration: 0.11 }])
+}
+
+const MUTE_TONE_PEAK_GAIN = 0.1
+
+// "Eu me mutei"/"eu me desmutei" (Plano 07-11, VOICE-17 follow-up): onda
+// 'triangle' (nunca 'sine', que é a família inteira de entrada/saída acima)
+// e nota única bem mais curta (60ms vs. 90-140ms) e mais baixa em volume
+// (MUTE_TONE_PEAK_GAIN < TONE_PEAK_GAIN) — precisa ser inconfundível com
+// "alguém entrou"/"alguém saiu" de ouvido, mas discreta o bastante para não
+// cansar em uso repetido: mutar/desmutar acontece dezenas de vezes por
+// sessão de call, entrar/sair de canal não. Descer = mutar, subir =
+// desmutar, mesma convenção de direção das quatro notas de canal, mas em
+// timbre e duração deliberadamente diferentes.
+function playMuteTone(): void {
+  playTone([{ freq: 320, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }])
+}
+function playUnmuteTone(): void {
+  playTone([{ freq: 720, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }])
+}
+
+/**
+ * VOICE-17 follow-up (Plano 07-11): toca o tom de mute/desmute do PRÓPRIO
+ * microfone. Chamar SOMENTE no toggle manual (botão do rodapé) — nunca a
+ * partir do VAD ou do push-to-talk, que ligam/desligam a track a cada
+ * fala/tecla e tocariam este som em todo utterance, o que é inutilizável.
+ * `VoiceControlBar.tsx` é o único chamador: é o único lugar cuja mudança
+ * de mute é de fato uma decisão manual do usuário.
+ *
+ * Deliberadamente NÃO chamado do caminho "ensurdecer implica mutar"
+ * (`toggleDeafened`): ensurdecer já é, por si, um pedido de "não quero
+ * ouvir nada agora" — tocar um som de confirmação nesse instante é o
+ * oposto do que a pessoa acabou de pedir. O evento real ali é "eu
+ * ensurdeci", não "eu me mutei" (a mutação do mic é só um efeito colateral
+ * de servidor da semântica de deafen); o usuário não apertou o botão de
+ * microfone, então o som de microfone não deve tocar. Ver
+ * `07-11-SUMMARY.md`.
+ */
+export function playMuteStateChangeTone(muted: boolean): void {
+  const prefs = loadVoicePreferences()
+  if (!prefs.soundsEnabled) return
+  if (muted) {
+    playMuteTone()
+  } else {
+    playUnmuteTone()
+  }
 }
 
 // Janela de supressão do som de saída quando o mesmo `userId` some e volta
@@ -237,13 +345,26 @@ export function useVoiceJoinLeaveSounds(): void {
       }
     }
 
-    // Saída: nunca toca na hora — agenda depois da janela de graça, para
-    // dar chance de uma reconexão rápida cancelar o som (ver acima). No
-    // máximo um som de saída agendado por tick, mesma regra de não
-    // duplicar toques simultâneos.
-    if (leftIds.length > 0) {
-      const isSelfLeaving = selfId !== '' && leftIds.includes(selfId)
-      const representativeId = leftIds[0]
+    // Saída de OUTROS participantes: nunca toca na hora — agenda depois da
+    // janela de graça, para dar chance de uma reconexão rápida cancelar o
+    // som (ver acima). No máximo um som de saída agendado por tick, mesma
+    // regra de não duplicar toques simultâneos.
+    //
+    // A SAÍDA DO PRÓPRIO USUÁRIO NUNCA PASSA POR AQUI (Plano 07-11). O
+    // `selfId` é excluído de `leftIds` abaixo por dois motivos, não só um:
+    // (1) estruturalmente, esse caso nunca é alcançado de qualquer forma —
+    // a query vira `'skip'` no mesmo tick em que `joinedVoiceChannelId`
+    // fica `null`, então nunca existe um snapshot seguinte mostrando a
+    // lista sem o próprio usuário para o diff comparar; (2) mesmo que
+    // fosse alcançado (ex.: um bug futuro reintroduzisse um snapshot
+    // tardio), a saída própria é uma AÇÃO do usuário, não um dado
+    // observado — não deve ter janela de graça de 2s, e não deve ter DOIS
+    // caminhos concorrentes tentando tocar o mesmo som. O caminho real —
+    // imediato, sem janela de graça — é `playSelfLeaveTone()` chamado
+    // direto de `voice-context.tsx`, no ponto exato da transição de saída.
+    const otherLeftIds = leftIds.filter((id) => id !== selfId)
+    if (otherLeftIds.length > 0) {
+      const representativeId = otherLeftIds[0]
       if (
         representativeId !== undefined &&
         !pendingLeaveTimeoutsRef.current.has(representativeId)
@@ -260,11 +381,7 @@ export function useVoiceJoinLeaveSounds(): void {
             ? latestParticipantsRef.current?.find((p) => p.userId === latestSelfId)
             : undefined
           if (latestSelfRow?.deafened) return
-          if (isSelfLeaving) {
-            playSelfLeaveTone()
-          } else {
-            playOtherLeaveTone()
-          }
+          playOtherLeaveTone()
         }, RECONNECT_GRACE_MS)
         pendingLeaveTimeoutsRef.current.set(representativeId, timeout)
       }

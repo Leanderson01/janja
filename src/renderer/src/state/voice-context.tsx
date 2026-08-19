@@ -15,6 +15,7 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
+import { playSelfLeaveTone } from '../lib/voice-sounds'
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
 
 import { useSelection } from './selection-context'
@@ -76,6 +77,17 @@ export type VoiceContextValue = {
    * `VoiceControlBar` a cada toggle de mute/deafen, nunca pelo próprio VAD.
    */
   setManualMute: (muted: boolean) => void
+  /**
+   * Plano 07-11: espelha o estado de ENSURDECER (botão do rodapé) para que
+   * o tom de "eu saí" (disparado direto daqui, na transição de saída, não
+   * mais via diff — ver `voice-sounds.ts`/`playSelfLeaveTone`) saiba se
+   * deve tocar. Mesma justificativa de `setManualMute`: quem ensurdeceu a
+   * si mesmo não quer ouvir som de notificação nenhum, nem o de sua
+   * própria saída. Chamado por `VoiceControlBar` a cada toggle de
+   * ensurdecer/desensurdecer (incluindo o desensurdecimento implícito de
+   * desmutar), nunca por nenhuma outra via.
+   */
+  setDeafened: (deafened: boolean) => void
 }
 
 const VoiceContext = createContext<VoiceContextValue | undefined>(undefined)
@@ -116,6 +128,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // sempre destravado, mesma linha de base do resto da reconciliação
   // mínima documentada no Plano 07-03).
   const manualMuteRef = useRef(false)
+
+  // Espelha ENSURDECER (botão do rodapé) — ver `setDeafened` no valor do
+  // contexto (Plano 07-11). Mesmo padrão/mesma justificativa de
+  // `manualMuteRef`, resetado a cada novo join bem-sucedido pela mesma
+  // linha de base.
+  const deafenedRef = useRef(false)
 
   // VOICE-08 (Plano 07-04): quem está falando agora, com debounce de
   // remoção — dado 100% efêmero do LiveKit (`ActiveSpeakersChanged`),
@@ -262,6 +280,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
   function setManualMute(muted: boolean): void {
     manualMuteRef.current = muted
+  }
+
+  function setDeafened(deafened: boolean): void {
+    deafenedRef.current = deafened
   }
 
   // Elementos `<audio>` de participantes remotos: TODO elemento precisa ser
@@ -448,6 +470,30 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
         if (activeChannelRef.current !== null) {
           activeChannelRef.current = null
+
+          // Plano 07-11 (correção de defeito relatado após teste em
+          // Windows: "quando eu saio da call, nenhum som toca"). Disparado
+          // AQUI — no ponto exato da transição de saída, antes de a
+          // conexão cair (`leaveVoiceChannelMutation`/`room.disconnect()`
+          // abaixo ainda nem rodaram) — porque este é o único lugar onde a
+          // saída própria é uma AÇÃO capturada, não um dado observado
+          // depois. `useVoiceJoinLeaveSounds` (voice-sounds.ts) nunca
+          // alcança este caso pelo diff de `voiceParticipantsByChannel`: a
+          // query dessa hook vira `'skip'` no mesmo tick em que
+          // `joinedVoiceChannelId` fica `null`, então nunca existe um
+          // snapshot seguinte mostrando a lista sem o próprio usuário para
+          // comparar. Roda tanto para uma saída de verdade (`target ===
+          // null`) quanto para uma troca direta de canal (`target !==
+          // null`, join ao novo canal roda logo abaixo) — nos dois casos a
+          // sessão anterior de fato terminou. Sem janela de graça de
+          // reconexão (essa janela só faz sentido para a saída de OUTROS,
+          // que É um dado observado por webhook e pode ser flutuação de
+          // rede — aqui é o próprio usuário agindo, imediato).
+          const prefsAtLeave = loadVoicePreferences()
+          if (prefsAtLeave.soundsEnabled && !deafenedRef.current) {
+            playSelfLeaveTone()
+          }
+
           // Parar o monitor de VAD da sessão anterior antes de desconectar
           // — nunca reaproveitado sobre a track da próxima sessão, sempre
           // reiniciado do zero em cada nova conexão (07-05-PLAN.md Task 2).
@@ -502,6 +548,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // Nova intenção de join = sempre destravado (mesma linha de
             // base da reconciliação mínima do Plano 07-03).
             manualMuteRef.current = false
+            deafenedRef.current = false
             // Aplica a preferência de transmissão salva (VAD por padrão) à
             // track recém-publicada. Em modo VAD, a track existe mas
             // começa desabilitada — o VAD é quem liga/desliga a partir
@@ -539,7 +586,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     speakingUserIds,
     connectionQualities,
     applyVoicePreferences,
-    setManualMute
+    setManualMute,
+    setDeafened
   }
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
