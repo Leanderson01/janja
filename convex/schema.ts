@@ -50,6 +50,27 @@ export default defineSchema({
     position: v.number(),
   }).index('by_server', ['serverId']),
 
+  // --- Fase 5: chat em tempo real ---
+
+  messages: defineTable({
+    channelId: v.id('channels'),
+    authorId: v.id('users'),
+    content: v.string(),
+    createdAt: v.number(),
+  }).index('by_channel', ['channelId']),
+
+  channelReadState: defineTable({
+    channelId: v.id('channels'),
+    userId: v.id('users'),
+    lastReadMessageId: v.optional(v.id('messages')),
+  }).index('by_channel_user', ['channelId', 'userId']),
+
+  typing: defineTable({
+    channelId: v.id('channels'),
+    userId: v.id('users'),
+    updatedAt: v.number(),
+  }).index('by_channel_user', ['channelId', 'userId']),
+
   // --- Fase 6: amigos e DMs ---
 
   friendRequests: defineTable({
