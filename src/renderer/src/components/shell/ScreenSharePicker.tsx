@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 
 // SHARE-01 (Plano 08-04): o seletor de tela/janela. O Electron não tem picker
 // nativo no Windows — a UI de escolha é responsabilidade do app
@@ -80,9 +81,21 @@ export function ScreenSharePicker(): React.JSX.Element {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          <SourceSection icon="screen" title="Telas" sources={screens} onChoose={choose} />
-          <SourceSection icon="window" title="Janelas" sources={windows} onChoose={choose} />
+        {/* Área rolável pelo ScrollArea do shadcn, como o resto do app (Fase
+            8.5). O wrapper flex NÃO é enfeite: o viewport do Radix é `size-full`
+            (height: 100%), e 100% de um pai de altura automática resolve para
+            `auto` — com `max-h-[60vh]` direto no ScrollArea o viewport cresceria
+            com o conteúdo, nunca rolaria, e a lista vazaria para fora do
+            DialogContent. `max-h` no container flex + `min-h-0 flex-1` no filho
+            dá ao viewport uma altura definida (o mesmo idioma de MessageList e
+            do RESEARCH da F3), mantendo o diálogo curto quando há poucas fontes.
+            `pr-1` fica no ScrollArea: a barra do Radix é absoluta na borda do
+            root, então o padding vira o respiro entre ela e os cards. */}
+        <div className="flex max-h-[60vh] flex-col">
+          <ScrollArea className="min-h-0 flex-1 pr-1">
+            <SourceSection icon="screen" title="Telas" sources={screens} onChoose={choose} />
+            <SourceSection icon="window" title="Janelas" sources={windows} onChoose={choose} />
+          </ScrollArea>
         </div>
 
         <DialogFooter>
