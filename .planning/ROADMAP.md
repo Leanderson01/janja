@@ -231,6 +231,7 @@ Plans:
 - [x] 05-03 — Digitando no backend, sem TTL de servidor por decisão (TDD)
 - [x] 05-04 — Lista de mensagens, âncora de scroll e badge de não lidas
 - [ ] 05-05 — Indicador de digitando
+- [ ] 05-07 — Posição inicial do scroll ao abrir um canal (defeito encontrado na verificação)
 - [ ] 05-06 — Verificação com duas contas no Windows, com método de medir os 500 ms
 
 ### Fase 6: Amigos e DMs
@@ -390,7 +391,7 @@ implementadores distintos).
 | 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
-| 5. Chat em tempo real | 4/6 | In progress | - |
+| 5. Chat em tempo real | 5/7 | In progress | - |
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
 | 7. Voz | 3/10 | In progress | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |

@@ -39,6 +39,7 @@
 - [ ] **CHAT-03**: Usuário rola para cima e carrega histórico mais antigo sem a lista "pular"
 - [ ] **CHAT-04**: Mensagem nova não rouba o scroll de quem está lendo histórico; aparece aviso de nova mensagem
 - [ ] **CHAT-05**: Ao reabrir um canal, usuário vê divisor marcando a primeira mensagem não lida
+- [ ] **CHAT-14**: Ao abrir um canal, o scroll posiciona na primeira mensagem não lida — ou no fim da conversa, se tudo já foi lido
 - [ ] **CHAT-06**: Sidebar mostra badge de contagem de não lidas por canal
 - [ ] **CHAT-07**: Usuário vê indicação de quem está digitando, que expira sozinha
 
@@ -161,6 +162,7 @@
 | CHAT-03 | Fase 5 | Pendente |
 | CHAT-04 | Fase 5 | Pendente |
 | CHAT-05 | Fase 5 | Pendente |
+| CHAT-14 | Fase 5 | Pendente |
 | CHAT-06 | Fase 5 | Pendente |
 | CHAT-07 | Fase 5 | Pendente |
 | SOCIAL-01 | Fase 6 | Pendente |
@@ -202,8 +204,8 @@
 | APP-04 | Fase 0 | Pendente |
 
 **Coverage:**
-- v1 requirements: 62 total
-- Mapped to phases: 62
+- v1 requirements: 63 total
+- Mapped to phases: 63
 - Unmapped: 0 ✓
 
 ---
