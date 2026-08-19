@@ -10,10 +10,10 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 9 em execução (09-01 e 09-02 concluídos)
-Plan: 1 of 5 concluído na Fase 3; 2 of 3 concluídos na Fase 9
-Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) e página de conclusão de login/AUTH-07 (09-02) implementados e verificados no que dá para verificar em WSL2, aguardando o checkpoint humano de 09-03 em Windows (que inclui trocar o redirect URI no dashboard da WorkOS — ver ordem obrigatória em 09-02-SUMMARY.md)
-Last activity: 2026-08-19 — Executada quick task 001 (deadlock do VAD): Tasks 1 e 2 no código, Task 3 (checkpoint humano em Windows) PENDENTE. Antes: concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
+Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 8 em execução (onda 1 concluída: 08-01 e 08-02); Fase 9 em execução (09-01 e 09-02 concluídos)
+Plan: 1 of 5 concluído na Fase 3; 2 of 7 concluídos na Fase 8; 2 of 3 concluídos na Fase 9
+Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) e página de conclusão de login/AUTH-07 (09-02) implementados e verificados no que dá para verificar em WSL2, aguardando o checkpoint humano de 09-03 em Windows (que inclui trocar o redirect URI no dashboard da WorkOS — ver ordem obrigatória em 09-02-SUMMARY.md); Fase 8 BLOQUEADA na onda 2 — o plano 08-03 é checkpoint humano em Windows nativo com 3+ máquinas (prova de áudio de sistema sem eco) e as ondas 3 a 6 (08-04 a 08-07) dependem dele
+Last activity: 2026-08-19 — Fase 8 onda 1 executada: 08-01 (setSharing, reconcileScreenShareStopped e case track_unpublished no webhook, TDD) e 08-02 (handler de captura no processo main + startScreenShare/stopScreenShare no useVoice); typecheck limpo e 195 testes passando, nenhum comportamento de mídia provado (WSL2 sem tela, sem áudio e sem Windows). Antes: executada quick task 001 (deadlock do VAD): Tasks 1 e 2 no código, Task 3 (checkpoint humano em Windows) PENDENTE. Antes: concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
 
 Progress: [█████░░░░░] 56%
 
