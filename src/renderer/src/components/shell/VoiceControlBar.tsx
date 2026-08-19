@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { Headphones, Mic, MicOff, MonitorUp, PhoneOff, VolumeX } from 'lucide-react'
-import { RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -42,6 +41,16 @@ export function VoiceControlBar(): React.JSX.Element {
     room,
     connectionState,
     setManualMute,
+    // Plano 08.5-11: ENSURDECER passou a ser lido e escrito pelo contexto.
+    // Não havia mais como manter a cópia local: volume individual (VOICE-18) e
+    // ensurdecimento escrevem na MESMA propriedade das tracks remotas, então a
+    // aplicação foi centralizada em `voice-context.tsx` — e um efeito que mora
+    // lá precisa do estado morando lá também, senão ele não reexecuta quando o
+    // botão daqui é clicado. O botão, o `aria-pressed`, a mutation
+    // `setDeafened` do Convex e a regra "ensurdecer implica mutar" continuam
+    // exatamente como estavam: este plano NÃO redesenha o ensurdecimento, só
+    // muda quem aplica o volume.
+    deafened,
     setDeafened,
     isSharing,
     startScreenShare,
@@ -57,7 +66,6 @@ export function VoiceControlBar(): React.JSX.Element {
   const setDeafenedMutation = useMutation(api.voice.setDeafened)
 
   const [muted, setMutedState] = useState(false)
-  const [deafened, setDeafenedState] = useState(false)
 
   // `getChannel` (não `listChannels`) é deliberado: o canal de voz conectado
   // pode pertencer a um servidor diferente do que está selecionado agora na
@@ -84,36 +92,31 @@ export function VoiceControlBar(): React.JSX.Element {
     setSyncedChannelId(joinedVoiceChannelId)
     if (joinedVoiceChannelId !== null) {
       setMutedState(false)
-      setDeafenedState(false)
+      // O reset do ENSURDECER saiu daqui no Plano 08.5-11 e passou a acontecer
+      // dentro de `voice-context.tsx`, no join bem-sucedido — onde
+      // `deafenedRef` já era zerado pela mesma linha de base desde o Plano
+      // 07-11. Não é uma escolha de estilo: `deafened` agora é estado de OUTRO
+      // componente (o provider), e chamar o setter dele durante a renderização
+      // DESTE é exatamente o "Cannot update a component while rendering a
+      // different component" do React.
+      //
+      // O que muda na prática: o ícone só volta de "ensurdecido" quando o join
+      // conclui, em vez de na hora do clique no canal. Nesse intervalo o botão
+      // está `disabled={!isReady}` de qualquer forma — e o estado passa a ser
+      // CONSISTENTE com o que a reprodução de fato está fazendo, que antes não
+      // era: um join que falhava deixava este ícone destravado com o
+      // `deafenedRef` ainda em `true`.
     }
   }
 
-  // Ensurdecer é local/de reprodução: não existe "desabilitar playback por
-  // participante" nativo no LiveKit para isso — a forma correta é silenciar
-  // a reprodução de toda track de áudio remota (volume 0), reaplicando o
-  // mesmo valor a qualquer track que seja assinada DEPOIS de já estar
-  // ensurdecido (participante que entra depois do usuário já ensurdecido).
-  useEffect(() => {
-    function applyVolume(track: RemoteTrack): void {
-      if (!isAudioTrack(track)) return
-      track.setVolume(deafened ? 0 : 1)
-    }
-
-    room.remoteParticipants.forEach((participant) => {
-      participant.audioTrackPublications.forEach((publication) => {
-        if (publication.track) applyVolume(publication.track)
-      })
-    })
-
-    function handleTrackSubscribed(track: RemoteTrack): void {
-      applyVolume(track)
-    }
-
-    room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
-    return () => {
-      room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
-    }
-  }, [deafened, room])
+  // O efeito que ajustava o volume de reprodução (0 ou 1) de toda track remota
+  // (e o reaplicava em `TrackSubscribed`) SAIU daqui no Plano 08.5-11, inteiro,
+  // para `voice-context.tsx`. Volume individual por participante (VOICE-18) e
+  // ensurdecimento escrevem na mesma propriedade do SDK, e dois efeitos
+  // separados brigando por ela significam "o volume que eu ajustei voltou
+  // sozinho" toda vez que alguém entra na call. Agora existe UM ponto de
+  // aplicação no app inteiro, com a precedência (ensurdecer > silenciado >
+  // volume) decidida por uma função pura e testada.
 
   async function toggleMuted(): Promise<void> {
     const next = !muted
@@ -151,7 +154,6 @@ export function VoiceControlBar(): React.JSX.Element {
     // — a mutation já aplicou essa semântica no servidor (design §8); aqui
     // só refletimos o resultado na UI e na reprodução local.
     if (!next && deafened) {
-      setDeafenedState(false)
       setDeafened(false)
     }
   }
@@ -164,11 +166,14 @@ export function VoiceControlBar(): React.JSX.Element {
       console.error('[voice] setDeafened falhou', err)
       return
     }
-    setDeafenedState(next)
     // Plano 07-11: espelha em `voice-context.tsx` (`deafenedRef`), para que
     // o tom de "eu saí" (disparado na transição de saída, ver
     // `voice-context.tsx`) saiba se deve ficar em silêncio — mesma
     // sincronização de `setManualMute`, mas para ensurdecer.
+    // Plano 08.5-11: esta mesma chamada agora é TAMBÉM o que atualiza o ícone
+    // (o estado mora no contexto) e o que faz o efeito de volume de lá
+    // reexecutar, zerando/restaurando a reprodução de todo mundo. Uma
+    // chamada, três consequências, um lugar só.
     setDeafened(next)
     // Ativar deafen implica mute (design §8) — a mutation já aplicou isso no
     // servidor; aqui refletimos no microfone real e no ícone.

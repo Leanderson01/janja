@@ -42,6 +42,13 @@ import {
   type ScreenShareEntry
 } from '../lib/screenshare-tracks'
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
+import {
+  DEFAULT_PARTICIPANT_VOLUME,
+  effectiveVolume,
+  loadParticipantVolumes,
+  saveParticipantVolumes,
+  type ParticipantVolumes
+} from '../lib/participant-volumes'
 
 import { useSelection } from './selection-context'
 
@@ -177,6 +184,37 @@ export type VoiceContextValue = {
    * desmutar), nunca por nenhuma outra via.
    */
   setDeafened: (deafened: boolean) => void
+  /**
+   * Plano 08.5-11: ENSURDECIDO agora também é ESTADO, não só `deafenedRef`.
+   * O motivo é técnico e não cosmético: o efeito que aplica volume nas tracks
+   * remotas precisa de uma dependência REATIVA para reexecutar, e `ref` não
+   * reexecuta efeito nenhum. O ref continua existindo (é lido de dentro de
+   * callbacks assíncronos por `voice-sounds`), como espelho síncrono deste
+   * estado — `setDeafened` escreve nos dois.
+   *
+   * Quem renderiza o botão do rodapé lê daqui, não de um `useState` próprio:
+   * até o Plano 08.5-11 o `VoiceControlBar` tinha uma cópia local, e cópia de
+   * estado que também mora aqui é divergência esperando para acontecer.
+   */
+  deafened: boolean
+  /**
+   * VOICE-18 (Plano 08.5-11): volume (0..2) e "silenciado só para mim" por
+   * `identity` (= `users._id`). Entrada ausente = volume normal. Estado de
+   * MÁQUINA, persistido em `localStorage` — ver `lib/participant-volumes.ts`.
+   */
+  participantVolumes: ParticipantVolumes
+  /**
+   * Ajusta o volume de UMA pessoa, para mim, nesta máquina. `volume` é a
+   * escala 0..2 do módulo de preferências (1 = normal), não porcentagem.
+   * Persiste na hora e é aplicado imediatamente às tracks já inscritas.
+   */
+  setParticipantVolume: (identity: string, volume: number) => void
+  /**
+   * Silencia/dessilencia UMA pessoa, só para mim. NÃO é moderação: não muta
+   * ninguém para os outros participantes (isso não existe neste app), e não é
+   * ensurdecer (que é todo mundo). Persiste na hora.
+   */
+  toggleParticipantSilenced: (identity: string) => void
   /**
    * SHARE-02 (Plano 08-02): a tela está sendo compartilhada AGORA. Derivado
    * de `LocalTrackPublished`/`LocalTrackUnpublished` do próprio `Room` —
@@ -327,7 +365,33 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // contexto (Plano 07-11). Mesmo padrão/mesma justificativa de
   // `manualMuteRef`, resetado a cada novo join bem-sucedido pela mesma
   // linha de base.
+  //
+  // Plano 08.5-11: o ref CONTINUA (é lido de dentro de callbacks assíncronos
+  // da fila de transições, onde um valor capturado por closure estaria
+  // velho), mas agora é espelho do estado `deafened` abaixo. Os dois são
+  // escritos juntos, sempre por `setDeafened`.
   const deafenedRef = useRef(false)
+
+  // ENSURDECIDO como ESTADO: o efeito de volume (VOICE-18, mais abaixo)
+  // precisa de dependência reativa para reexecutar quando o usuário
+  // ensurdece/desensurdece. Um `ref` não reexecuta efeito — foi por isso que
+  // o efeito antigo, no `VoiceControlBar`, dependia do `useState` local de
+  // lá. Ao centralizar a aplicação aqui, o estado veio junto.
+  const [deafened, setDeafenedState] = useState(false)
+
+  // VOICE-18: volume individual por participante, carregado do `localStorage`
+  // na primeira renderização do provider (inicializador preguiçoso: a leitura
+  // não pode acontecer a cada render).
+  const [participantVolumes, setParticipantVolumesState] =
+    useState<ParticipantVolumes>(loadParticipantVolumes)
+
+  // Espelho síncrono do mapa acima. Os handlers de menu (Task 3) precisam ler
+  // o mapa ATUAL para escrever o próximo, e fazer isso dentro do updater de
+  // `setState` significaria gravar no `localStorage` de dentro dele — com o
+  // `StrictMode` ligado (main.tsx) o updater roda duas vezes por atualização
+  // em desenvolvimento, e efeito colateral ali é justamente o que o React
+  // pede para não fazer.
+  const participantVolumesRef = useRef<ParticipantVolumes>(participantVolumes)
 
   // VOICE-08 (Plano 07-04): quem está falando agora, com debounce de
   // remoção — dado 100% efêmero do LiveKit (`ActiveSpeakersChanged`),
@@ -624,8 +688,43 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     manualMuteRef.current = muted
   }
 
-  function setDeafened(deafened: boolean): void {
-    deafenedRef.current = deafened
+  // Escreve nos DOIS lugares, sempre: o ref (lido por callbacks assíncronos,
+  // onde uma closure sobre o estado estaria velha) e o estado (que faz o
+  // efeito de volume reexecutar e o botão do rodapé rerenderizar).
+  function setDeafened(next: boolean): void {
+    deafenedRef.current = next
+    setDeafenedState(next)
+  }
+
+  // Grava o mapa inteiro: persiste, atualiza o espelho síncrono e publica o
+  // estado. `saveParticipantVolumes` devolve o mapa já sanitizado E PODADO —
+  // é esse que vira estado, para que a UI leia exatamente o que ficou
+  // guardado (quem voltou ao volume normal some do mapa e passa a valer o
+  // padrão, que é o mesmo resultado).
+  function commitParticipantVolumes(next: ParticipantVolumes): void {
+    const saved = saveParticipantVolumes(next)
+    participantVolumesRef.current = saved
+    setParticipantVolumesState(saved)
+  }
+
+  function setParticipantVolume(identity: string, volume: number): void {
+    const current = participantVolumesRef.current
+    commitParticipantVolumes({
+      ...current,
+      [identity]: { volume, silenced: current[identity]?.silenced ?? false }
+    })
+  }
+
+  function toggleParticipantSilenced(identity: string): void {
+    const current = participantVolumesRef.current
+    const pref = current[identity]
+    commitParticipantVolumes({
+      ...current,
+      [identity]: {
+        volume: pref?.volume ?? DEFAULT_PARTICIPANT_VOLUME,
+        silenced: !(pref?.silenced ?? false)
+      }
+    })
   }
 
   // Elementos `<audio>` de participantes remotos: TODO elemento precisa ser
@@ -670,6 +769,63 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       container.remove()
     }
   }, [room])
+
+  // VOICE-18 (Plano 08.5-11): O ÚNICO LUGAR DO APP QUE ESCREVE VOLUME DE
+  // TRACK REMOTA.
+  //
+  // Antes deste plano, ENSURDECER morava num efeito do `VoiceControlBar` que
+  // aplicava `deafened ? 0 : 1` em toda track remota e reaplicava em
+  // `TrackSubscribed`. Volume individual e ensurdecimento disputam a MESMA
+  // propriedade (`RemoteAudioTrack.setVolume`) — se morassem em efeitos
+  // diferentes, o último a rodar venceria, e o sintoma seria "o volume que eu
+  // ajustei voltou sozinho ao normal", aparecendo toda vez que alguém
+  // entrasse na call ou o deafen fosse alternado, longe da causa. Por isso o
+  // efeito de lá foi REMOVIDO e a aplicação foi centralizada aqui, com a
+  // precedência decidida por uma função pura e testada
+  // (`effectiveVolume`, lib/participant-volumes.ts).
+  //
+  // Este efeito é IRMÃO do de cima e depende dele: `setVolume` só tem efeito
+  // sobre elementos já criados por `attach()`. Os dois convivem de propósito —
+  // um cria o elemento, o outro ajusta o volume dele. A ordem também está
+  // garantida: o efeito de `attach` é declarado ANTES deste, então o listener
+  // dele é registrado antes e roda primeiro no mesmo `TrackSubscribed`. E o de
+  // `attach` nunca se reinscreve (deps `[room]`), enquanto este se reinscreve
+  // a cada mudança de preferência — o que só o empurra para ainda mais tarde
+  // na fila, nunca para antes.
+  //
+  // `participant.audioTrackPublications` cobre microfone E áudio de sistema do
+  // compartilhamento de tela do mesmo participante (SHARE-03), que é o
+  // comportamento desejado: silenciar o fulano silencia o fulano inteiro.
+  useEffect(() => {
+    function applyVolume(participantIdentity: string, track: RemoteTrack): void {
+      if (!isAudioTrack(track)) return
+      track.setVolume(effectiveVolume(participantVolumes[participantIdentity], deafened))
+    }
+
+    // Passada completa: cobre a montagem, toda mudança de preferência e toda
+    // alternância de ensurdecer sobre quem JÁ está na call.
+    room.remoteParticipants.forEach((participant) => {
+      participant.audioTrackPublications.forEach((publication) => {
+        if (publication.track) applyVolume(participant.identity, publication.track)
+      })
+    })
+
+    // Quem entra DEPOIS já entra com o ajuste que eu tinha escolhido para ela
+    // — é o mesmo motivo pelo qual o efeito antigo de deafen escutava este
+    // evento, agora valendo também para o volume individual.
+    function handleTrackSubscribed(
+      track: RemoteTrack,
+      _publication: RemoteTrackPublication,
+      participant: RemoteParticipant
+    ): void {
+      applyVolume(participant.identity, track)
+    }
+
+    room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed)
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
+    }
+  }, [participantVolumes, deafened, room])
 
   // SHARE-02/SHARE-06 (Plano 08-06): quais telas estão no ar AGORA. Efeito
   // separado do de áudio remoto de propósito — os dois escutam
@@ -1118,7 +1274,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // Nova intenção de join = sempre destravado (mesma linha de
             // base da reconciliação mínima do Plano 07-03).
             manualMuteRef.current = false
-            deafenedRef.current = false
+            // Plano 08.5-11: `setDeafened` (não `deafenedRef.current = false`
+            // direto) porque agora existe ESTADO junto do ref, e o
+            // `VoiceControlBar` renderiza o botão a partir dele. Antes deste
+            // plano os dois divergiam neste exato ponto: o ref só zerava aqui
+            // (join bem-sucedido), enquanto a cópia local do rodapé zerava na
+            // troca de INTENÇÃO — ou seja, um join que falhava deixava o botão
+            // dizendo "não ensurdecido" com o ref dizendo o contrário.
+            setDeafened(false)
             // Aplica a preferência de transmissão salva (VAD por padrão) à
             // track recém-publicada. Em modo VAD, a track existe mas
             // começa desabilitada — o VAD é quem liga/desliga a partir
@@ -1160,6 +1323,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     applyVoicePreferences,
     setManualMute,
     setDeafened,
+    deafened,
+    participantVolumes,
+    setParticipantVolume,
+    toggleParticipantSilenced,
     isSharing,
     screenShareTracks,
     startScreenShare,
