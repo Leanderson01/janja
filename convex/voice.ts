@@ -1,7 +1,5 @@
 import { v } from 'convex/values'
-import { makeFunctionReference } from 'convex/server'
-import { AccessToken } from 'livekit-server-sdk'
-import { action, internalMutation, internalQuery, mutation } from './_generated/server'
+import { internalMutation, internalQuery, mutation } from './_generated/server'
 import type { MutationCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 import { requireIdentity } from './lib/membership'
@@ -10,28 +8,8 @@ import { requireIdentity } from './lib/membership'
 // autorização por membership. Convex é a fonte da verdade de quem está em qual canal
 // (`voiceStates`), nunca o LiveKit; o LiveKit só obedece o token que assinamos aqui.
 //
-// `joinVoiceChannel` é uma `action`: ela não tem `ctx.db` (nenhuma action tem, em
-// qualquer runtime), então autorização e a escrita em `voiceStates` são duas chamadas
-// via runQuery/runMutation para functions internas — não uma transação única (ver
-// 07-RESEARCH.md §1). Se a assinatura do token suceder mas o runMutation seguinte
-// falhar, o cliente teria um token válido sem uma linha correspondente; por isso o
-// token só é retornado depois que o runMutation de upsert já completou.
-//
-// Este arquivo não tem `_generated/api.ts` regenerado (ver SUMMARY) — as referências
-// internas usam `makeFunctionReference` em vez de `internal.voice.*`, resolvendo pelo
-// nome do módulo (`voice:funcao`) do mesmo jeito que o codegen faria.
-
-const validateVoiceJoinRef = makeFunctionReference<
-  'query',
-  { channelId: Id<'channels'>; workosId: string },
-  { userId: Id<'users'> }
->('voice:validateVoiceJoin')
-
-const upsertVoiceStateRef = makeFunctionReference<
-  'mutation',
-  { channelId: Id<'channels'>; userId: Id<'users'> },
-  null
->('voice:upsertVoiceState')
+// A assinatura do token vive em `voiceToken.ts`, num runtime separado — ver o cabeçalho
+// daquele arquivo para o motivo.
 
 /**
  * Resolve `users` a partir do `workosId` da identidade e confirma, dentro de uma única
@@ -86,45 +64,6 @@ export const upsertVoiceState = internalMutation({
       sharing: false,
     })
     return null
-  },
-})
-
-export const joinVoiceChannel = action({
-  args: { channelId: v.id('channels') },
-  handler: async (ctx, { channelId }): Promise<{ token: string; url: string }> => {
-    const identity = await ctx.auth.getUserIdentity()
-    if (!identity) throw new Error('Não autenticado')
-
-    const { userId } = await ctx.runQuery(validateVoiceJoinRef, {
-      channelId,
-      workosId: identity.subject,
-    })
-
-    const apiKey = process.env.LIVEKIT_API_KEY
-    const apiSecret = process.env.LIVEKIT_API_SECRET
-    const url = process.env.LIVEKIT_URL
-    if (!apiKey || !apiSecret || !url) {
-      throw new Error(
-        'LiveKit não configurado — defina LIVEKIT_API_KEY, LIVEKIT_API_SECRET e LIVEKIT_URL ' +
-          'nas variáveis de ambiente do Convex (ver Plano 07-00)'
-      )
-    }
-
-    // `identity` do token do LiveKit é o `_id` do documento `users` do Convex, não o
-    // `workosId` nem `username#tag` — é o mesmo valor que voiceStates.userId usa, e é
-    // o que o webhook do Plano 07-02 vai receber de volta para reconciliar a saída.
-    const accessToken = new AccessToken(apiKey, apiSecret, { identity: userId })
-    accessToken.addGrant({
-      room: channelId,
-      roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-    })
-    const jwt = await accessToken.toJwt()
-
-    await ctx.runMutation(upsertVoiceStateRef, { channelId, userId })
-
-    return { token: jwt, url }
   },
 })
 

@@ -102,7 +102,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
       const { channelId } = await insertServerWithChannel(t, anaId)
 
-      await expect(t.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(t.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -116,7 +116,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asGhost = t.withIdentity({ subject: 'workos_sem_documento' })
 
-      await expect(asGhost.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(asGhost.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -132,7 +132,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       await t.run((ctx) => ctx.db.delete(channelId))
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await expect(asAna.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -147,7 +147,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId, 'text')
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await expect(asAna.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -163,7 +163,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asCarla = t.withIdentity({ subject: carlaWorkosId })
 
-      await expect(asCarla.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow()
+      await expect(asCarla.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow()
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(0)
@@ -187,7 +187,7 @@ describe('voice.joinVoiceChannel — rejeições', () => {
     delete process.env.LIVEKIT_URL
 
     try {
-      await expect(asAna.action(anyApi.voice.joinVoiceChannel, { channelId })).rejects.toThrow(
+      await expect(asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })).rejects.toThrow(
         /LiveKit não configurado/
       )
 
@@ -211,7 +211,7 @@ describe('voice.joinVoiceChannel — sucesso', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      const result = await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
+      const result = await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
 
       expect(result.token).toBeTruthy()
       expect(result.url).toBe(LIVEKIT_ENV.LIVEKIT_URL)
@@ -241,8 +241,8 @@ describe('voice.joinVoiceChannel — sucesso', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
-      await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(1)
@@ -257,9 +257,9 @@ describe('voice.joinVoiceChannel — sucesso', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
       await asAna.mutation(anyApi.voice.setMuted, { muted: true })
-      await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
       expect(rows).toHaveLength(1)
@@ -277,7 +277,7 @@ describe('voice.leaveVoiceChannel', () => {
       const { channelId } = await insertServerWithChannel(t, anaId)
       const asAna = t.withIdentity({ subject: anaWorkosId })
 
-      await asAna.action(anyApi.voice.joinVoiceChannel, { channelId })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
       await asAna.mutation(anyApi.voice.leaveVoiceChannel, {})
 
       const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
@@ -310,7 +310,7 @@ describe('voice.setMuted / voice.setDeafened — semântica', () => {
     const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
     const { channelId } = await insertServerWithChannel(t, anaId)
     const asAna = t.withIdentity({ subject: anaWorkosId })
-    await withLiveKitEnv(() => asAna.action(anyApi.voice.joinVoiceChannel, { channelId }))
+    await withLiveKitEnv(() => asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId }))
     return { t, asAna, anaId, channelId }
   }
 

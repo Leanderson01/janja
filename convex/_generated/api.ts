@@ -25,6 +25,7 @@ import type * as servers from "../servers.js";
 import type * as typing from "../typing.js";
 import type * as users from "../users.js";
 import type * as voice from "../voice.js";
+import type * as voiceToken from "../voiceToken.js";
 
 /**
  * A utility for referencing Convex functions in your app's API.
@@ -50,6 +51,7 @@ const fullApi: ApiFromModules<{
   typing: typeof typing;
   users: typeof users;
   voice: typeof voice;
+  voiceToken: typeof voiceToken;
 }> = anyApi as any;
 
 /**
