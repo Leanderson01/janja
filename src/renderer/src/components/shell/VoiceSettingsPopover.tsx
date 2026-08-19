@@ -46,7 +46,7 @@ export function VoiceSettingsPopover({
    */
   hasVoiceIntention?: boolean
 }): React.JSX.Element {
-  const { room, applyVoicePreferences } = useVoice()
+  const { room, applyVoicePreferences, getVadAnalysisTrack } = useVoice()
 
   const [open, setOpen] = useState(false)
   const [prefs, setPrefs] = useState(() => loadVoicePreferences())
@@ -103,23 +103,45 @@ export function VoiceSettingsPopover({
 
   // Medidor de nível ao vivo para o usuário calibrar o limiar vendo a
   // própria voz. Cria SEU PRÓPRIO monitor (threshold acima de qualquer
-  // nível real — nunca dispara `onSpeakingChange`, só lemos `onLevel`)
-  // sobre a track de microfone local, em vez de tentar reaproveitar o
-  // monitor de VAD do VoiceProvider — mantém este componente desacoplado
-  // dos internals do provider. Vive só enquanto o popover está aberto, e
-  // NUNCA compete com o monitor real do VoiceProvider: são dois
-  // `AudioContext`s de curta duração possivelmente simultâneos apenas
-  // enquanto o painel está aberto, sempre fechados ao fechar o painel.
+  // nível real — nunca dispara `onSpeakingChange`, só lemos `onLevel`),
+  // mas sobre uma fonte VIVA, nunca sobre a track publicada crua.
+  //
+  // Ler a track publicada era o mesmo defeito do deadlock do VAD, na UI de
+  // configuração: em modo VAD (ou com mute manual) ela fica com
+  // `enabled = false`, o que entrega silêncio digital ao Web Audio, e a
+  // barra marcava zero permanente — justamente quando o usuário está
+  // tentando calibrar o slider de limiar. Fonte preferida: a track de
+  // análise do provider (o clone que o VAD já escuta). Sem ela (modo PTT),
+  // clona a publicada aqui mesmo, pela mesma razão.
   useEffect(() => {
     if (!open || !hasVoiceIntention) return
 
-    const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
-    const mediaStreamTrack = micPublication?.track?.mediaStreamTrack
-    if (!mediaStreamTrack) return
+    // `ownsTrack` decide quem tem o direito de parar `meterTrack` no
+    // cleanup: parar a track do PROVIDER ao fechar o painel mataria o VAD
+    // da sessão inteira — é o erro exato a evitar.
+    let meterTrack: MediaStreamTrack
+    let ownsTrack: boolean
+
+    const shared = getVadAnalysisTrack()
+    if (shared && shared.readyState === 'live') {
+      meterTrack = shared
+      ownsTrack = false
+    } else {
+      const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+      const publishedTrack = micPublication?.track?.mediaStreamTrack
+      if (!publishedTrack) return
+      try {
+        meterTrack = publishedTrack.clone()
+      } catch (err) {
+        console.error('[voice] falha ao clonar a track para o medidor de nível', err)
+        return
+      }
+      ownsTrack = true
+    }
 
     let monitor: VadMonitor | null = null
     try {
-      monitor = createVadMonitor(mediaStreamTrack, {
+      monitor = createVadMonitor(meterTrack, {
         // Acima de qualquer nível RMS real (0-1) — este monitor nunca deve
         // considerar "falando", ele só existe para ler `onLevel`.
         threshold: 2,
@@ -133,8 +155,14 @@ export function VoiceSettingsPopover({
     return () => {
       monitor?.stop()
       setLevel(0)
+      // Só o clone criado AQUI é parado. A track de análise do provider
+      // nunca — ela pertence ao VoiceProvider e sobrevive ao painel.
+      if (ownsTrack) meterTrack.stop()
     }
-  }, [open, room, hasVoiceIntention])
+    // `prefs.mode` e `activeInputId` entram nas deps para o medidor ser
+    // recriado quando o usuário troca de modo ou de microfone com o painel
+    // aberto — sem isso ele continuaria lendo uma fonte morta.
+  }, [open, room, hasVoiceIntention, getVadAnalysisTrack, prefs.mode, activeInputId])
 
   // Plano 07-07 (VOICE-17): toggle de sons de entrada/saída. Não depende de
   // canal conectado nem de `Room` — é lido direto de `voice-sounds.ts` a

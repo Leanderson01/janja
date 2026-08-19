@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react'
 import { useAction, useMutation } from 'convex/react'
 import {
   ConnectionQuality,
@@ -88,6 +96,22 @@ export type VoiceContextValue = {
    * desmutar), nunca por nenhuma outra via.
    */
   setDeafened: (deafened: boolean) => void
+  /**
+   * Track de ANÁLISE do VAD: o clone vivo da `MediaStreamTrack` publicada
+   * que o monitor de detecção de voz escuta, ou `null` quando não há VAD
+   * ativo (modo 'ptt', sem canal conectado, ou falha de setup).
+   *
+   * Exposta para quem precisa MEDIR nível de áudio sem ser cego pelo mute:
+   * a track publicada fica com `enabled = false` sempre que o VAD (ou o
+   * botão de mute do rodapé) fecha o microfone, e track desabilitada
+   * entrega silêncio digital ao Web Audio — um medidor ligado nela marca
+   * zero permanente.
+   *
+   * Quem consome **não pode** chamar `.stop()` nesta track: o dono é o
+   * provider, e pará-la mata o VAD da sessão inteira. Clone antes, se
+   * precisar de posse.
+   */
+  getVadAnalysisTrack: () => MediaStreamTrack | null
 }
 
 const VoiceContext = createContext<VoiceContextValue | undefined>(undefined)
@@ -392,6 +416,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     )
   }
 
+  // Estável por toda a vida do provider (deps `[]`, lê só uma ref): o
+  // medidor de nível do painel de configurações usa isto como dependência
+  // de efeito — uma função recriada a cada render faria o efeito derrubar e
+  // recriar um `AudioContext` a cada render do provider.
+  const getVadAnalysisTrack = useCallback((): MediaStreamTrack | null => {
+    return vadAnalysisTrackRef.current
+  }, [])
+
   function setManualMute(muted: boolean): void {
     manualMuteRef.current = muted
   }
@@ -472,16 +504,33 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       }
     }
 
+    // `switchActiveDevice('audioinput', ...)` (painel de configurações,
+    // VOICE-13) substitui a `MediaStreamTrack` publicada por baixo. Sem
+    // isto, o clone de análise do VAD continuaria preso ao microfone
+    // ANTIGO: o VAD decidiria "está falando" ouvindo um dispositivo que o
+    // usuário abandonou, e ainda manteria esse dispositivo aberto
+    // (vazamento). Reinstala tudo pelo caminho único de
+    // `applyVoicePreferences`, que já respeita o modo salvo.
+    function handleActiveDeviceChanged(kind: MediaDeviceKind): void {
+      // A guarda por `kind` é obrigatória: trocar a SAÍDA de áudio
+      // (`audiooutput`) não pode reiniciar o VAD à toa.
+      if (kind !== 'audioinput') return
+      if (activeChannelRef.current === null) return
+      applyVoicePreferences()
+    }
+
     room.on(RoomEvent.ConnectionStateChanged, handleConnectionStateChanged)
     room.on(RoomEvent.Disconnected, handleDisconnected)
     room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
     room.on(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
+    room.on(RoomEvent.ActiveDeviceChanged, handleActiveDeviceChanged)
 
     return () => {
       room.off(RoomEvent.ConnectionStateChanged, handleConnectionStateChanged)
       room.off(RoomEvent.Disconnected, handleDisconnected)
       room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
       room.off(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
+      room.off(RoomEvent.ActiveDeviceChanged, handleActiveDeviceChanged)
       // Higiene de hot-reload/fechamento do app — best-effort, não é o
       // mecanismo principal de saída (isso é o webhook do Plano 07-02).
       clearSpeakingAndQuality()
@@ -703,7 +752,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     connectionQualities,
     applyVoicePreferences,
     setManualMute,
-    setDeafened
+    setDeafened,
+    getVadAnalysisTrack
   }
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
