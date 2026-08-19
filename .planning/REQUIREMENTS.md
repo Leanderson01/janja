@@ -54,14 +54,14 @@
 
 ### Voz
 
-- [ ] **VOICE-01**: Usuário entra num canal de voz e ouve os outros participantes
+- [x] **VOICE-01**: Usuário entra num canal de voz e ouve os outros participantes
 - [ ] **VOICE-02**: Dez pessoas permanecem no mesmo canal com áudio estável
-- [ ] **VOICE-03**: Usuário sai do canal de voz
+- [x] **VOICE-03**: Usuário sai do canal de voz
 - [ ] **VOICE-04**: Usuário que perde conexão ou fecha o app à força desaparece do canal para os outros
-- [ ] **VOICE-05**: Sidebar mostra quem está em cada canal de voz, mesmo para quem não entrou
-- [ ] **VOICE-06**: Usuário muta e desmuta o próprio microfone, e os outros veem o ícone
+- [x] **VOICE-05**: Sidebar mostra quem está em cada canal de voz, mesmo para quem não entrou
+- [x] **VOICE-06**: Usuário muta e desmuta o próprio microfone, e os outros veem o ícone
 - [ ] **VOICE-07**: Usuário ensurdece e desensurdece; ensurdecer também muta
-- [ ] **VOICE-08**: Avatar de quem está falando é destacado, sem piscar em micropausas
+- [x] **VOICE-08**: Avatar de quem está falando é destacado, sem piscar em micropausas
 - [ ] **VOICE-09**: Usuário escolhe entre transmissão por detecção de voz e push-to-talk
 - [ ] **VOICE-10**: Usuário ajusta o limiar de sensibilidade da detecção de voz
 - [ ] **VOICE-11**: Push-to-talk funciona com o app sem foco
@@ -69,7 +69,7 @@
 - [ ] **VOICE-13**: Usuário escolhe qual microfone e qual saída de áudio usar, com troca sem reconectar
 - [ ] **VOICE-14**: Usuário vê o estado da própria conexão de voz (conectando, conectado, reconectando)
 - [ ] **VOICE-15**: Usuário vê indicador de qualidade de conexão por participante
-- [ ] **VOICE-16**: Cancelamento de eco e supressão de ruído ativos na captura do microfone
+- [x] **VOICE-16**: Cancelamento de eco e supressão de ruído ativos na captura do microfone
 - [ ] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
 - [x] **VOICE-21**: Usuário vê o nível do próprio microfone em tempo real, com a marca do limiar do VAD
 - [x] **VOICE-22**: O teste passa pelo servidor, provando a corrente completa sem depender de outra pessoa
@@ -171,14 +171,14 @@
 | SOCIAL-04 | Fase 6 | Pendente |
 | SOCIAL-05 | Fase 6 | Pendente |
 | SOCIAL-06 | Fase 6 | Pendente |
-| VOICE-01 | Fase 7 | Pendente |
+| VOICE-01 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-02 | Fase 7 | Pendente |
-| VOICE-03 | Fase 7 | Pendente |
+| VOICE-03 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-04 | Fase 7 | Pendente |
-| VOICE-05 | Fase 7 | Pendente |
-| VOICE-06 | Fase 7 | Pendente |
+| VOICE-05 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-06 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-07 | Fase 7 | Pendente |
-| VOICE-08 | Fase 7 | Pendente |
+| VOICE-08 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-09 | Fase 7 | Pendente |
 | VOICE-10 | Fase 7 | Pendente |
 | VOICE-11 | Fase 7 | Pendente |
@@ -186,7 +186,7 @@
 | VOICE-13 | Fase 7 | Pendente |
 | VOICE-14 | Fase 7 | Pendente |
 | VOICE-15 | Fase 7 | Pendente |
-| VOICE-16 | Fase 7 | Pendente |
+| VOICE-16 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-17 | Fase 7 | Pendente |
 | VOICE-21 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-22 | Fase 7 | Verificado 2026-08-19 |

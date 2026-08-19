@@ -154,3 +154,48 @@ slider de sensibilidade do VAD utilizável, e funciona sem rede.
 
 **O que continua não provado:** duas pessoas se ouvindo. O testador prova que o caminho
 existe e funciona; não prova que dois participantes distintos trocam áudio. Fase 07-08.
+
+## Marco — 2026-08-19: duas pessoas se ouviram
+
+Leo e um amigo entraram no mesmo canal de voz e trocaram áudio. É o core value do
+projeto: tudo construído antes existia para sustentar isso.
+
+Verificado no caminho: entrar em canal, sair, avatares dos participantes visíveis na
+sidebar, e o áudio remoto de fato tocando — este último só passou a funcionar depois que
+o plano 07-05 descobriu que nenhum plano anterior chamava `track.attach()`.
+
+### Três defeitos de rede corrigidos até chegar aqui
+
+1. **URL do Convex com barra no final** — o cliente concatenava e gerava `//api`, o
+   servidor devolvia 404, e o app carregava para sempre depois do login. Normalizado no
+   código, para não depender de todo mundo copiar certo.
+2. **Coleta de candidatos ICE em interface morta** — o Chromium enumera todas as
+   interfaces, incluindo adaptadores virtuais de VM, Docker e WSL. Restringido à rota
+   padrão.
+3. **DNS sobre HTTPS falhando** — o Chromium tenta DoH em modo automático mais consultas
+   de tipo extra. Na rede do testador, servida por DNS IPv6, a resolução falhava só no
+   módulo P2P, enquanto `nslookup` e todo o resto funcionavam. Desligado.
+
+Nenhum dos três seria encontrado sem execução real em outra máquina. Os três eram
+invisíveis para build, typecheck e os 173 testes.
+
+### Risco em aberto — conexão duplicada ao LiveKit
+
+Um log do testador mostrou DUAS conexões numa única entrada: dois tokens, dois
+`connected to LiveKit Server`, um só `publishing track`. Mesma identidade nas duas, então
+o SFU derruba a mais antiga e o áudio funciona ou não conforme qual sobreviveu.
+
+A fila serializada de transições em `voice-context.tsx` deveria impedir isso, e na
+máquina do Leo impediu. **A divergência não foi explicada.**
+
+Foi adicionada uma barreira que checa `room.state` antes de conectar. No teste seguinte o
+aviso da barreira NÃO apareceu — ou seja, a duplicação não ocorreu, e a barreira nem
+chegou a agir. Isso não prova correção: prova que o timing daquela execução não disparou
+a corrida.
+
+**Fica registrado como risco conhecido, não como resolvido.** Se o aviso
+`conexão já em andamento ou ativa` aparecer em algum console, é a evidência que falta —
+capturar o log inteiro daquele momento.
+
+O cenário onde isso mais provavelmente volta é o da Fase 07-08: dez pessoas entrando e
+saindo de canal ao mesmo tempo, que é exatamente quando timing deixa de ser previsível.
