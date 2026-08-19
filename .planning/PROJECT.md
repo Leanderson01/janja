@@ -38,7 +38,11 @@ Resumo por área:
 - Versão web — o app precisa de `desktopCapturer` do Electron para capturar áudio de sistema; navegador não entrega isso de forma confiável
 - macOS e Linux — macOS não expõe áudio de sistema sem driver virtual; Linux exige PipeWire/portal XDG. Ambos multiplicam a superfície de teste sem servir a nenhum usuário atual
 - Roles e permissões granulares — grupo de 10 pessoas que se conhecem não precisa de hierarquia
-- Reações, threads, upload de arquivos, markdown rico, busca de mensagens, edição/deleção de mensagem — adições posteriores, nenhuma altera a arquitetura
+- Reações, threads, markdown rico, busca de mensagens, edição/deleção de mensagem —
+  adições posteriores, nenhuma altera a arquitetura
+- **Upload de arquivos saiu desta lista em 2026-08-19**: por decisão do Leo, anexos e
+  prévias de link entraram no v1 (CHAT-10 e CHAT-15), construídos na Fase 8.5. Volume
+  individual por participante (VOICE-18) veio junto, na mesma decisão
 - Vídeo de webcam — o grupo compartilha tela, não rosto
 - Notificações push — exige serviço adicional; o app fica aberto durante o uso
 - Federação, monetização, escala além de ~50 usuários registrados — não é produto

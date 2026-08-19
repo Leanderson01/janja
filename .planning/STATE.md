@@ -10,12 +10,12 @@ tela com áudio, de forma estável o bastante para o grupo abandonar o Discord.
 
 ## Current Position
 
-Phase: 5 e 6 em execução — Fases 0, 1, 2 e 3 concluídas; Fase 4 aguardando verificação humana; Fase 7 em execução (07-06 concluído); Fase 8 em execução (5 de 7 planos: 08-01, 08-02, 08-04, 08-05 e 08-06 — todos os autônomos concluídos); Fase 9 em execução (09-01 e 09-02 concluídos)
-Plan: 1 of 5 concluído na Fase 3; 5 of 7 concluídos na Fase 8; 2 of 3 concluídos na Fase 9
+Phase: Fase 8.5 com os 16 planos autônomos concluídos — resta só o checkpoint humano (08.5-17). Fases 0-3 concluídas; 4 aguardando verificação humana; 5 e 6 em execução; 7 e 8 com código completo e checkpoints humanos pendentes; 9 com 09-01/09-02 feitos
+Plan: 16 of 17 concluídos na Fase 8.5; 5 of 7 na Fase 8; 2 of 3 na Fase 9; 1 of 5 na Fase 3
 Status: Fase 3 onda 2 em execução; Fase 7 com push-to-talk implementado no nível de código (07-06), aguardando verificação humana em Windows (07-08); Fase 9 com empacotamento (09-01) e página de conclusão de login/AUTH-07 (09-02) implementados e verificados no que dá para verificar em WSL2, aguardando o checkpoint humano de 09-03 em Windows (que inclui trocar o redirect URI no dashboard da WorkOS — ver ordem obrigatória em 09-02-SUMMARY.md); Fase 8 com TODOS os planos autônomos concluídos (08-01, 08-02, 08-04, 08-05, 08-06) — por decisão explícita do usuário em 2026-08-19, 08-04 a 08-06 foram executados SEM a prova de eco do 08-03. Restam só os dois checkpoints humanos em Windows nativo: 08-03 (áudio de sistema sem eco, 3+ máquinas) e 08-07 (verificação final, SHARE-01..08). Risco assumido: se o 08-03 revelar eco, o plano B do Pitfall 1 pode pedir retrabalho em 08-02/08-05
-Last activity: 2026-08-19 — Fase 8: executados 08-04 (seletor de telas/janelas com miniaturas), 08-05 (presets Fluida/Nítida + sincronização de voiceStates.sharing) e 08-06 (renderização da tela remota e indicadores). typecheck limpo e 235 testes passando (eram 173 antes da fase); nenhum pixel, nenhum áudio e nenhuma mutation real verificados — WSL2. Antes: Fase 8 onda 1 executada: 08-01 (setSharing, reconcileScreenShareStopped e case track_unpublished no webhook, TDD) e 08-02 (handler de captura no processo main + startScreenShare/stopScreenShare no useVoice); typecheck limpo e 195 testes passando, nenhum comportamento de mídia provado (WSL2 sem tela, sem áudio e sem Windows). Antes: executada quick task 001 (deadlock do VAD): Tasks 1 e 2 no código, Task 3 (checkpoint humano em Windows) PENDENTE. Antes: concluído 07-06-push-to-talk-PLAN.md (código, sem verificação de "sem foco" — pendente 07-08); concluído 09-01-empacotamento-binario-e-modulos-nativos-PLAN.md; concluído 09-02-pagina-de-conclusao-de-login-PLAN.md
+Last activity: 2026-08-19 — Fase 8.5 executada inteira em 7 ondas (16 planos): tema escuro, componentes e base de teste de componente, palco da call, lista de membros, moldura, chat/amigos, compartilhamento no palco, sidebar recolhível, rodapé de voz, composer com guarda de IME, volume por participante (VOICE-18), menus de servidor e canal, anexos (CHAT-10) e prévias de link (CHAT-15). Mais duas correções fora de plano: menu de áudio também na faixa de participantes, e validação de cada salto de redirect na busca de prévia (SSRF). typecheck limpo nos três projetos e 480 testes passando (eram 173 no início do dia); nenhum pixel, áudio ou upload real verificado — WSL2
 
-Progress: [█████░░░░░] 56%
+Progress: [███████░░░] 72%
 
 ## Performance Metrics
 
@@ -339,3 +339,27 @@ O que **continua não provado** e não pode ser inferido daqui:
   "funcionando" sem que ninguém percebesse.
 - Cancelar o seletor 3x e continuar funcionando (SHARE-07), queda suja do
   apresentador sem frame congelado (SHARE-05/06), e a troca de qualidade (SHARE-08).
+
+## Marco — 2026-08-19: Fase 8.5 com código completo
+
+Os 16 planos autônomos da repaginação estão executados. O que a fase mudou, em uma
+linha cada:
+
+- **O tema escuro nunca tinha sido aplicado.** O bloco `.dark` existia no CSS desde a
+  Fase 3, mas nada adicionava a classe ao documento — o app rodou meses no tema claro
+  com uma UI desenhada para o escuro. Corrigido no plano 01.
+- **A área principal virou um palco**: entrar numa call troca a visão; clicar num canal
+  de texto volta ao texto sem sair da call; clicar no canal conectado volta ao palco.
+  `ConversationArea` caiu de 299 para 119 linhas e virou roteador.
+- **Compartilhamento tem três layouts** (ladrilhos, tela, tela expandida), alternados por
+  classe e ordem no flexbox — nunca movendo o nó na árvore, porque mover um `<video>` o
+  desmonta e reanexar a track é como se produz frame congelado.
+- **CHAT-10, CHAT-15 e VOICE-18** saíram do v2 para o v1 por decisão do Leo.
+
+Dois defeitos corrigidos fora de plano, ambos achados por executores que não podiam
+resolvê-los sozinhos: o menu de volume era inalcançável enquanto alguém compartilhava a
+tela, e a busca de prévia de link seguia redirects sem revalidar o destino — um site
+público podia redirecionar o servidor para endereço interno.
+
+**Nada disso foi visto por olho humano.** WSL2 não tem Windows, tela, áudio nem acesso ao
+deployment do Convex. O plano 08.5-17 é o que transforma isto em fato.

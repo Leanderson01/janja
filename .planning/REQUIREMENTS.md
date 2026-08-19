@@ -42,6 +42,15 @@
 - [x] **CHAT-14**: Ao abrir um canal, o scroll posiciona na primeira mensagem não lida — ou no fim da conversa, se tudo já foi lido
 - [ ] **CHAT-06**: Sidebar mostra badge de contagem de não lidas por canal
 - [ ] **CHAT-07**: Usuário vê indicação de quem está digitando, que expira sozinha
+- [ ] **CHAT-10**: Usuário anexa arquivos e imagens a uma mensagem
+  <br><sub>Promovido do v2 por decisão do Leo em 2026-08-19. Teto de 25 MB por arquivo
+  e 5 anexos por mensagem, validados no servidor. Só em canal de servidor — DM fica para
+  depois. Fase 8.5, planos 13 e 14.</sub>
+- [ ] **CHAT-15**: Link postado numa mensagem vira cartão de prévia, buscado pelo servidor
+  <br><sub>Requisito novo, criado com a decisão de 2026-08-19. A metadata é buscada numa
+  `action` do Convex, nunca pelo cliente: o cliente de quem lê buscando URL de terceiro
+  vazaria o IP de todos os participantes do canal para qualquer site linkado. Fase 8.5,
+  planos 15 e 16.</sub>
 
 ### Amigos e DMs
 
@@ -73,6 +82,11 @@
 - [x] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
 - [x] **VOICE-21**: Usuário vê o nível do próprio microfone em tempo real, com a marca do limiar do VAD
 - [x] **VOICE-22**: O teste passa pelo servidor, provando a corrente completa sem depender de outra pessoa
+- [ ] **VOICE-18**: Usuário ajusta o volume de cada participante e silencia alguém só para si
+  <br><sub>Promovido do v2 por decisão do Leo em 2026-08-19. Estado de máquina
+  (`localStorage`), nunca do Convex. Ensurdecer sempre vence o ajuste individual. Teto de
+  100% — passar disso exigiria `webAudioMix`, que muda o caminho de troca de dispositivo
+  de saída verificado na Fase 7, e ficou como decisão à parte. Fase 8.5, plano 11.</sub>
 
 ### Compartilhamento de tela
 
@@ -98,14 +112,12 @@
 
 - **CHAT-08**: Editar e apagar mensagem própria
 - **CHAT-09**: Reações a mensagens
-- **CHAT-10**: Upload de arquivos e imagens
 - **CHAT-11**: Markdown e blocos de código
 - **CHAT-12**: Menção `@usuario` com autocomplete
 - **CHAT-13**: Busca no histórico
 
 ### Voz
 
-- **VOICE-18**: Volume individual por participante
 - **VOICE-19**: Ping numérico em milissegundos
 - **VOICE-20**: Supressão de ruído avançada (Krisp)
 
@@ -198,16 +210,19 @@
 | SHARE-06 | Fase 8 | Pendente |
 | SHARE-07 | Fase 8 | Pendente |
 | SHARE-08 | Fase 8 | Pendente |
+| CHAT-10 | Fase 8.5 | Pendente |
+| CHAT-15 | Fase 8.5 | Pendente |
+| VOICE-18 | Fase 8.5 | Pendente |
 | APP-01 | Fase 3 | Pendente |
 | APP-02 | Fase 4 | Pendente |
 | APP-03 | Fase 9 | Pendente |
 | APP-04 | Fase 0 | Pendente |
 
 **Coverage:**
-- v1 requirements: 63 total
-- Mapped to phases: 63
+- v1 requirements: 66 total (63 originais + CHAT-10 e VOICE-18 promovidos do v2, e CHAT-15 novo, todos em 2026-08-19)
+- Mapped to phases: 66
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-18*
-*Last updated: 2026-08-18 after roadmap creation*
+*Last updated: 2026-08-19 — CHAT-10 e VOICE-18 promovidos do v2, CHAT-15 criado (Fase 8.5)*
