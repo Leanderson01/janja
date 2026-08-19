@@ -36,7 +36,7 @@ import { api } from '../../../../../convex/_generated/api'
 // monitor de VAD em andamento reabriria o microfone assim que a pessoa
 // voltasse a falar, ignorando o mute manual.
 export function VoiceControlBar(): React.JSX.Element {
-  const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
+  const { joinedVoiceChannelId, setJoinedVoiceChannelId, showStage } = useSelection()
   const {
     room,
     connectionState,
@@ -220,7 +220,19 @@ export function VoiceControlBar(): React.JSX.Element {
         ) : isReconnecting ? (
           <span className="text-amber-500 font-medium">Reconectando...</span>
         ) : connectionState === 'connected' ? (
-          <span className="text-foreground font-medium">Conectado a {channelName}</span>
+          // Plano 08.5-03: o status conectado é o SEGUNDO caminho de volta ao
+          // palco (o primeiro é clicar no canal de voz na sidebar) — mesmo lugar
+          // onde o Discord põe o painel da call. Custa um elemento: o texto que
+          // já existia vira botão, sem mudar o que está escrito.
+          <button
+            type="button"
+            onClick={showStage}
+            aria-label="Voltar para a call"
+            title="Voltar para a call"
+            className="max-w-full truncate text-left text-foreground font-medium hover:underline"
+          >
+            Conectado a {channelName}
+          </button>
         ) : (
           <span className="text-foreground font-medium">
             Conectando a {channelName ?? '...'}...

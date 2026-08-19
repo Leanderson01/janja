@@ -24,6 +24,11 @@ export type SelectionContextValue = {
   setSelectedChannelId: (id: Id<'channels'>) => void
   joinedVoiceChannelId: Id<'channels'> | null
   setJoinedVoiceChannelId: (id: Id<'channels'> | null) => void
+  // Palco da call (Plano 08.5-03): o usuário está olhando a call em que está,
+  // e não o canal selecionado. Estado de SESSÃO, nunca persistido — ao reabrir
+  // o app não existe call ativa, então o valor inicial correto é sempre false.
+  viewingStage: boolean
+  showStage: () => void
   goHome: () => void
   selectedDmChannelId: Id<'dmChannels'> | null
   setSelectedDmChannelId: (id: Id<'dmChannels'> | null) => void
@@ -35,7 +40,8 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
   const [view, setView] = useState<'server' | 'home'>('server')
   const [manualServerId, setManualServerIdState] = useState<Id<'servers'> | null>(null)
   const [manualChannelId, setManualChannelId] = useState<Id<'channels'> | null>(null)
-  const [joinedVoiceChannelId, setJoinedVoiceChannelId] = useState<Id<'channels'> | null>(null)
+  const [joinedVoiceChannelId, setJoinedVoiceChannelIdState] = useState<Id<'channels'> | null>(null)
+  const [viewingStage, setViewingStage] = useState(false)
   const [selectedDmChannelId, setSelectedDmChannelId] = useState<Id<'dmChannels'> | null>(null)
 
   const servers = useQuery(api.servers.listMyServers)
@@ -68,6 +74,41 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     setManualServerIdState(id)
     setManualChannelId(null) // força reseleção do 1º canal de texto do novo servidor
     setView('server')
+    // Mesma regra 3 de `selectChannel` abaixo: trocar de servidor é navegar, e
+    // navegar é pedir para ver o destino. Sem isto, quem está numa call e clica
+    // noutro servidor não veria a tela mudar — o palco continuaria na frente do
+    // canal recém-selecionado (Plano 08.5-03).
+    setViewingStage(false)
+  }
+
+  // As três transições de `viewingStage` (Plano 08.5-03) vivem AQUI, dentro do
+  // provider, e não em cada chamador: a regra "o que a área principal mostra"
+  // é do estado, e espalhá-la pelos componentes garantiria que algum caminho
+  // novo esquecesse dela.
+  //
+  // 1. Entrar numa call põe o palco na frente.
+  // 2. Sair da call devolve a área principal para o texto.
+  // 3. Navegar para um canal é pedir para ver AQUELE canal, então desliga o
+  //    palco. `showStage()` explícito é o único que reverte isso — os dois
+  //    caminhos de volta (clicar no canal de voz conectado na sidebar e clicar
+  //    em "Conectado a ..." no rodapé) chamam essa função.
+  //
+  // Ordem importa em `handleVoiceChannelClick` da ChannelSidebar, que chama
+  // `selectChannel` e depois `joinVoiceChannel` no mesmo handler: os dois
+  // `setViewingStage` são agrupados pelo React e vence o último — `true`, que é
+  // o pretendido ao entrar numa call.
+  function joinVoiceChannel(id: Id<'channels'> | null): void {
+    setJoinedVoiceChannelIdState(id)
+    setViewingStage(id !== null)
+  }
+
+  function selectChannel(id: Id<'channels'>): void {
+    setManualChannelId(id)
+    setViewingStage(false)
+  }
+
+  function showStage(): void {
+    setViewingStage(true)
   }
 
   // Entrar no Início sempre volta pro painel de amigos, nunca deixa uma DM
@@ -84,14 +125,24 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
       selectedServerId,
       setSelectedServerId: selectServer,
       selectedChannelId,
-      setSelectedChannelId: setManualChannelId,
+      setSelectedChannelId: selectChannel,
       joinedVoiceChannelId,
-      setJoinedVoiceChannelId,
+      setJoinedVoiceChannelId: joinVoiceChannel,
+      viewingStage,
+      showStage,
       goHome,
       selectedDmChannelId,
       setSelectedDmChannelId
     }),
-    [view, servers, selectedServerId, selectedChannelId, joinedVoiceChannelId, selectedDmChannelId]
+    [
+      view,
+      servers,
+      selectedServerId,
+      selectedChannelId,
+      joinedVoiceChannelId,
+      viewingStage,
+      selectedDmChannelId
+    ]
   )
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>

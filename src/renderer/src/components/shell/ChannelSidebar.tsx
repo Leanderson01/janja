@@ -40,7 +40,8 @@ export function ChannelSidebar(): React.JSX.Element {
     selectedChannelId,
     setSelectedChannelId,
     joinedVoiceChannelId,
-    setJoinedVoiceChannelId
+    setJoinedVoiceChannelId,
+    showStage
   } = useSelection()
 
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -60,18 +61,27 @@ export function ChannelSidebar(): React.JSX.Element {
     setSelectedChannelId(channel._id)
   }
 
-  // Clicar num canal de voz NUNCA desconecta — só entra, ou navega para o canal
-  // em que já se está. Sair é ação exclusiva do botão de desconectar da
+  // Clicar num canal de voz NUNCA desconecta — só entra, ou volta ao palco do
+  // canal em que já se está. Sair é ação exclusiva do botão de desconectar da
   // `VoiceControlBar` (`PhoneOff`, rotulado "Desconectar"). O comportamento
   // anterior era um toggle: clicar no canal em que você já estava te derrubava da
   // call. Isso é falha de affordance, não atalho — o mesmo gesto que serve para
   // "ver quem está aqui" não pode ser o gesto que encerra a chamada, e no Discord
   // real não é. Relatado pelo Leo em uso real, 2026-08-19.
+  //
+  // Plano 08.5-03: com o palco, o clique no canal CONECTADO é o gesto de VOLTAR
+  // para a call, e por isso chama `showStage()` e mais nada. Chamar
+  // `setSelectedChannelId` também aqui seria contraproducente: no provider,
+  // selecionar canal desliga o palco (regra 3), então o "voltar" desligaria
+  // exatamente o que veio ligar. Entrar/trocar de canal, sim, seleciona e conecta
+  // — nessa ordem, porque quem fala por último sobre o palco é o join.
   function handleVoiceChannelClick(channel: Doc<'channels'>): void {
-    setSelectedChannelId(channel._id)
-    if (joinedVoiceChannelId !== channel._id) {
-      setJoinedVoiceChannelId(channel._id)
+    if (joinedVoiceChannelId === channel._id) {
+      showStage()
+      return
     }
+    setSelectedChannelId(channel._id)
+    setJoinedVoiceChannelId(channel._id)
   }
 
   // Zero servidores (estado possível vindo do plano 04-05): não há
