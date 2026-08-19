@@ -291,13 +291,13 @@ VOICE-15, VOICE-16, VOICE-17
 Plans:
 - [x] 07-00 — Credenciais do LiveKit no Convex (checkpoint humano)
 - [x] 07-01 — Schema voiceStates + join/leave/mute/deafen com autorização (TDD)
-- [ ] 07-02 — Webhook de reconciliação — o antídoto do usuário-fantasma (TDD)
-- [ ] 07-03 — Conexão real do cliente LiveKit
-- [ ] 07-04 — Presença de participantes, indicador de fala e qualidade de conexão
-- [ ] 07-05 — VAD, seleção de dispositivo e preferências persistentes
-- [ ] 07-06 — Push-to-talk com uiohook-napi (módulo nativo)
-- [ ] 07-07 — Sons de entrada e saída de canal
-- [ ] 07-09 — Testador de microfone: nível de entrada, retorno local e volta pelo servidor
+- [x] 07-02 — Webhook de reconciliação — o antídoto do usuário-fantasma (TDD)
+- [x] 07-03 — Conexão real do cliente LiveKit
+- [x] 07-04 — Presença de participantes, indicador de fala e qualidade de conexão
+- [x] 07-05 — VAD, seleção de dispositivo e preferências persistentes
+- [x] 07-06 — Push-to-talk com uiohook-napi (módulo nativo)
+- [x] 07-07 — Sons de entrada e saída de canal
+- [x] 07-09 — Testador de microfone: nível de entrada, retorno local e volta pelo servidor
 - [ ] 07-08 — Verificação final no Windows com 10 pessoas (checkpoint)
 
 **Nota de dependência cruzada**: push-to-talk (VOICE-11) exige o módulo nativo
@@ -391,7 +391,7 @@ implementadores distintos).
 | 2. Convex + auth WorkOS | 9/9 | Complete | 2026-08-18 |
 | 3. Shell da UI | 5/5 | Complete | 2026-08-18 |
 | 4. Servidores e canais | 7/8 | Aguardando verificação humana | - |
-| 5. Chat em tempo real | 5/7 | In progress | - |
+| 5. Chat em tempo real | 6/7 | Aguardando verificação com duas contas | - |
 | 6. Amigos e DMs | 7/8 | Aguardando verificação humana | - |
 | 7. Voz | 3/10 | In progress | - |
 | 8. Compartilhamento de tela | 0/7 | Planned | - |

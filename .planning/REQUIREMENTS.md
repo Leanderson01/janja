@@ -60,17 +60,17 @@
 - [ ] **VOICE-04**: Usuário que perde conexão ou fecha o app à força desaparece do canal para os outros
 - [x] **VOICE-05**: Sidebar mostra quem está em cada canal de voz, mesmo para quem não entrou
 - [x] **VOICE-06**: Usuário muta e desmuta o próprio microfone, e os outros veem o ícone
-- [ ] **VOICE-07**: Usuário ensurdece e desensurdece; ensurdecer também muta
+- [x] **VOICE-07**: Usuário ensurdece e desensurdece; ensurdecer também muta
 - [x] **VOICE-08**: Avatar de quem está falando é destacado, sem piscar em micropausas
-- [ ] **VOICE-09**: Usuário escolhe entre transmissão por detecção de voz e push-to-talk
-- [ ] **VOICE-10**: Usuário ajusta o limiar de sensibilidade da detecção de voz
+- [x] **VOICE-09**: Usuário escolhe entre transmissão por detecção de voz e push-to-talk
+- [x] **VOICE-10**: Usuário ajusta o limiar de sensibilidade da detecção de voz
 - [ ] **VOICE-11**: Push-to-talk funciona com o app sem foco
-- [ ] **VOICE-12**: Preferência de transmissão persiste entre reinícios
-- [ ] **VOICE-13**: Usuário escolhe qual microfone e qual saída de áudio usar, com troca sem reconectar
-- [ ] **VOICE-14**: Usuário vê o estado da própria conexão de voz (conectando, conectado, reconectando)
-- [ ] **VOICE-15**: Usuário vê indicador de qualidade de conexão por participante
+- [x] **VOICE-12**: Preferência de transmissão persiste entre reinícios
+- [x] **VOICE-13**: Usuário escolhe qual microfone e qual saída de áudio usar, com troca sem reconectar
+- [x] **VOICE-14**: Usuário vê o estado da própria conexão de voz (conectando, conectado, reconectando)
+- [x] **VOICE-15**: Usuário vê indicador de qualidade de conexão por participante
 - [x] **VOICE-16**: Cancelamento de eco e supressão de ruído ativos na captura do microfone
-- [ ] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
+- [x] **VOICE-17**: Som ao entrar e sair de canal, com opção de desligar
 - [x] **VOICE-21**: Usuário vê o nível do próprio microfone em tempo real, com a marca do limiar do VAD
 - [x] **VOICE-22**: O teste passa pelo servidor, provando a corrente completa sem depender de outra pessoa
 
@@ -177,17 +177,17 @@
 | VOICE-04 | Fase 7 | Pendente |
 | VOICE-05 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-06 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-07 | Fase 7 | Pendente |
+| VOICE-07 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-08 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-09 | Fase 7 | Pendente |
-| VOICE-10 | Fase 7 | Pendente |
+| VOICE-09 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-10 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-11 | Fase 7 | Pendente |
-| VOICE-12 | Fase 7 | Pendente |
-| VOICE-13 | Fase 7 | Pendente |
-| VOICE-14 | Fase 7 | Pendente |
-| VOICE-15 | Fase 7 | Pendente |
+| VOICE-12 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-13 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-14 | Fase 7 | Verificado 2026-08-19 |
+| VOICE-15 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-16 | Fase 7 | Verificado 2026-08-19 |
-| VOICE-17 | Fase 7 | Pendente |
+| VOICE-17 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-21 | Fase 7 | Verificado 2026-08-19 |
 | VOICE-22 | Fase 7 | Verificado 2026-08-19 |
 | SHARE-01 | Fase 8 | Pendente |
