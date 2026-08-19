@@ -1,18 +1,33 @@
 import { MicOff } from 'lucide-react'
+import { useQuery } from 'convex/react'
+import type { FunctionReturnType } from 'convex/server'
 
 import { Avatar, AvatarBadge, AvatarFallback } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { mockChannels, mockMembers, mockVoiceParticipants, type Member } from '@/data/mock-data'
 import { useSelection } from '@/state/selection-context'
 
-// Lista de membros do servidor selecionado (substitui o stub do Plano
-// 03-01). Agrupa por status online/offline (antecipa APP-02/SRV-07) e
-// sobrepõe o mesmo estado de voz (falando/mutado) usado na sidebar de
-// canais (Plano 03-02), antecipando VOICE-06/VOICE-08 (F7) — o objetivo é
-// que quando essas features "de verdade" chegarem, só troquem os dados
-// mockados por dados reais, sem retrabalho de CSS/estrutura.
+import { api } from '../../../../../convex/_generated/api'
 
+// Lista de membros do servidor selecionado (substitui o stub do Plano
+// 03-01, depois orientado a `mockMembers` no próprio Plano 03-xx). A partir
+// do Plano 04-07 a fonte é `convex/members.ts:listServerMembers`, que já
+// resolve participação real + presença real (heartbeat, Fase 2) — "online"
+// nunca é recomputado aqui, só consumido como veio da query. Agrupa por
+// status online/offline (SRV-07/APP-02).
+
+type ServerMember = FunctionReturnType<typeof api.members.listServerMembers>[number]
+
+// Overlay de fala/mute (anel verde + ícone de mute) é slot reservado para F7
+// (VOICE-06/VOICE-08) — a Fase 3 o desenhava sobre `mockVoiceParticipants`,
+// que não existe mais. Nesta fase não há `voiceStates` real ainda, então o
+// dado fica sempre "não falando, não mutado": o JSX/CSS do overlay
+// permanece intacto (não removido) para que F7 só troque a fonte do dado,
+// sem retrabalho visual.
 type VoiceState = { speaking: boolean; muted: boolean }
+
+function neutralVoiceState(): VoiceState {
+  return { speaking: false, muted: false }
+}
 
 function initialsFor(username: string): string {
   return username.slice(0, 2).toUpperCase()
@@ -22,13 +37,13 @@ function MemberAvatar({
   member,
   voiceState
 }: {
-  member: Member
+  member: ServerMember
   voiceState: VoiceState
 }): React.JSX.Element {
   // Um membro mutado nunca deveria estar "falando" ao mesmo tempo — se os
-  // dados mockados tiverem essa combinação inconsistente, o ícone de mute
-  // tem prioridade visual e o anel de falando é omitido (ver Task 2 do
-  // plano).
+  // dados (hoje sempre neutros, ver `neutralVoiceState`) tiverem essa
+  // combinação inconsistente, o ícone de mute tem prioridade visual e o
+  // anel de falando é omitido.
   const showSpeakingRing = voiceState.speaking && !voiceState.muted
 
   return (
@@ -37,8 +52,8 @@ function MemberAvatar({
         <AvatarFallback>{initialsFor(member.username)}</AvatarFallback>
       </Avatar>
       <AvatarBadge
-        className={member.status === 'online' ? 'bg-green-500' : 'bg-muted-foreground'}
-        aria-label={member.status === 'online' ? 'online' : 'offline'}
+        className={member.online ? 'bg-green-500' : 'bg-muted-foreground'}
+        aria-label={member.online ? 'online' : 'offline'}
       />
       {voiceState.muted ? (
         <span
@@ -56,7 +71,7 @@ function MemberRow({
   member,
   voiceState
 }: {
-  member: Member
+  member: ServerMember
   voiceState: VoiceState
 }): React.JSX.Element {
   return (
@@ -73,12 +88,10 @@ function MemberRow({
 function MemberGroup({
   title,
   members,
-  voiceStateFor,
   dimmed = false
 }: {
   title: string
-  members: Member[]
-  voiceStateFor: (memberId: string) => VoiceState
+  members: ServerMember[]
   dimmed?: boolean
 }): React.JSX.Element {
   return (
@@ -88,7 +101,7 @@ function MemberGroup({
       </h3>
       <div className="flex flex-col gap-0.5">
         {members.map((member) => (
-          <MemberRow key={member.id} member={member} voiceState={voiceStateFor(member.id)} />
+          <MemberRow key={member.userId} member={member} voiceState={neutralVoiceState()} />
         ))}
       </div>
     </div>
@@ -98,40 +111,25 @@ function MemberGroup({
 export function MemberList(): React.JSX.Element {
   const { selectedServerId } = useSelection()
 
-  const serverChannelIds = mockChannels
-    .filter((channel) => channel.serverId === selectedServerId)
-    .map((channel) => channel.id)
+  const members = useQuery(
+    api.members.listServerMembers,
+    selectedServerId ? { serverId: selectedServerId } : 'skip'
+  )
 
-  const serverMembers = mockMembers.filter((member) => member.serverId === selectedServerId)
-  const onlineMembers = serverMembers.filter((member) => member.status === 'online')
-  const offlineMembers = serverMembers.filter((member) => member.status === 'offline')
-
-  function voiceStateFor(memberId: string): VoiceState {
-    // Um membro pode estar num canal de voz do servidor sem estar
-    // necessariamente no canal de voz "selecionado" na sidebar — o overlay
-    // aqui considera QUALQUER canal de voz do servidor (ver Task 2 do plano).
-    const participant = mockVoiceParticipants.find(
-      (p) => p.memberId === memberId && serverChannelIds.includes(p.channelId)
-    )
-    return { speaking: participant?.speaking ?? false, muted: participant?.muted ?? false }
-  }
+  const onlineMembers = members?.filter((member) => member.online) ?? []
+  const offlineMembers = members?.filter((member) => !member.online) ?? []
 
   return (
     <div className="h-full">
       <ScrollArea className="h-full">
         <div className="flex flex-col gap-4 p-3">
           {onlineMembers.length > 0 ? (
-            <MemberGroup
-              title={`ONLINE — ${onlineMembers.length}`}
-              members={onlineMembers}
-              voiceStateFor={voiceStateFor}
-            />
+            <MemberGroup title={`ONLINE — ${onlineMembers.length}`} members={onlineMembers} />
           ) : null}
           {offlineMembers.length > 0 ? (
             <MemberGroup
               title={`OFFLINE — ${offlineMembers.length}`}
               members={offlineMembers}
-              voiceStateFor={voiceStateFor}
               dimmed
             />
           ) : null}
