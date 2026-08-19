@@ -5,6 +5,7 @@ import { RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { playMuteStateChangeTone, useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -214,31 +215,44 @@ export function VoiceControlBar(): React.JSX.Element {
 
   return (
     <div className="flex-none h-14 border-t border-border bg-secondary px-2 flex items-center gap-2">
-      <div className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
-        {!hasIntention ? (
-          <span>Não conectado a nenhum canal de voz</span>
-        ) : isReconnecting ? (
-          <span className="text-amber-500 font-medium">Reconectando...</span>
-        ) : connectionState === 'connected' ? (
-          // Plano 08.5-03: o status conectado é o SEGUNDO caminho de volta ao
-          // palco (o primeiro é clicar no canal de voz na sidebar) — mesmo lugar
-          // onde o Discord põe o painel da call. Custa um elemento: o texto que
-          // já existia vira botão, sem mudar o que está escrito.
-          <button
-            type="button"
-            onClick={showStage}
-            aria-label="Voltar para a call"
-            title="Voltar para a call"
-            className="max-w-full truncate text-left text-foreground font-medium hover:underline"
-          >
-            Conectado a {channelName}
-          </button>
-        ) : (
-          <span className="text-foreground font-medium">
-            Conectando a {channelName ?? '...'}...
-          </span>
-        )}
-      </div>
+      {/* Plano 08.5-09: sem conexão nenhuma, o texto "Não conectado a nenhum
+          canal de voz" NÃO é renderizado. A decisão é de ESPAÇO, não de
+          estética: a coluna é fixa em 240px e o estado conectado já consome
+          ~216px só com os 5 botões e os espaçamentos (5×32 + 5×8 + px-2), de
+          modo que qualquer texto aqui é útil apenas quando há algo a dizer
+          sobre a conexão. Desconectado é evidente pela ausência do botão de
+          desconectar e pelos controles de voz desabilitados.
+          O `div` vazio com `flex-1` fica de propósito: sem ele os controles
+          saltariam da direita para a esquerda ao conectar/desconectar, porque
+          é o bloco de status que hoje os empurra. Ele encolhe a zero quando
+          falta largura (`flex-1` = `flex: 1 1 0%`), então não rouba nada. */}
+      {!hasIntention ? (
+        <div className="flex-1" aria-hidden="true" />
+      ) : (
+        <div className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
+          {isReconnecting ? (
+            <span className="text-warning font-medium">Reconectando...</span>
+          ) : connectionState === 'connected' ? (
+            // Plano 08.5-03: o status conectado é o SEGUNDO caminho de volta ao
+            // palco (o primeiro é clicar no canal de voz na sidebar) — mesmo lugar
+            // onde o Discord põe o painel da call. Custa um elemento: o texto que
+            // já existia vira botão, sem mudar o que está escrito.
+            <button
+              type="button"
+              onClick={showStage}
+              aria-label="Voltar para a call"
+              title="Voltar para a call"
+              className="max-w-full truncate text-left text-foreground font-medium hover:underline"
+            >
+              Conectado a {channelName}
+            </button>
+          ) : (
+            <span className="text-foreground font-medium">
+              Conectando a {channelName ?? '...'}...
+            </span>
+          )}
+        </div>
+      )}
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -283,7 +297,7 @@ export function VoiceControlBar(): React.JSX.Element {
             aria-label={isSharing ? 'Parar compartilhamento de tela' : 'Compartilhar tela'}
             onClick={toggleScreenShare}
           >
-            <MonitorUp className={isSharing ? 'text-green-500' : undefined} />
+            <MonitorUp className={cn(isSharing && 'text-success')} />
           </Button>
         </TooltipTrigger>
         <TooltipContent>
