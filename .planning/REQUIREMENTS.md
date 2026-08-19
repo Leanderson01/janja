@@ -106,6 +106,10 @@
 - **VOICE-19**: Ping numérico em milissegundos
 - **VOICE-20**: Supressão de ruído avançada (Krisp)
 
+### Servidores
+
+- **SRV-08**: Cargos e permissões granulares — a UI da Fase 8.5 deixa o lugar preparado, sem o conceito no backend
+
 ### Aplicativo
 
 - **APP-05**: Status ausente automático por inatividade

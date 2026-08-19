@@ -345,10 +345,9 @@ responsiva, acessível e consistente nas convenções de composição.
 **Depends on**: Fase 8 (toca os mesmos componentes que F4-F7 estão ligando a dado real)
 **Requirements**: a definir no planejamento — o brief traz itens fora do v1 atual
 **Brief**: `.planning/phases/08.5-repaginacao-da-ui/08.5-BRIEF.md`
-**Bloqueio antes de planejar**: o brief pede cargos e permissões, explicitamente fora
-de escopo em PROJECT.md e contrariando a base de autorização da Fase 4. Precisa de
-decisão do Leo entre repaginar sem cargos, trazer cargos como fase própria de backend,
-ou preparar a UI e deixar para v2.
+**Cargos**: decidido em 2026-08-18 — ficam para o v2. Esta fase prepara a interface
+estruturalmente para recebê-los, sem introduzir o conceito em schema, query, mutation
+ou tipo. Ver o brief para o recorte exato entre preparar e construir.
 **Plans**: TBD
 
 ### Fase 9: Polimento e empacotamento
