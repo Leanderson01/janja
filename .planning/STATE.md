@@ -193,7 +193,25 @@ aviso da barreira NÃO apareceu — ou seja, a duplicação não ocorreu, e a ba
 chegou a agir. Isso não prova correção: prova que o timing daquela execução não disparou
 a corrida.
 
-**Fica registrado como risco conhecido, não como resolvido.** Se o aviso
+### Resolvido em 2026-08-19 — causa raiz encontrada
+
+A fila serializada funcionava: ela ordena as invocações corretamente, inclusive sob o
+duplo disparo do StrictMode. O furo estava na guarda — `activeChannelRef` só é atribuído
+no FIM de um join bem-sucedido.
+
+Quando a primeira tentativa falhava antes de chegar lá — e na máquina do testador ela
+falhava, por causa dos problemas de DNS e coleta de ICE corrigidos na mesma sessão — a
+segunda invocação enfileirada via `activeChannelRef` diferente do alvo e refazia o join
+inteiro: token novo, conexão nova.
+
+Isso explica a divergência entre as duas máquinas, que era o dado que faltava: na do Leo
+a primeira tentativa sucedia e a segunda saía pela guarda; na do amigo falhava, e a
+segunda tentava de novo.
+
+Lição: uma guarda que só marca sucesso não protege o caminho de falha. E o sintoma
+aparecia longe da causa — dois tokens no LiveKit, por causa de um DNS que não resolvia.
+
+~~**Fica registrado como risco conhecido, não como resolvido.**~~ Se o aviso
 `conexão já em andamento ou ativa` aparecer em algum console, é a evidência que falta —
 capturar o log inteiro daquele momento.
 
