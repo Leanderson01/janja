@@ -17,6 +17,7 @@ import type * as invites from "../invites.js";
 import type * as lib_inviteCode from "../lib/inviteCode.js";
 import type * as lib_membership from "../lib/membership.js";
 import type * as lib_tag from "../lib/tag.js";
+import type * as linkPreviews from "../linkPreviews.js";
 import type * as members from "../members.js";
 import type * as messages from "../messages.js";
 import type * as presence from "../presence.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   "lib/inviteCode": typeof lib_inviteCode;
   "lib/membership": typeof lib_membership;
   "lib/tag": typeof lib_tag;
+  linkPreviews: typeof linkPreviews;
   members: typeof members;
   messages: typeof messages;
   presence: typeof presence;
