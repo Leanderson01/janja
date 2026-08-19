@@ -8,12 +8,11 @@
  * @module
  */
 
-import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
-import { anyApi } from "convex/server";
 import type * as channelReadState from "../channelReadState.js";
 import type * as channels from "../channels.js";
 import type * as dms from "../dms.js";
 import type * as friends from "../friends.js";
+import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as lib_inviteCode from "../lib/inviteCode.js";
 import type * as lib_membership from "../lib/membership.js";
@@ -27,19 +26,18 @@ import type * as users from "../users.js";
 import type * as voice from "../voice.js";
 import type * as voiceToken from "../voiceToken.js";
 
-/**
- * A utility for referencing Convex functions in your app's API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
- * ```
- */
-const fullApi: ApiFromModules<{
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
+declare const fullApi: ApiFromModules<{
   channelReadState: typeof channelReadState;
   channels: typeof channels;
   dms: typeof dms;
   friends: typeof friends;
+  http: typeof http;
   invites: typeof invites;
   "lib/inviteCode": typeof lib_inviteCode;
   "lib/membership": typeof lib_membership;
@@ -52,7 +50,7 @@ const fullApi: ApiFromModules<{
   users: typeof users;
   voice: typeof voice;
   voiceToken: typeof voiceToken;
-}> = anyApi as any;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
@@ -62,7 +60,10 @@ const fullApi: ApiFromModules<{
  * const myFunctionReference = api.myModule.myFunction;
  * ```
  */
-export const api: FilterApi<typeof fullApi, FunctionReference<any, "public">> = anyApi as any;
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
 
 /**
  * A utility for referencing Convex functions in your app's internal API.
@@ -72,4 +73,9 @@ export const api: FilterApi<typeof fullApi, FunctionReference<any, "public">> = 
  * const myFunctionReference = internal.myModule.myFunction;
  * ```
  */
-export const internal: FilterApi<typeof fullApi, FunctionReference<any, "internal">> = anyApi as any;
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
+
+export declare const components: {};
