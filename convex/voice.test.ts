@@ -452,7 +452,12 @@ describe('voice.setMuted / voice.setDeafened — semântica', () => {
 // é erro, nunca um upsert silencioso que criaria uma linha órfã de `voiceStates`.
 
 describe('voice.setSharing', () => {
-  async function joinedAna() {
+  async function joinedAna(): Promise<{
+    t: ReturnType<typeof convexTest>
+    asAna: ReturnType<ReturnType<typeof convexTest>['withIdentity']>
+    anaId: Id<'users'>
+    channelId: Id<'channels'>
+  }> {
     const t = convexTest(schema, modules)
     const anaWorkosId = 'workos_ana'
     const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
@@ -1039,7 +1044,11 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
  * que `voiceStates` rastreia.
  */
 describe('POST /livekit/webhook — track_unpublished (compartilhamento de tela)', () => {
-  async function sharingAna() {
+  async function sharingAna(): Promise<{
+    t: ReturnType<typeof convexTest>
+    anaId: Id<'users'>
+    channelId: Id<'channels'>
+  }> {
     const t = convexTest(schema, modules)
     const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
     const { channelId } = await insertServerWithChannel(t, anaId)
@@ -1048,7 +1057,10 @@ describe('POST /livekit/webhook — track_unpublished (compartilhamento de tela)
     return { t, anaId, channelId }
   }
 
-  async function postSigned(t: ReturnType<typeof convexTest>, rawBody: string) {
+  async function postSigned(
+    t: ReturnType<typeof convexTest>,
+    rawBody: string
+  ): Promise<Response> {
     const authHeader = await signWebhookAuthHeader(
       rawBody,
       LIVEKIT_ENV.LIVEKIT_API_KEY,
