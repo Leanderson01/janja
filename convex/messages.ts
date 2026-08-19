@@ -60,16 +60,61 @@ export const generateUploadUrl = mutation({
 })
 
 export const sendMessage = mutation({
-  args: { channelId: v.id('channels'), content: v.string() },
-  handler: async (ctx, { channelId, content }) => {
+  args: {
+    channelId: v.id('channels'),
+    content: v.string(),
+    // O cliente manda só o que ele é fonte da verdade: o id devolvido pelo
+    // upload e o nome do arquivo que ele escolheu. `size` e `contentType` NÃO
+    // vêm do cliente — se viessem, o limite de tamanho seria contornável
+    // mandando `size: 1`.
+    attachments: v.optional(
+      v.array(v.object({ storageId: v.id('_storage'), name: v.string() }))
+    )
+  },
+  handler: async (ctx, { channelId, content, attachments }) => {
     const { channel, user } = await requireChannelMembership(ctx, channelId)
 
     if (channel.type !== 'text') {
       throw new Error('Não é possível enviar mensagem em um canal de voz')
     }
 
+    // Ordem importa: tudo é validado antes de qualquer insert, para nunca
+    // existir mensagem parcialmente válida no banco.
+    if (attachments && attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw new Error(`No máximo ${MAX_ATTACHMENTS_PER_MESSAGE} anexos por mensagem`)
+    }
+
+    // Esta é a checagem que vale. O cliente também checa antes de subir
+    // (Plano 08.5-14), mas quem decide é o servidor: `db.system.get` lê o
+    // tamanho e o content-type reais do que foi gravado no storage.
+    const resolved = await Promise.all(
+      (attachments ?? []).map(async ({ storageId, name }) => {
+        const metadata = await ctx.db.system.get('_storage', storageId)
+        if (!metadata) {
+          // storageId inventado, ou arquivo apagado entre o upload e o envio.
+          throw new Error('Arquivo não encontrado no armazenamento')
+        }
+        if (metadata.size > MAX_ATTACHMENT_BYTES) {
+          const limitMb = Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024))
+          throw new Error(`Arquivo maior que o limite de ${limitMb} MB`)
+        }
+        return {
+          storageId,
+          name,
+          size: metadata.size,
+          contentType: metadata.contentType ?? undefined
+        }
+      })
+    )
+
+    // Mensagem só com imagem é o caso normal de anexo, então `content` vazio
+    // passa a ser válido QUANDO há anexo. Sem anexo, a regra antiga continua
+    // valendo inteira — inclusive o teto de 2000 caracteres, que não muda.
     const trimmed = content.trim()
-    if (trimmed.length < 1 || trimmed.length > 2000) {
+    if (trimmed.length < 1 && resolved.length === 0) {
+      throw new Error('Mensagem deve ter entre 1 e 2000 caracteres')
+    }
+    if (trimmed.length > 2000) {
       throw new Error('Mensagem deve ter entre 1 e 2000 caracteres')
     }
 
@@ -77,7 +122,10 @@ export const sendMessage = mutation({
       channelId,
       authorId: user._id,
       content: trimmed,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      // Não gravar `attachments: []`: sem anexo, o documento continua
+      // byte a byte igual ao que as Fases 5 a 8 já gravavam.
+      ...(resolved.length > 0 ? { attachments: resolved } : {})
     })
   }
 })
@@ -102,12 +150,28 @@ export const listMessages = query({
       result.page.map(async (message) => {
         const author = await ctx.db.get(message.authorId)
 
+        // `url: null` NÃO é erro: é a resposta de "o arquivo sumiu do storage"
+        // (apagado, expirado). A listagem do histórico não pode quebrar por
+        // causa disso, então a decisão desce para a UI (Plano 08.5-14), que
+        // mostra "arquivo indisponível" em vez de uma imagem quebrada.
+        //
+        // Custo: um `getUrl` por anexo, por mensagem, por página. O `?? []`
+        // faz esse custo ser exatamente zero no caminho comum, que é a
+        // mensagem sem anexo.
+        const attachments = await Promise.all(
+          (message.attachments ?? []).map(async (attachment) => ({
+            ...attachment,
+            url: await ctx.storage.getUrl(attachment.storageId)
+          }))
+        )
+
         return {
           _id: message._id,
           channelId: message.channelId,
           content: message.content,
           createdAt: message.createdAt,
           isMine: message.authorId === user._id,
+          attachments,
           author: author
             ? {
                 userId: author._id,
