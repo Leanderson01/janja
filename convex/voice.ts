@@ -224,6 +224,35 @@ export const reconcileRoomFinished = internalMutation({
   },
 })
 
+/**
+ * SHARE-06 (Plano 08-01): `track_unpublished` de uma track de tela — a captura parou,
+ * mas a pessoa CONTINUA conectada à call. Por isso aqui é `patch({ sharing: false })`
+ * e nunca `delete`: apagar a linha faria a pessoa sumir da lista de participantes do
+ * canal de voz sem ter saído dele.
+ *
+ * O caso mais comum de SHARE-06 (quem compartilha crasha/fecha o app) já é coberto por
+ * `reconcileParticipantLeft` acima, que apaga a linha inteira — compartilhamento sempre
+ * acontece dentro de uma sala de voz já conectada (design §6). Esta mutation cobre o
+ * caso mais estreito de a captura morrer sem derrubar a conexão.
+ *
+ * Idempotente pelo mesmo motivo de `reconcileParticipantLeft`: o LiveKit reenvia
+ * eventos até receber 2xx, e o cliente pode ter chamado `setSharing(false)` antes do
+ * webhook chegar. Linha inexistente ou `sharing` já `false`: não faz nada, não lança.
+ */
+export const reconcileScreenShareStopped = internalMutation({
+  args: { channelId: v.id('channels'), userId: v.id('users') },
+  handler: async (ctx, { channelId, userId }) => {
+    const existing = await ctx.db
+      .query('voiceStates')
+      .withIndex('by_channel_and_user', (q) => q.eq('channelId', channelId).eq('userId', userId))
+      .unique()
+    if (!existing) return null
+
+    await ctx.db.patch(existing._id, { sharing: false })
+    return null
+  },
+})
+
 // VOICE-05/06/08/15 (Plano 07-04): leitura de "quem está presente" e
 // "quem está mutado/ensurdecido" — sempre a partir de `voiceStates`, nunca
 // do LiveKit (que só sabe quem está falando agora e a qualidade da
