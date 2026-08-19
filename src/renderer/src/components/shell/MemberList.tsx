@@ -5,8 +5,10 @@ import type { FunctionReturnType } from 'convex/server'
 import { Avatar, AvatarBadge, AvatarFallback } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useSelection } from '@/state/selection-context'
+import { useVoice } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
+import type { Id } from '../../../../../convex/_generated/dataModel'
 
 // Lista de membros do servidor selecionado (substitui o stub do Plano
 // 03-01, depois orientado a `mockMembers` no próprio Plano 03-xx). A partir
@@ -16,17 +18,39 @@ import { api } from '../../../../../convex/_generated/api'
 // status online/offline (SRV-07/APP-02).
 
 type ServerMember = FunctionReturnType<typeof api.members.listServerMembers>[number]
+type VoiceParticipant = FunctionReturnType<typeof api.voice.voiceParticipantsByServer>[number]
 
-// Overlay de fala/mute (anel verde + ícone de mute) é slot reservado para F7
-// (VOICE-06/VOICE-08) — a Fase 3 o desenhava sobre `mockVoiceParticipants`,
-// que não existe mais. Nesta fase não há `voiceStates` real ainda, então o
-// dado fica sempre "não falando, não mutado": o JSX/CSS do overlay
-// permanece intacto (não removido) para que F7 só troque a fonte do dado,
-// sem retrabalho visual.
+// Overlay de fala/mute (anel verde + ícone de mute): desde o Plano 07-04,
+// `muted` vem sempre de `voiceStates` real (via `voiceParticipantsByServer`)
+// — presente para todo membro em qualquer canal de voz do servidor, esteja
+// o usuário local conectado junto ou não. `speaking` só é significativo
+// quando o membro está no MESMO canal ao qual o `Room` local está
+// conectado (`joinedVoiceChannelId`) — fora disso não há como saber quem
+// fala agora, dado 100% efêmero do LiveKit (ver `voiceStateFor` abaixo).
 type VoiceState = { speaking: boolean; muted: boolean }
 
 function neutralVoiceState(): VoiceState {
   return { speaking: false, muted: false }
+}
+
+/** Resolve o `VoiceState` de um membro a partir da linha de `voiceStates`
+ * enriquecida (se houver — a maioria dos membros não está em call nenhuma)
+ * e do conjunto de quem fala agora no canal ao qual o usuário local está
+ * conectado. Combina as duas condições explicitamente — nunca assume que
+ * `speakingUserIds.has(...)` sozinho já implica "no canal certo". */
+function voiceStateFor(
+  member: ServerMember,
+  voiceStateByUserId: Map<Id<'users'>, VoiceParticipant>,
+  joinedVoiceChannelId: Id<'channels'> | null,
+  speakingUserIds: Set<string>
+): VoiceState {
+  const participant = voiceStateByUserId.get(member.userId)
+  if (!participant) return neutralVoiceState()
+
+  const speaking =
+    participant.channelId === joinedVoiceChannelId && speakingUserIds.has(member.userId)
+
+  return { speaking, muted: participant.muted }
 }
 
 function initialsFor(username: string): string {
@@ -41,9 +65,8 @@ function MemberAvatar({
   voiceState: VoiceState
 }): React.JSX.Element {
   // Um membro mutado nunca deveria estar "falando" ao mesmo tempo — se os
-  // dados (hoje sempre neutros, ver `neutralVoiceState`) tiverem essa
-  // combinação inconsistente, o ícone de mute tem prioridade visual e o
-  // anel de falando é omitido.
+  // dados tiverem essa combinação inconsistente, o ícone de mute tem
+  // prioridade visual e o anel de falando é omitido.
   const showSpeakingRing = voiceState.speaking && !voiceState.muted
 
   return (
@@ -88,10 +111,16 @@ function MemberRow({
 function MemberGroup({
   title,
   members,
+  voiceStateByUserId,
+  joinedVoiceChannelId,
+  speakingUserIds,
   dimmed = false
 }: {
   title: string
   members: ServerMember[]
+  voiceStateByUserId: Map<Id<'users'>, VoiceParticipant>
+  joinedVoiceChannelId: Id<'channels'> | null
+  speakingUserIds: Set<string>
   dimmed?: boolean
 }): React.JSX.Element {
   return (
@@ -101,7 +130,16 @@ function MemberGroup({
       </h3>
       <div className="flex flex-col gap-0.5">
         {members.map((member) => (
-          <MemberRow key={member.userId} member={member} voiceState={neutralVoiceState()} />
+          <MemberRow
+            key={member.userId}
+            member={member}
+            voiceState={voiceStateFor(
+              member,
+              voiceStateByUserId,
+              joinedVoiceChannelId,
+              speakingUserIds
+            )}
+          />
         ))}
       </div>
     </div>
@@ -109,12 +147,18 @@ function MemberGroup({
 }
 
 export function MemberList(): React.JSX.Element {
-  const { selectedServerId } = useSelection()
+  const { selectedServerId, joinedVoiceChannelId } = useSelection()
+  const { speakingUserIds } = useVoice()
 
   const members = useQuery(
     api.members.listServerMembers,
     selectedServerId ? { serverId: selectedServerId } : 'skip'
   )
+  const voiceParticipants = useQuery(
+    api.voice.voiceParticipantsByServer,
+    selectedServerId ? { serverId: selectedServerId } : 'skip'
+  )
+  const voiceStateByUserId = new Map((voiceParticipants ?? []).map((p) => [p.userId, p]))
 
   const onlineMembers = members?.filter((member) => member.online) ?? []
   const offlineMembers = members?.filter((member) => !member.online) ?? []
@@ -124,12 +168,21 @@ export function MemberList(): React.JSX.Element {
       <ScrollArea className="h-full">
         <div className="flex flex-col gap-4 p-3">
           {onlineMembers.length > 0 ? (
-            <MemberGroup title={`ONLINE — ${onlineMembers.length}`} members={onlineMembers} />
+            <MemberGroup
+              title={`ONLINE — ${onlineMembers.length}`}
+              members={onlineMembers}
+              voiceStateByUserId={voiceStateByUserId}
+              joinedVoiceChannelId={joinedVoiceChannelId}
+              speakingUserIds={speakingUserIds}
+            />
           ) : null}
           {offlineMembers.length > 0 ? (
             <MemberGroup
               title={`OFFLINE — ${offlineMembers.length}`}
               members={offlineMembers}
+              voiceStateByUserId={voiceStateByUserId}
+              joinedVoiceChannelId={joinedVoiceChannelId}
+              speakingUserIds={speakingUserIds}
               dimmed
             />
           ) : null}

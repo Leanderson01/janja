@@ -862,3 +862,111 @@ describe('POST /livekit/webhook — roteamento por evento', () => {
     })
   })
 })
+
+describe('voice.voiceParticipantsByChannel', () => {
+  test('rejeita não-membro do servidor dono do canal', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const carlaWorkosId = 'workos_carla'
+    await insertUser(t, carlaWorkosId, 'carla', '0003')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    const asCarla = t.withIdentity({ subject: carlaWorkosId })
+
+    await expect(
+      asCarla.query(anyApi.voice.voiceParticipantsByChannel, { channelId })
+    ).rejects.toThrow()
+  })
+
+  test('membro vê participantes reais do canal, enriquecidos e sem workosId', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const carlaWorkosId = 'workos_carla'
+    const carlaId = await insertUser(t, carlaWorkosId, 'carla', '0003')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    await addMember(t, (await t.run((ctx) => ctx.db.get(channelId)))!.serverId, carlaId)
+
+    await t.run((ctx) =>
+      ctx.db.insert('voiceStates', {
+        channelId,
+        userId: anaId,
+        muted: false,
+        deafened: false,
+        sharing: false
+      })
+    )
+    await t.run((ctx) =>
+      ctx.db.insert('voiceStates', {
+        channelId,
+        userId: carlaId,
+        muted: true,
+        deafened: false,
+        sharing: false
+      })
+    )
+
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const result = await asAna.query(anyApi.voice.voiceParticipantsByChannel, { channelId })
+
+    expect(result).toHaveLength(2)
+    const carla = result.find((p: { userId: Id<'users'> }) => p.userId === carlaId)
+    expect(carla).toMatchObject({ username: 'carla', tag: '0003', muted: true })
+    expect(carla).not.toHaveProperty('workosId')
+  })
+})
+
+describe('voice.voiceParticipantsByServer', () => {
+  test('rejeita não-membro do servidor', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const carlaWorkosId = 'workos_carla'
+    await insertUser(t, carlaWorkosId, 'carla', '0003')
+    const { serverId } = await insertServerWithChannel(t, anaId)
+    const asCarla = t.withIdentity({ subject: carlaWorkosId })
+
+    await expect(
+      asCarla.query(anyApi.voice.voiceParticipantsByServer, { serverId })
+    ).rejects.toThrow()
+  })
+
+  test('membro vê participantes de todos os canais de voz do servidor', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const { serverId, channelId: channelA } = await insertServerWithChannel(t, anaId)
+    const channelB = await t.run((ctx) =>
+      ctx.db.insert('channels', { serverId, name: 'outro-canal-voz', type: 'voice', position: 1 })
+    )
+
+    await t.run((ctx) =>
+      ctx.db.insert('voiceStates', {
+        channelId: channelA,
+        userId: anaId,
+        muted: false,
+        deafened: false,
+        sharing: false
+      })
+    )
+
+    const carlaWorkosId = 'workos_carla'
+    const carlaId = await insertUser(t, carlaWorkosId, 'carla', '0003')
+    await addMember(t, serverId, carlaId)
+    await t.run((ctx) =>
+      ctx.db.insert('voiceStates', {
+        channelId: channelB,
+        userId: carlaId,
+        muted: false,
+        deafened: false,
+        sharing: false
+      })
+    )
+
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const result = await asAna.query(anyApi.voice.voiceParticipantsByServer, { serverId })
+
+    expect(result).toHaveLength(2)
+    expect(result.map((p: { channelId: Id<'channels'> }) => p.channelId).sort()).toEqual(
+      [channelA, channelB].sort()
+    )
+  })
+})

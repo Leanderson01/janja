@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from 'convex/react'
-import { Hash, Plus, UserPlus, Volume2 } from 'lucide-react'
+import { Hash, MicOff, Plus, UserPlus, Volume2 } from 'lucide-react'
 
 import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
 import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
 import { UserPanel } from '@/features/auth/UserPanel'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -13,9 +14,14 @@ import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
+import { useVoice } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Doc } from '../../../../../convex/_generated/dataModel'
+
+function initialsFor(username: string): string {
+  return username.slice(0, 2).toUpperCase()
+}
 
 // Sidebar de canais (Plano 03-02) — a partir do plano 04-06 lê canais reais
 // via `api.channels.listChannels` em vez de `mock-data.ts`. `VoiceControlBar`
@@ -25,8 +31,8 @@ import type { Doc } from '../../../../../convex/_generated/dataModel'
 // fase não tem `category` (era um campo só do mock). Badge de não lidas por
 // canal (CHAT-06, plano 05-04) alimentado por `getUnreadCounts` — só canais
 // de texto ganham badge, a query já filtra canal de voz. Lista de
-// participantes de voz aninhados sob o canal segue fora de escopo (F7):
-// `voiceStates` não existe no backend ainda.
+// participantes de voz aninhados sob o canal (Plano 07-04) vem de
+// `api.voice.voiceParticipantsByChannel` — dado real de `voiceStates`.
 export function ChannelSidebar(): React.JSX.Element {
   const {
     servers,
@@ -218,24 +224,55 @@ function VoiceChannelRow({
   isJoined: boolean
   onClick: () => void
 }): React.JSX.Element {
+  // `undefined` enquanto a subscription não resolve — tratado como "sem
+  // participantes ainda" (mesma convenção de `channels`/`unreadCounts`
+  // acima), não como erro.
+  const participants = useQuery(api.voice.voiceParticipantsByChannel, { channelId: channel._id })
+  const { speakingUserIds } = useVoice()
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
-        isSelected
-          ? 'bg-accent text-accent-foreground'
-          : isJoined
-            ? 'text-foreground'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
-      )}
-    >
-      <Volume2 className="size-4 shrink-0" />
-      <span className="flex-1 truncate">{channel.name}</span>
-    </button>
+    <div className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left transition-colors',
+          isSelected
+            ? 'bg-accent text-accent-foreground'
+            : isJoined
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+        )}
+      >
+        <Volume2 className="size-4 shrink-0" />
+        <span className="flex-1 truncate">{channel.name}</span>
+      </button>
+
+      {participants && participants.length > 0 ? (
+        <div className="flex flex-col gap-0.5 pl-7">
+          {participants.map((participant) => {
+            // VOICE-08: anel de fala só é significativo dentro do canal ao
+            // qual o próprio usuário está conectado — `speakingUserIds` é
+            // dado do `Room` local, não existe para quem só está sendo
+            // exibido na sidebar sem conexão real a esse canal.
+            const isSpeaking = isJoined && speakingUserIds.has(participant.userId)
+            return (
+              <div
+                key={participant.userId}
+                className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
+              >
+                <Avatar size="sm" className={isSpeaking ? 'ring-2 ring-green-500' : undefined}>
+                  <AvatarFallback>{initialsFor(participant.username)}</AvatarFallback>
+                </Avatar>
+                <span className="flex-1 truncate">{participant.username}</span>
+                {participant.muted ? (
+                  <MicOff className="size-3 shrink-0" aria-label="mutado" />
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
   )
-  // Lista de participantes de voz aninhada sob o canal (avatares, anel de
-  // fala, ícone de mute) é F7: depende de `voiceStates` real, que não existe
-  // no backend desta fase.
 }

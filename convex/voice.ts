@@ -1,7 +1,8 @@
 import { v } from 'convex/values'
-import { internalMutation, internalQuery, mutation } from './_generated/server'
-import type { MutationCtx } from './_generated/server'
-import { requireIdentity } from './lib/membership'
+import { internalMutation, internalQuery, mutation, query } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
+import type { Doc } from './_generated/dataModel'
+import { requireChannelMembership, requireIdentity, requireMembership } from './lib/membership'
 
 // VOICE-01/03/06/07: entrar, sair, mutar e ensurdecer num canal de voz — sempre com
 // autorização por membership. Convex é a fonte da verdade de quem está em qual canal
@@ -199,5 +200,89 @@ export const reconcileRoomFinished = internalMutation({
 
     await Promise.all(rows.map((row) => ctx.db.delete(row._id)))
     return null
+  },
+})
+
+// VOICE-05/06/08/15 (Plano 07-04): leitura de "quem está presente" e
+// "quem está mutado/ensurdecido" — sempre a partir de `voiceStates`, nunca
+// do LiveKit (que só sabe quem está falando agora e a qualidade da
+// conexão, dado efêmero que este arquivo nunca persiste). As duas queries
+// abaixo reaproveitam a mesma checagem de membership das mutations acima
+// (`requireChannelMembership`/`requireMembership` de `lib/membership.ts`),
+// nunca uma cópia paralela dela.
+
+/** Enriquece linhas cruas de `voiceStates` com identidade legível
+ * (`username`/`tag`/`avatarUrl`) — nunca `workosId`, que nenhum outro
+ * participante deveria aprender. Linhas cujo `userId` não resolve mais para
+ * um documento `users` (não deveria acontecer, mas não é motivo pra
+ * quebrar a UI) são descartadas silenciosamente. */
+async function enrichVoiceStates(ctx: QueryCtx, rows: Doc<'voiceStates'>[]) {
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      const user = await ctx.db.get(row.userId)
+      if (!user) return null
+      return {
+        channelId: row.channelId,
+        userId: row.userId,
+        muted: row.muted,
+        deafened: row.deafened,
+        sharing: row.sharing,
+        username: user.username,
+        tag: user.tag,
+        avatarUrl: user.avatarUrl,
+      }
+    })
+  )
+  return enriched.filter((row): row is NonNullable<typeof row> => row !== null)
+}
+
+/**
+ * Participantes de UM canal de voz específico (usado por `ConversationArea`
+ * e, por canal, por `ChannelSidebar`). Exige que o chamador seja membro do
+ * servidor dono do canal — mesma regra de `joinVoiceChannel` (Plano 07-01) —
+ * então quem não é membro não aprende nada sobre quem está numa call.
+ */
+export const voiceParticipantsByChannel = query({
+  args: { channelId: v.id('channels') },
+  handler: async (ctx, { channelId }) => {
+    const { channel } = await requireChannelMembership(ctx, channelId)
+
+    const rows = await ctx.db
+      .query('voiceStates')
+      .withIndex('by_channel', (q) => q.eq('channelId', channel._id))
+      .collect()
+
+    return enrichVoiceStates(ctx, rows)
+  },
+})
+
+/**
+ * Participantes de TODOS os canais de voz de um servidor (usado por
+ * `MemberList`, que precisa saber quem está em qualquer call do servidor
+ * pra desenhar o anel/badge, independente de canal). Com ~10 pessoas e
+ * poucos canais de voz por servidor, buscar `voiceStates` canal a canal em
+ * loop é suficiente — sem índice adicional.
+ */
+export const voiceParticipantsByServer = query({
+  args: { serverId: v.id('servers') },
+  handler: async (ctx, { serverId }) => {
+    await requireMembership(ctx, serverId)
+
+    const voiceChannels = await ctx.db
+      .query('channels')
+      .withIndex('by_server', (q) => q.eq('serverId', serverId))
+      .filter((q) => q.eq(q.field('type'), 'voice'))
+      .collect()
+
+    const rowsByChannel = await Promise.all(
+      voiceChannels.map((channel) =>
+        ctx.db
+          .query('voiceStates')
+          .withIndex('by_channel', (q) => q.eq('channelId', channel._id))
+          .collect()
+      )
+    )
+
+    return enrichVoiceStates(ctx, rowsByChannel.flat())
   },
 })

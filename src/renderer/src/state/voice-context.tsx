@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAction, useMutation } from 'convex/react'
 import {
+  ConnectionQuality,
   ConnectionState,
   Room,
   RoomEvent,
   Track,
   isAudioTrack,
+  type Participant,
   type RemoteTrack
 } from 'livekit-client'
 
@@ -43,6 +45,22 @@ export type VoiceConnectionState =
 export type VoiceContextValue = {
   room: Room
   connectionState: VoiceConnectionState
+  /**
+   * Identities (= `users._id` do Convex, ver 07-RESEARCH.md §6) de quem
+   * está falando agora, com debounce de ~300ms na remoção — nunca pisca
+   * em micropausas de respiração (VOICE-08). Vazio quando desconectado.
+   * Dado 100% efêmero do LiveKit (`ActiveSpeakersChanged`), nunca lido de
+   * `voiceStates` — só é significativo dentro do canal ao qual este `Room`
+   * está de fato conectado (`joinedVoiceChannelId`); quem consome isto
+   * para outro canal está lendo dado fora de contexto.
+   */
+  speakingUserIds: Set<string>
+  /**
+   * Qualidade de conexão por identity (`users._id`), incluindo a própria
+   * (`room.localParticipant.identity`). Vazio quando desconectado. Mesma
+   * ressalva de `speakingUserIds`: só válido para o canal conectado agora.
+   */
+  connectionQualities: Map<string, ConnectionQuality>
   /**
    * Relê `loadVoicePreferences()` e reconfigura o VAD ativo (para, inicia
    * ou só ajusta o limiar) sem reconectar à sala. Chamado pelo painel de
@@ -98,6 +116,91 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // sempre destravado, mesma linha de base do resto da reconciliação
   // mínima documentada no Plano 07-03).
   const manualMuteRef = useRef(false)
+
+  // VOICE-08 (Plano 07-04): quem está falando agora, com debounce de
+  // remoção — dado 100% efêmero do LiveKit (`ActiveSpeakersChanged`),
+  // nunca persistido em `voiceStates`. `speakingSetRef` é a fonte de
+  // verdade síncrona lida/escrita dentro do handler do evento;
+  // `speakingUserIds` (estado) é só o espelho que a UI lê. Sem esse par
+  // ref+state o debounce exigiria comparar o estado anterior de dentro de
+  // um `setState` funcional, o que complica cancelar timeouts por
+  // identity de forma direta.
+  const speakingSetRef = useRef<Set<string>>(new Set())
+  const speakingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const [speakingUserIds, setSpeakingUserIds] = useState<Set<string>>(new Set())
+
+  // VOICE-15: qualidade de conexão por participante (incluindo a própria,
+  // via `room.localParticipant`) — também 100% efêmero do LiveKit
+  // (`ConnectionQualityChanged`), nunca persistido.
+  const [connectionQualities, setConnectionQualities] = useState<Map<string, ConnectionQuality>>(
+    new Map()
+  )
+
+  // Tempo de espera antes de remover alguém do conjunto de quem fala,
+  // depois que o LiveKit para de reportá-lo em `ActiveSpeakersChanged` —
+  // sem isto o anel de fala liga/desliga a cada micropausa de respiração
+  // (07-RESEARCH.md, FEATURES.md linha do indicador de fala).
+  const SPEAKING_DEBOUNCE_MS = 300
+
+  /** Publica `speakingSetRef.current` (a fonte de verdade síncrona) como um
+   * novo `Set` no estado React, disparando re-render da UI que o consome. */
+  function commitSpeakingUserIds(): void {
+    setSpeakingUserIds(new Set(speakingSetRef.current))
+  }
+
+  /** Zera fala e qualidade de conexão — chamado sempre que o `Room` deixa
+   * de estar conectado (saída própria ou queda), nunca deixando dado de
+   * uma sessão de call anterior vazar pra próxima. */
+  function clearSpeakingAndQuality(): void {
+    speakingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout))
+    speakingTimeoutsRef.current.clear()
+    speakingSetRef.current = new Set()
+    setSpeakingUserIds(new Set())
+    setConnectionQualities(new Map())
+  }
+
+  function handleActiveSpeakersChanged(speakers: Participant[]): void {
+    const speakingNow = new Set(speakers.map((p) => p.identity))
+
+    // Quem fala agora (continuando ou começando): presença imediata no
+    // set, cancelando qualquer remoção pendente por micropausa anterior.
+    speakingNow.forEach((identity) => {
+      const pendingTimeout = speakingTimeoutsRef.current.get(identity)
+      if (pendingTimeout) {
+        clearTimeout(pendingTimeout)
+        speakingTimeoutsRef.current.delete(identity)
+      }
+      speakingSetRef.current.add(identity)
+    })
+
+    // Quem estava no set mas não está mais entre os speakers agora: não
+    // remove na hora — agenda a remoção com debounce, cancelável se a
+    // pessoa voltar a falar antes do timeout disparar.
+    speakingSetRef.current.forEach((identity) => {
+      if (speakingNow.has(identity)) return
+      if (speakingTimeoutsRef.current.has(identity)) return
+      const timeout = setTimeout(() => {
+        speakingTimeoutsRef.current.delete(identity)
+        speakingSetRef.current.delete(identity)
+        commitSpeakingUserIds()
+      }, SPEAKING_DEBOUNCE_MS)
+      speakingTimeoutsRef.current.set(identity, timeout)
+    })
+
+    commitSpeakingUserIds()
+  }
+
+  function handleConnectionQualityChanged(
+    quality: ConnectionQuality,
+    participant?: Participant
+  ): void {
+    const identity = participant?.identity ?? room.localParticipant.identity
+    setConnectionQualities((prev) => {
+      const next = new Map(prev)
+      next.set(identity, quality)
+      return next
+    })
+  }
 
   function stopVadMonitor(): void {
     vadMonitorRef.current?.stop()
@@ -206,6 +309,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     }
 
     function handleDisconnected(): void {
+      // Fala e qualidade de conexão nunca sobrevivem a uma desconexão —
+      // sempre zeradas aqui, independente de quem causou (nós ou o
+      // LiveKit), nunca deixando dado de uma call anterior vazar pra
+      // próxima.
+      clearSpeakingAndQuality()
+
       // Se `activeChannelRef` já está null, fomos nós que chamamos
       // `room.disconnect()` de propósito (ver a fila de transições abaixo)
       // — a intenção já reflete a realidade, nada a fazer. Se ainda aponta
@@ -221,12 +330,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     room.on(RoomEvent.ConnectionStateChanged, handleConnectionStateChanged)
     room.on(RoomEvent.Disconnected, handleDisconnected)
+    room.on(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
+    room.on(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
 
     return () => {
       room.off(RoomEvent.ConnectionStateChanged, handleConnectionStateChanged)
       room.off(RoomEvent.Disconnected, handleDisconnected)
+      room.off(RoomEvent.ActiveSpeakersChanged, handleActiveSpeakersChanged)
+      room.off(RoomEvent.ConnectionQualityChanged, handleConnectionQualityChanged)
       // Higiene de hot-reload/fechamento do app — best-effort, não é o
       // mecanismo principal de saída (isso é o webhook do Plano 07-02).
+      clearSpeakingAndQuality()
       stopVadMonitor()
       void room.disconnect()
     }
@@ -299,6 +413,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const value: VoiceContextValue = {
     room,
     connectionState,
+    speakingUserIds,
+    connectionQualities,
     applyVoicePreferences,
     setManualMute
   }
