@@ -314,3 +314,28 @@ capturar o log inteiro daquele momento.
 
 O cenário onde isso mais provavelmente volta é o da Fase 07-08: dez pessoas entrando e
 saindo de canal ao mesmo tempo, que é exatamente quando timing deixa de ser previsível.
+
+## Marco — 2026-08-19: compartilhamento de tela funcionando
+
+Relatado pelo Leo em uso real, logo após o primeiro `git pull` com a Fase 8 na
+máquina Windows: **o compartilhamento de tela está funcionando.**
+
+O que isso já prova, sem precisar de mais ninguém confirmar:
+
+- O handler de `setDisplayMediaRequestHandler` no processo main concede a fonte e
+  chama `callback()` no caminho feliz — o `getDisplayMedia()` do renderer resolve.
+- O seletor de telas (08-04) abre, lista fontes e devolve a escolha ao main pelo
+  IPC — os três canais batem entre `out/main` e `out/preload` no build real.
+- A track de vídeo é publicada no LiveKit e o lado receptor (08-06) renderiza — o
+  `<video>` é anexado de verdade, não só a lógica de lista.
+- O push do Convex passou: o import de `@livekit/protocol` em `convex/http.ts` não
+  quebrou o bundler (era o risco aberto do 08-01).
+
+O que **continua não provado** e não pode ser inferido daqui:
+
+- **Ausência de eco** (critério de sucesso nº 2 do projeto) — exige 3 máquinas.
+  Com duas, o eco pode simplesmente não ser audível.
+- **Áudio de sistema** chegando aos outros (SHARE-03) — vídeo mudo passaria por
+  "funcionando" sem que ninguém percebesse.
+- Cancelar o seletor 3x e continuar funcionando (SHARE-07), queda suja do
+  apresentador sem frame congelado (SHARE-05/06), e a troca de qualidade (SHARE-08).
