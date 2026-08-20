@@ -363,3 +363,19 @@ público podia redirecionar o servidor para endereço interno.
 
 **Nada disso foi visto por olho humano.** WSL2 não tem Windows, tela, áudio nem acesso ao
 deployment do Convex. O plano 08.5-17 é o que transforma isto em fato.
+
+## Marco — 2026-08-20: primeiro instalador do Hydra
+
+O Leo rodou `npm run build:win` na máquina Windows e o instalador foi gerado sem
+erro. É a primeira build empacotada com a Fase 8.5 dentro e com a marca nova
+(nome Hydra, estrela como ícone, `appId: com.hydra.app`).
+
+O que isso já prova, além do empacotamento em si: a cadeia inteira do
+`build:win` passou — checagem das variáveis de ambiente, compilação, a trava do
+runtime de servidor no bundle do renderer e a varredura de segredos. As duas
+travas novas do dia (`verify:renderer-runtime` e `verify:convex-paths`) rodaram
+contra código real sem falso positivo.
+
+O que continua **não** provado: nada de comportamento. O roteiro de
+`.planning/CHECKPOINT-WINDOWS.md` segue inteiro em aberto — 106 checagens, e a
+Sessão A (sozinho, ~30 min) é a que decide se vale chamar mais gente.
