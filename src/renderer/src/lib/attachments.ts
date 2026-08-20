@@ -1,4 +1,10 @@
-import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from '../../../../convex/messages'
+// De `lib/attachment-limits`, NUNCA de `convex/messages`: aquele arquivo importa
+// `convex/server`, e o bundler traz o runtime de servidor do Convex junto — que usa
+// `process` e derruba o app no boot do Electron. Ver o cabeçalho do módulo folha.
+import {
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE
+} from '../../../../convex/lib/attachment-limits'
 
 // CHAT-10 — as regras de anexo do LADO DO CLIENTE, isoladas em funções puras
 // (sem DOM, sem rede) para serem testáveis no ambiente `edge-runtime` padrão.

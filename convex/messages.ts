@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import { requireChannelMembership } from './lib/membership'
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from './lib/attachment-limits'
 
 // CHAT-01/CHAT-02/CHAT-03 no nível de dados: mensagens de canal (tabela `messages`,
 // separada de `dmMessages` da Fase 6 por design — ver 05-RESEARCH.md §1).
@@ -23,14 +24,12 @@ import { requireChannelMembership } from './lib/membership'
  * 25 MB consomem essa cota rápido. Não há cota por usuário nem expurgo
  * automático nesta fase — isso seria feature nova, não anexo.
  */
-export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
-
-/**
- * Cinco anexos por mensagem. O limite existe para dar teto ao custo de leitura:
- * `listMessages` chama `storage.getUrl` uma vez por anexo, por mensagem, por
- * página do histórico.
- */
-export const MAX_ATTACHMENTS_PER_MESSAGE = 5
+// Os dois limites vivem em `lib/attachment-limits.ts`, um módulo folha sem
+// nenhum import, e são REEXPORTADOS daqui para quem já os consumia. O renderer
+// importa de lá, nunca deste arquivo: importar daqui arrasta `convex/server`
+// para o bundle do app, que quebra no `process` inexistente do Electron — foi
+// defeito real, ver o cabeçalho daquele arquivo.
+export { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE }
 
 /**
  * CHAT-10: URL de upload de curta duração, emitida SÓ para membro do canal.
@@ -67,9 +66,7 @@ export const sendMessage = mutation({
     // upload e o nome do arquivo que ele escolheu. `size` e `contentType` NÃO
     // vêm do cliente — se viessem, o limite de tamanho seria contornável
     // mandando `size: 1`.
-    attachments: v.optional(
-      v.array(v.object({ storageId: v.id('_storage'), name: v.string() }))
-    )
+    attachments: v.optional(v.array(v.object({ storageId: v.id('_storage'), name: v.string() })))
   },
   handler: async (ctx, { channelId, content, attachments }) => {
     const { channel, user } = await requireChannelMembership(ctx, channelId)
