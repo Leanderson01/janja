@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { Check, Copy, MessageCircle, UserMinus, X } from 'lucide-react'
@@ -34,32 +34,17 @@ function initialsFor(username: string): string {
 // Meu próprio identificador USER#123. `username`/`tag` vivem em `users`
 // (Convex), não no perfil WorkOS de `useAuth()` — é por isso que
 // `UserPanel.tsx` deliberadamente não mostra esse identificador (ver
-// comentário lá). `ensureUser` é um upsert idempotente (convex/users.ts):
-// chamar de novo aqui só devolve o documento já existente, sem duplicar o
-// que `AuthGate` já garantiu no login — é o único jeito de obter meu
-// próprio username/tag sem uma query nova em convex/ (fora do escopo deste
-// plano, que não toca em convex/).
+// comentário lá).
+//
+// Antes isto chamava a MUTATION `ensureUser` só para ler o documento de
+// volta, porque não existia query de "eu". Agora existe (`users.me`), e a
+// diferença não é de estilo: `useQuery` é uma subscription, então renomear
+// o perfil no diálogo de edição atualiza este crachá na hora, sem remontar
+// o painel. `undefined` = ainda carregando; `null` = sem sessão.
 function useMyIdentifier(): { username: string; tag: string } | null {
-  const ensureUser = useMutation(api.users.ensureUser)
-  const [me, setMe] = useState<{ username: string; tag: string } | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    ensureUser()
-      .then((user) => {
-        if (!cancelled && user) {
-          setMe({ username: user.username, tag: user.tag })
-        }
-      })
-      .catch((err: unknown) => {
-        console.error('Não foi possível carregar seu USER#123:', err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [ensureUser])
-
-  return me
+  const me = useQuery(api.users.me, {})
+  if (!me) return null
+  return { username: me.username, tag: me.tag }
 }
 
 function MyIdentifierBadge({
