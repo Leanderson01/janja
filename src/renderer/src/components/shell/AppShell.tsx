@@ -38,7 +38,19 @@ function ShellBody(): React.JSX.Element {
 
       {view === 'server' ? (
         <>
-          <div className="flex-none w-60 bg-secondary border-r border-border">
+          {/* 272px, não os 240px originais da Fase 3 (correção pedida pelo Leo
+              depois do primeiro uso em Windows: "está tudo muito apertado").
+              A conta que justifica: o rodapé de voz carregava cinco botões
+              `size-8` mais gap e padding, ~216px dos 240px da coluna, sobrando
+              ~24px para o texto de status (medido no 08.5-09-SUMMARY). A
+              largura sozinha não resolve isso — quem resolve é o empilhamento
+              em faixas —, mas 32px a mais é o que faz nome de canal, nome de
+              servidor e nome de usuário pararem de truncar cedo demais.
+
+              Continua FIXA: a decisão da Fase 3 (sem arrastar borda) não foi
+              reaberta, só o número mudou. O rail segue 72px e a lista de
+              membros segue 240px. */}
+          <div className="flex-none w-[272px] bg-secondary border-r border-border">
             <ChannelSidebar />
           </div>
 
@@ -47,10 +59,10 @@ function ShellBody(): React.JSX.Element {
           </div>
 
           {/* Janela estreita (Plano 08.5-05): a lista de membros é a válvula
-              de escape da área principal. As colunas fixas somam 552px
-              (rail 72 + sidebar 240 + membros 240) e a janela mínima é
+              de escape da área principal. As colunas fixas somam 584px
+              (rail 72 + sidebar 272 + membros 240) e a janela mínima é
               900x600 (`src/main/index.ts`) — esconder a lista devolve 240px
-              para a conversa. As larguras continuam fixas (decisão da F3,
+              para a conversa (316px -> 556px na janela mínima). As larguras continuam fixas (decisão da F3,
               não reaberta); o que muda é a coluna existir ou não. A coluna
               central já é `flex-1 min-w-0`, então absorve o espaço sozinha.
 
@@ -69,7 +81,7 @@ function ShellBody(): React.JSX.Element {
         </>
       ) : (
         <>
-          <div className="flex-none w-60 bg-secondary border-r border-border">
+          <div className="flex-none w-[272px] bg-secondary border-r border-border">
             <DmSidebar />
           </div>
 
