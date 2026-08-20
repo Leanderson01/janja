@@ -61,7 +61,11 @@ function renderRow(
     Promise.resolve(null)
 ): HTMLElement {
   render(<MemberRow member={membro} voiceState={semVoz} sendFriendRequest={sendFriendRequest} />)
-  return screen.getByRole('button', { name: /ana/ })
+  // `/Ana/` e não `/ana/`: desde a correção de identidade (2026-08-19) a linha
+  // mostra o `displayName` — o nome humano — e não o `username`, que é o
+  // identificador que se digita para adicionar alguém e vive no `title` e no
+  // item "Copiar identificador".
+  return screen.getByRole('button', { name: /Ana/ })
 }
 
 describe('MemberRow — teclado e menu do membro', () => {

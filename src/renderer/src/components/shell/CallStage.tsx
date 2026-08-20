@@ -94,7 +94,9 @@ function ParticipantTile({
             silenced && 'opacity-60'
           )}
         >
-          <AvatarFallback className="text-lg">{initialsFor(participant.username)}</AvatarFallback>
+          <AvatarFallback className="text-lg">
+            {initialsFor(participant.displayName)}
+          </AvatarFallback>
         </Avatar>
         {participant.muted ? (
           <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
@@ -115,7 +117,7 @@ function ParticipantTile({
         ) : null}
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-sm text-foreground">{participant.username}</span>
+        <span className="text-sm text-foreground">{participant.displayName}</span>
         {/* Mesmo argumento do ícone acima, para o caso menos óbvio: um volume
             baixado e esquecido é indistinguível de "essa pessoa fala baixo".
             `showSilenced` fica em `false` porque aqui o silenciado já tem badge

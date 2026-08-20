@@ -597,9 +597,9 @@ function VoiceChannelRow({
                 {/* VOICE-08: `--success` é significado (alguém está falando), não
                     destaque — não conta contra a regra do tom único. */}
                 <Avatar size="sm" className={cn(isSpeaking && 'ring-2 ring-success')}>
-                  <AvatarFallback>{initialsFor(participant.username)}</AvatarFallback>
+                  <AvatarFallback>{initialsFor(participant.displayName)}</AvatarFallback>
                 </Avatar>
-                <span className="min-w-0 flex-1 truncate">{participant.username}</span>
+                <span className="min-w-0 flex-1 truncate">{participant.displayName}</span>
                 {/* SHARE-05 (Plano 08-06): `sharing` já vem na mesma linha de
                     `voiceStates` que esta query devolve desde 07-04 — nenhuma
                     query nova. E, ao contrário do anel de fala acima, ele NÃO

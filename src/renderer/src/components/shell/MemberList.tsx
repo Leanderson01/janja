@@ -91,7 +91,7 @@ function MemberAvatar({
   return (
     <div className="relative shrink-0">
       <Avatar className={cn(showSpeakingRing && 'ring-2 ring-success')}>
-        <AvatarFallback>{initialsFor(member.username)}</AvatarFallback>
+        <AvatarFallback>{initialsFor(member.displayName)}</AvatarFallback>
       </Avatar>
       <AvatarBadge
         className={cn(member.online ? 'bg-success' : 'bg-muted-foreground')}
@@ -183,7 +183,11 @@ export function MemberRow({
           }}
         >
           <MemberAvatar member={member} voiceState={voiceState} />
-          <MemberName username={member.username} tag={member.tag} />
+          <MemberName
+            displayName={member.displayName}
+            username={member.username}
+            tag={member.tag}
+          />
         </button>
       </DropdownMenuTrigger>
       {/* SÓ ações que já existem no backend hoje. Fora, por decisão explícita:

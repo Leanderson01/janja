@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, LogOut } from 'lucide-react'
+import { Copy, LogOut, UserPen } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -11,6 +11,9 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/hooks/useAuth'
+import { useQuery } from 'convex/react'
+import { EditProfileDialog } from '@/components/shell/EditProfileDialog'
+import { api } from '../../../../../convex/_generated/api'
 
 function initials(name: string): string {
   return name
@@ -54,10 +57,18 @@ export function UserPanel(): React.JSX.Element | null {
   // Menu controlado (não é o padrão `defaultOpen` do Radix) porque o botão
   // direito precisa abrir o MESMO menu: um menu só, alcançável por teclado.
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+
+  // O nome que aparece aqui é o do JANJA (tabela `users`), não o do WorkOS: é
+  // ele que os outros veem na lista de membros e no palco, e é ele que o
+  // usuário pode renomear. O perfil do WorkOS continua sendo a origem do avatar
+  // e do e-mail, que não são editáveis aqui.
+  const me = useQuery(api.users.me, {})
 
   if (!user) return null
 
-  const displayName = user.firstName ?? user.email
+  const displayName = me?.displayName ?? user.firstName ?? user.email
+  const identifier = me ? `${me.username}#${me.tag}` : user.email
   const email = user.email
 
   async function handleCopyEmail(): Promise<void> {
@@ -95,8 +106,8 @@ export function UserPanel(): React.JSX.Element | null {
 
             <div className="min-w-0 flex-1 leading-tight">
               <div className="truncate text-sm font-medium">{displayName}</div>
-              <div className="text-muted-foreground truncate text-xs" title={email}>
-                {email}
+              <div className="text-muted-foreground truncate text-xs" title={identifier}>
+                {identifier}
               </div>
             </div>
           </button>
@@ -107,6 +118,10 @@ export function UserPanel(): React.JSX.Element | null {
             direção evita o menu "pular" no primeiro frame. Confirmação visual
             só em Windows (Plano 08.5-17) — jsdom não calcula posição. */}
         <DropdownMenuContent side="top" align="start" className="w-56">
+          <DropdownMenuItem onSelect={() => setEditing(true)}>
+            <UserPen />
+            Editar perfil
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void handleCopyEmail()}>
             <Copy />
             Copiar e-mail
@@ -118,6 +133,8 @@ export function UserPanel(): React.JSX.Element | null {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <EditProfileDialog open={editing} onOpenChange={setEditing} />
     </div>
   )
 }

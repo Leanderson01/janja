@@ -61,6 +61,10 @@ export function ConnectionQualityIcon({
 
 export type VoiceParticipantView = {
   userId: Id<'users'>
+  /** Nome humano, editável pelo dono (correção de identidade de 2026-08-19). É
+   * o que aparece na tela; `username` continua sendo o identificador que se
+   * digita para adicionar alguém. */
+  displayName: string
   username: string
   muted: boolean
   sharing: boolean
@@ -88,6 +92,7 @@ export function useVoiceParticipants(
 
   return participants.map((participant) => ({
     userId: participant.userId,
+    displayName: participant.displayName,
     username: participant.username,
     muted: participant.muted,
     sharing: participant.sharing,
@@ -170,7 +175,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
                 )}
               >
                 <AvatarFallback className="text-xs">
-                  {initialsFor(participant.username)}
+                  {initialsFor(participant.displayName)}
                 </AvatarFallback>
               </Avatar>
               {participant.muted ? (
@@ -194,7 +199,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
               ) : null}
             </div>
             <span className="max-w-28 truncate text-xs text-foreground">
-              {participant.username}
+              {participant.displayName}
             </span>
             {/* `showSilenced` aqui é `true`, ao contrário da grade: nos avatares
                 de 36px da faixa o canto superior esquerdo já é do badge de
