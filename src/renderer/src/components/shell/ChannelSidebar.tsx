@@ -19,8 +19,6 @@ import { toast } from 'sonner'
 
 import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
-import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
-import { UserPanel } from '@/features/auth/UserPanel'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -46,8 +44,13 @@ function initialsFor(username: string): string {
 }
 
 // Sidebar de canais (Plano 03-02) — a partir do plano 04-06 lê canais reais
-// via `api.channels.listChannels` em vez de `mock-data.ts`. `VoiceControlBar`
-// (mesmo plano da Fase 3) segue como rodapé fixo, fora da área rolável.
+// via `api.channels.listChannels` em vez de `mock-data.ts`.
+//
+// O rodapé de voz e o painel do usuário NÃO moram mais aqui (correção
+// pós-Windows): subiram para o `AppShell`. O painel do usuário precisava
+// atravessar o rail de servidores, o que é impossível de dentro desta coluna;
+// e o rodapé de voz precisava continuar visível na visão Início, onde esta
+// sidebar nem é montada. Esta lista virou só a lista.
 //
 // Agrupamento fixo em duas seções (TEXTO/VOZ) — o modelo real de canal desta
 // fase não tem `category` (era um campo só do mock). Badge de não lidas por
@@ -141,8 +144,6 @@ export function ChannelSidebar(): React.JSX.Element {
         <div className="flex-1 min-h-0 flex items-center justify-center px-4 text-center text-sm text-muted-foreground">
           Crie ou entre em um servidor para começar
         </div>
-        <VoiceControlBar />
-        <UserPanel />
       </div>
     )
   }
@@ -206,9 +207,6 @@ export function ChannelSidebar(): React.JSX.Element {
           )}
         </div>
       </ScrollArea>
-
-      <VoiceControlBar />
-      <UserPanel />
 
       <InviteDialog serverId={selectedServerId} open={inviteOpen} onOpenChange={setInviteOpen} />
       <CreateChannelDialog

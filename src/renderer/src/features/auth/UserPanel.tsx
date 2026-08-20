@@ -32,9 +32,14 @@ function initials(name: string): string {
  *
  * Plano 08.5-09: a linha inteira virou o gatilho de um `DropdownMenu` e o botão
  * solto de sair saiu do rodapé para dentro do menu. Duas razões, nesta ordem:
- * a coluna é fixa em 240px e o botão consumia largura de um nome e um e-mail
+ * a coluna era fixa em 240px e o botão consumia largura de um nome e um e-mail
  * que já precisam de `truncate`; e o brief da fase pede um padrão único de menu
- * (servidor, canal, membro, usuário). **AUTH-05 continua alcançável** — só
+ * (servidor, canal, membro, usuário).
+ *
+ * Correção pós-Windows: este painel deixou de ser o rodapé da coluna de canais
+ * e passou a ser a célula esquerda de uma faixa que atravessa o rail de
+ * servidores (344px em vez de 240px), montada pelo `AppShell`. O componente não
+ * sabe mais desenhar a própria moldura — só a identidade. **AUTH-05 continua alcançável** — só
  * mudou de lugar, e agora também por teclado (Tab até a linha, Enter abre,
  * setas navegam) e por botão direito, mesmo padrão do menu de membro
  * (`MemberList.tsx`, Plano 08.5-04).
@@ -65,7 +70,11 @@ export function UserPanel(): React.JSX.Element | null {
   }
 
   return (
-    <div className="border-t p-2">
+    // Uma CÉLULA da faixa do usuário, não a faixa inteira: a borda superior, o
+    // padding e a vizinhança com os controles rápidos de voz são do container
+    // no `AppShell`, que atravessa o rail de servidores. `min-w-0 flex-1` é o
+    // que faz o nome truncar em vez de empurrar os botões para fora.
+    <div className="min-w-0 flex-1">
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <button
