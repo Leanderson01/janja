@@ -9,6 +9,7 @@ import { useConvexAuthAdapter } from './hooks/useConvexAuthAdapter'
 import { AuthGate } from './features/auth/AuthGate'
 import { AuthWatchdog } from './features/auth/AuthWatchdog'
 import { PresenceHeartbeat } from './features/auth/PresenceHeartbeat'
+import { HydraMark } from '@/components/brand/HydraMark'
 
 // Tela mínima e autocontida — não depende de nenhum componente que precise do
 // Convex já montado (não pode: é exibida exatamente quando o Convex não está
@@ -19,7 +20,8 @@ function ConvexNotConfiguredScreen(): React.JSX.Element {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
       <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-        <h1 className="text-xl font-semibold">janja</h1>
+        <HydraMark className="size-10" />
+        <h1 className="text-xl font-semibold tracking-tight">Hydra</h1>
         <p className="text-sm text-destructive">
           Configuração incompleta: VITE_CONVEX_URL não definida.
         </p>

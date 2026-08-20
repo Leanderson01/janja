@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
+import { HydraMark } from '@/components/brand/HydraMark'
 
 // Tela de login minimalista de propósito — a Fase 3 (components/shell/**) cuida do
 // visual definitivo depois. Aqui só precisa ser funcional/usável para o checkpoint
@@ -25,7 +26,8 @@ export function LoginScreen(): React.JSX.Element {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
       <div className="flex flex-col items-center gap-4">
-        <h1 className="text-xl font-semibold">janja</h1>
+        <HydraMark className="size-12" />
+        <h1 className="text-xl font-semibold tracking-tight">Hydra</h1>
         <Button onClick={handleClick} disabled={pending}>
           {pending ? 'Abrindo o navegador…' : 'Entrar com Google'}
         </Button>

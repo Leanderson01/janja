@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Hydra</title>
+  <!-- Marca do Hydra: estrela branca de cinco pontas sobre preto.
+       Gerada por script (brand/make-icons.py) a partir da razão áurea entre o raio
+       externo e o interno (0.382), que é a proporção da estrela clássica. Vetor é a
+       fonte da verdade: os PNG e o ICO saem daqui, nunca o contrário. -->
+  <rect width="1024" height="1024" fill="#000000"/>
+  <path d="M 512.00 81.92 L 608.57 379.09 L 921.03 379.10 L 668.25 562.77 L 764.79 859.94 L 512.00 676.29 L 259.21 859.94 L 355.75 562.77 L 102.97 379.10 L 415.43 379.09 Z" fill="#ffffff"/>
+</svg>
