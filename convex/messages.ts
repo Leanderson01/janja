@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import { requireChannelMembership } from './lib/membership'
-import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from './lib/attachment-limits'
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from './lib/attachmentLimits'
 
 // CHAT-01/CHAT-02/CHAT-03 no nível de dados: mensagens de canal (tabela `messages`,
 // separada de `dmMessages` da Fase 6 por design — ver 05-RESEARCH.md §1).
@@ -24,7 +24,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_MESSAGE } from './lib/attachm
  * 25 MB consomem essa cota rápido. Não há cota por usuário nem expurgo
  * automático nesta fase — isso seria feature nova, não anexo.
  */
-// Os dois limites vivem em `lib/attachment-limits.ts`, um módulo folha sem
+// Os dois limites vivem em `lib/attachmentLimits.ts`, um módulo folha sem
 // nenhum import, e são REEXPORTADOS daqui para quem já os consumia. O renderer
 // importa de lá, nunca deste arquivo: importar daqui arrasta `convex/server`
 // para o bundle do app, que quebra no `process` inexistente do Electron — foi

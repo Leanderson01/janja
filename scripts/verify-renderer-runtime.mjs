@@ -20,7 +20,7 @@
 //
 // A regra que este script defende: nada em `src/renderer/` pode importar de
 // `convex/` além de `_generated/api` (tipos e referências de função, que o cliente
-// precisa) e dos módulos folha sem import nenhum, como `lib/attachment-limits.ts`.
+// precisa) e dos módulos folha sem import nenhum, como `lib/attachmentLimits.ts`.
 //
 // Marcadores escolhidos por serem exports que SÓ existem no runtime de servidor —
 // se algum aparece no bundle do cliente, o `convex/server` entrou junto.
@@ -71,7 +71,7 @@ if (hits.length > 0) {
   console.error('  Causa quase certa: algum arquivo de src/renderer/ importa de convex/')
   console.error('  um módulo que, direta ou indiretamente, importa convex/server.')
   console.error('  Saída: mover o valor compartilhado para um módulo folha, sem imports')
-  console.error('  (o precedente é convex/lib/attachment-limits.ts).')
+  console.error('  (o precedente é convex/lib/attachmentLimits.ts).')
   process.exit(1)
 }
 

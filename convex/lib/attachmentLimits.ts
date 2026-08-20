@@ -1,5 +1,11 @@
 // Limites de anexo (CHAT-10), num módulo SEM NENHUM IMPORT — de propósito.
 //
+// O nome do arquivo é camelCase por OBRIGAÇÃO, não por estilo: o Convex recusa o
+// push de módulo cujo caminho tenha hífen ("Path component attachment-limits.js
+// can only contain alphanumeric characters, underscores, or periods"). Nasceu
+// como `attachment-limits.ts` e derrubou o deploy — por isso todo arquivo em
+// `convex/` segue o padrão dos vizinhos (`inviteCode.ts`, `authCompletionPage.ts`).
+//
 // Este arquivo existe por causa de um defeito real, encontrado em uso: o
 // renderer importava estas constantes de `convex/messages.ts`, que importa
 // `convex/server` e `./_generated/server`. O bundler segue o import e arrasta o
