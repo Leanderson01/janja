@@ -27,11 +27,20 @@ build verde ou teste unitário. Só observação em Windows nativo conta.
 Nada aqui precisa de outras pessoas, e tudo aqui **destrava** as sessões
 seguintes. Fazer antes de convocar alguém.
 
-### 0.1 — Push do Convex (bloqueador novo, Fase 8)
+### 0.1 — Push do Convex (agora OBRIGATÓRIO, não mais só um risco)
 
-O `convex/http.ts` passou a importar `@livekit/protocol` e esse import nunca
-passou pelo bundler do Convex. Do WSL2 é impossível empurrar: o token daquela
-máquina é de outra conta e não tem acesso ao time `leandersonnunes-alu-lmb`.
+Duas coisas dependem disto, e a segunda é nova: o `convex/http.ts` passou a
+importar `@livekit/protocol` (Fase 8), e a **Fase 8.5 mudou o schema** — campo
+`attachments` em `messages` e a tabela `linkPreviews`. Sem o push, anexos e
+prévias de link não existem no deployment e toda mensagem com link vira erro de
+query, não cartão vazio.
+
+Do WSL2 é impossível empurrar: o token daquela máquina é de outra conta e não
+tem acesso ao time `leandersonnunes-alu-lmb`.
+
+Se o push falhar, **capture a mensagem inteira** — é a única informação que não
+existe em nenhum outro lugar. Confira também que `convex/_generated/` foi
+regerado e que a entrada `linkPreviews` (escrita à mão) ficou idêntica.
 
 ```bash
 npx convex dev --once
@@ -250,6 +259,118 @@ para o Discord.
 
 ---
 
+
+---
+
+# Parte 2 — Fase 8.5 (interface)
+
+A Fase 8.5 reescreveu a interface inteira. A maior parte é verificável **sozinho**,
+o que a torna o bloco mais barato da lista — e o primeiro item é o mais barato de
+todos, porque decide se vale olhar o resto.
+
+## Sessão A — Interface, sozinho (~30 min)
+
+### A.0 — A pergunta que abre tudo
+
+1. O fundo do app está **quase preto**? Se estiver branco, pare: a classe de tema
+   não pegou e nenhuma outra verificação visual vale. Foi exatamente esse o
+   defeito que a fase corrigiu — o app rodou meses no tema claro com uma
+   interface desenhada para o escuro.
+
+### A.1 — Palco da call (o esqueleto novo)
+
+2. Entrar num canal de voz: a área principal vira o palco, sem área de texto.
+3. Clicar num canal de **texto**: o texto aparece **e a call continua** — o rodapé
+   segue mostrando "Conectado a {canal}".
+4. Clicar de novo no canal de voz onde você está: **volta ao palco e NÃO
+   desconecta**. É a correção do que você relatou.
+5. Clicar em "Conectado a {canal}" no rodapé: também volta ao palco.
+6. Desconectar continua sendo o botão de telefone, e só ele.
+7. Selecionar um canal de voz onde você não está: continua mostrando quem está lá.
+
+### A.2 — Destaque, cores e foco
+
+8. Servidor ativo no rail e canal selecionado na sidebar marcados na **mesma cor**
+   (azul-violeta).
+9. Pontinho verde de online; divisor "NOVAS MENSAGENS" no tom de destaque, não
+   vermelho; anel verde ao falar; "Reconectando..." em amarelo.
+10. **Só com Tab**, do rail até a lista de membros: o foco atravessa sem sumir e
+    sem ficar preso.
+11. O anel de foco é **visível** em todos eles — inclusive dentro das listas
+    roláveis, que é onde ele costuma ser cortado.
+12. Com foco num canal, Tab alcança o "..." e Enter abre o menu; setas navegam;
+    Esc fecha e o foco **volta** para o botão. Mesma coisa na linha de membro, no
+    painel do usuário e no menu de participante do palco.
+
+### A.3 — Janela estreita
+
+13. Encolher até o mínimo (900×600), na visão de texto **e** no palco: nada se
+    sobrepõe, nada é cortado.
+14. Nome de canal longo trunca com reticências em vez de empurrar os botões.
+15. Botão de esconder a lista de membros, no cabeçalho e na barra do palco: a
+    coluna some, a área principal ocupa o espaço, e a escolha sobrevive a fechar e
+    reabrir o app.
+16. Recolher a seção VOZ na sidebar, fechar e reabrir: continua recolhida.
+
+### A.4 — Composer, anexos e prévias
+
+17. Enter envia; Shift+Enter quebra linha.
+18. Desligar o Wi-Fi e tentar enviar: aparece **toast de erro**, a mensagem não
+    some em silêncio. Religar.
+19. *(Opcional, 2 min)* Ativar o IME japonês do Windows, digitar uma palavra e
+    apertar Enter para **confirmar a composição**: a mensagem não pode ser enviada
+    nesse Enter. O segundo Enter envia.
+20. Clipe → escolher imagem → ela aparece na lista antes de enviar → enviar → a
+    imagem aparece embutida na conversa.
+21. Tentar anexar arquivo **acima de 25 MB**: recusa antes de subir, dizendo o
+    limite.
+22. Anexar um PDF ou ZIP: vira cartão com nome e tamanho, e clicar abre no
+    navegador.
+23. Enviar anexo com o Wi-Fi caindo no meio: dá erro **e os arquivos escolhidos
+    continuam lá** para tentar de novo.
+24. Postar link de site conhecido: em um instante aparece cartão com título,
+    descrição e imagem.
+25. **O cartão aparecendo não pode fazer o histórico pular** enquanto você lê
+    mensagens antigas. É o risco real da funcionalidade.
+26. Postar link quebrado: nenhum cartão, nenhum erro na tela, app não trava.
+27. Postar o mesmo link de novo: o cartão aparece na hora (veio do cache).
+28. *(Privacidade)* DevTools → Network: **nenhuma requisição para o domínio
+    linkado**, só para o Convex. É o servidor quem busca, de propósito.
+
+**Reportar:** "sessão A ok" ou o número do item que falhou.
+
+## Sessão B — Interface com mais gente (junto com as Sessões 1 e 2)
+
+Estes precisam de outra pessoa e cabem nas sessões de voz e tela que você já vai
+fazer.
+
+29. **Compartilhamento no palco:** o vídeo toma a área grande e os participantes
+    viram faixa embaixo. Expandir ocupa o palco inteiro; **Esc** volta.
+30. "Ocultar tela" volta aos ladrilhos **sem parar o compartilhamento** do outro.
+    Reexpandir traz o vídeo de volta **sem frame congelado**.
+31. **O mais importante:** a outra pessoa para de compartilhar — e, numa segunda
+    rodada, **fecha o app à força** — em cada um dos três layouts. O vídeo tem que
+    sumir nos três, sem congelar.
+32. Ir para um canal de texto durante o compartilhamento e voltar ao palco: o
+    vídeo reaparece funcionando.
+33. **Volume por participante:** ajustar o volume de alguém muda só a voz dele.
+34. "Silenciar para mim": você para de ouvir só aquela pessoa; ela continua sendo
+    ouvida pelos outros (confirmar com a terceira máquina).
+35. Ensurdecer zera tudo; desativar **devolve os volumes individuais como
+    estavam** — não podem ter voltado para 100%.
+36. Quem entra na call depois já entra com o ajuste que você tinha feito.
+37. Fechar e reabrir o app: os ajustes continuam.
+38. Anexo enviado por uma conta aparece para a outra.
+39. **Regressão:** enviar e receber mensagem, entrar e sair de voz, mutar,
+    ensurdecer, compartilhar, abrir amigos e DM — nada quebrou. E sair da conta
+    pelo menu do usuário funciona (mudou de lugar nesta fase).
+
+**Capture 6 a 8 screenshots** — visão de texto, palco com ladrilhos, palco com
+tela compartilhada, vídeo expandido, janela em 900×600, um menu aberto, um anexo,
+um cartão de prévia. É a única evidência visual que vai existir no repositório.
+
+---
+
 ## Depois da sessão
 
 Cada bloco aprovado destrava uma escrita no repositório — não deixar isso para
@@ -261,6 +382,7 @@ depois, é o que impede um checkpoint de ser refeito por esquecimento:
 | 1.2 + 1.3 | `phases/07-voz/07-08-SUMMARY.md`, fechar a Fase 7 |
 | 2.1 + 2.2 | `phases/08-.../08-03-SUMMARY.md` com o resultado literal de A-D |
 | 2.3 | `phases/08-.../08-07-SUMMARY.md`, fechar a Fase 8 |
+| Sessão A + B | `phases/08.5-.../08.5-17-SUMMARY.md`, fechar a Fase 8.5 |
 | 3.1 + 3.2 | `phases/09-.../09-03-SUMMARY.md`, fechar a Fase 9 |
 
 Depois disso, a decisão que ficou em aberto: se a rede aguentar bem nos testes,
