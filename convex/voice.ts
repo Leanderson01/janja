@@ -39,7 +39,7 @@ export const validateVoiceJoin = internalQuery({
     if (!membership) throw new Error('Não é membro deste servidor')
 
     return { userId: user._id }
-  },
+  }
 })
 
 /**
@@ -78,10 +78,10 @@ export const upsertVoiceState = internalMutation({
       userId,
       muted: false,
       deafened: false,
-      sharing: false,
+      sharing: false
     })
     return null
-  },
+  }
 })
 
 /**
@@ -102,7 +102,7 @@ export const leaveVoiceChannel = mutation({
 
     await ctx.db.delete(existing._id)
     return null
-  },
+  }
 })
 
 /** Encontra a própria linha de voiceStates ou lança — usado por setMuted/setDeafened,
@@ -136,7 +136,7 @@ export const setMuted = mutation({
 
     await ctx.db.patch(state._id, { muted })
     return null
-  },
+  }
 })
 
 /** `setDeafened(false)` isolado só remove a surdina — não mexe em `muted` (o microfone
@@ -153,7 +153,7 @@ export const setDeafened = mutation({
 
     await ctx.db.patch(state._id, { deafened: false })
     return null
-  },
+  }
 })
 
 /**
@@ -174,7 +174,7 @@ export const setSharing = mutation({
     const state = await requireOwnVoiceState(ctx)
     await ctx.db.patch(state._id, { sharing })
     return null
-  },
+  }
 })
 
 // VOICE-04 (Pitfall 3, PITFALLS.md): antídoto do usuário-fantasma. As duas mutations
@@ -201,7 +201,7 @@ export const reconcileParticipantLeft = internalMutation({
 
     await ctx.db.delete(existing._id)
     return null
-  },
+  }
 })
 
 /**
@@ -221,7 +221,7 @@ export const reconcileRoomFinished = internalMutation({
 
     await Promise.all(rows.map((row) => ctx.db.delete(row._id)))
     return null
-  },
+  }
 })
 
 /**
@@ -250,7 +250,7 @@ export const reconcileScreenShareStopped = internalMutation({
 
     await ctx.db.patch(existing._id, { sharing: false })
     return null
-  },
+  }
 })
 
 // VOICE-05/06/08/15 (Plano 07-04): leitura de "quem está presente" e
@@ -262,8 +262,16 @@ export const reconcileScreenShareStopped = internalMutation({
 // nunca uma cópia paralela dela.
 
 /** Enriquece linhas cruas de `voiceStates` com identidade legível
- * (`username`/`tag`/`avatarUrl`) — nunca `workosId`, que nenhum outro
- * participante deveria aprender. Linhas cujo `userId` não resolve mais para
+ * (`displayName`/`username`/`tag`/`avatarUrl`) — nunca `workosId`, que nenhum
+ * outro participante deveria aprender.
+ *
+ * `displayName` entrou junto com a correção de identidade (2026-08-19): é o
+ * nome humano com acento e maiúscula ("João Silva"), enquanto `username` é o
+ * handle canônico que compõe o identificador `joao.silva#0001`. A UI de voz
+ * ainda mostra `username` — a troca para `displayName` no ladrilho e no
+ * cabeçalho ficou de fora porque `CallStage.tsx`/`VoiceControlBar.tsx`
+ * estavam sendo reorganizados em paralelo. O campo já vem pronto no payload
+ * para essa costura ser de uma linha. Linhas cujo `userId` não resolve mais para
  * um documento `users` (não deveria acontecer, mas não é motivo pra
  * quebrar a UI) são descartadas silenciosamente. */
 async function enrichVoiceStates(ctx: QueryCtx, rows: Doc<'voiceStates'>[]) {
@@ -279,7 +287,8 @@ async function enrichVoiceStates(ctx: QueryCtx, rows: Doc<'voiceStates'>[]) {
         sharing: row.sharing,
         username: user.username,
         tag: user.tag,
-        avatarUrl: user.avatarUrl,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl
       }
     })
   )
@@ -303,7 +312,7 @@ export const voiceParticipantsByChannel = query({
       .collect()
 
     return enrichVoiceStates(ctx, rows)
-  },
+  }
 })
 
 /**
@@ -334,5 +343,5 @@ export const voiceParticipantsByServer = query({
     )
 
     return enrichVoiceStates(ctx, rowsByChannel.flat())
-  },
+  }
 })
