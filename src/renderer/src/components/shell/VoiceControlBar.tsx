@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Headphones, Mic, MicOff, MonitorUp, PhoneOff, VolumeX } from 'lucide-react'
+import { Headphones, Mic, MicOff, MonitorUp, PhoneOff, Signal, VolumeX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -13,59 +13,41 @@ import { VoiceSettingsPopover } from './VoiceSettingsPopover'
 
 import { api } from '../../../../../convex/_generated/api'
 
-// Rodapé fixo de controles de voz (Plano 03-02). A partir da Fase 7 (Plano
-// 07-03), `muted`/`deafened` deixam de ser cosméticos: cada toggle chama a
-// mutation real do Plano 07-01 (`setMuted`/`setDeafened`, que já aplicam a
-// semântica de "desmutar remove surdina"/"ensurdecer implica mutar" no
-// servidor) e comanda a track/reprodução real do `Room` via `useVoice()`.
+// Rodapé de voz do shell (Plano 03-02, redesenhado na correção pós-Windows).
 //
-// `muted`/`deafened` locais continuam sendo `useState` — não porque são
-// mock, mas porque não existe ainda (Plano 07-04) uma query pública de
-// "minha linha de voiceStates" para ler a fonte da verdade do servidor sem
-// tocar em `convex/` (fora do escopo de arquivos deste plano, que pertence
-// ao Plano 07-02 nesta wave). Por isso, ao completar um NOVO join (transição
-// de `joinedVoiceChannelId` null -> canal, ou canal -> outro canal), o
-// estado local reseta para "destravado" — mesma linha de base que
-// `upsertVoiceState` usa para uma linha nova. Isso não cobre o caso raro de
-// reconectar a uma linha de `voiceStates` pré-existente ainda não limpa pelo
-// webhook (ver 07-03-SUMMARY.md); o Plano 07-04 fecha essa lacuna quando
-// adicionar a query de participantes.
+// Era UMA linha de 56px com cinco botões de ícone e o texto de status
+// espremido no que sobrasse. A conta, medida no 08.5-09-SUMMARY: 5 botões
+// `size-8` + gaps + padding = ~216px dos 240px da coluna, ~24px para o texto.
+// O Leo abriu o app em Windows e a primeira frase foi "está tudo muito
+// apertado". Largura maior sozinha não resolve — 272px ainda deixariam ~56px
+// para o texto. O que resolve é o que o Discord faz: EMPILHAR em faixas.
 //
-// Plano 07-05 acrescenta o botão de engrenagem (`VoiceSettingsPopover`) e
-// `setManualMute(next)` em todo caminho que muta manualmente: sem isso, um
-// monitor de VAD em andamento reabriria o microfone assim que a pessoa
-// voltasse a falar, ignorando o mute manual.
-export function VoiceControlBar(): React.JSX.Element {
-  const { joinedVoiceChannelId, setJoinedVoiceChannelId, showStage } = useSelection()
-  const {
-    room,
-    connectionState,
-    setManualMute,
-    // Plano 08.5-11: ENSURDECER passou a ser lido e escrito pelo contexto.
-    // Não havia mais como manter a cópia local: volume individual (VOICE-18) e
-    // ensurdecimento escrevem na MESMA propriedade das tracks remotas, então a
-    // aplicação foi centralizada em `voice-context.tsx` — e um efeito que mora
-    // lá precisa do estado morando lá também, senão ele não reexecuta quando o
-    // botão daqui é clicado. O botão, o `aria-pressed`, a mutation
-    // `setDeafened` do Convex e a regra "ensurdecer implica mutar" continuam
-    // exatamente como estavam: este plano NÃO redesenha o ensurdecimento, só
-    // muda quem aplica o volume.
-    deafened,
-    setDeafened,
-    isSharing,
-    startScreenShare,
-    stopScreenShare
-  } = useVoice()
+//   Faixa 1 (aqui)  status da call: "Voz conectada" + "{canal} / {servidor}",
+//                   com desconectar à direita.
+//   Faixa 2 (aqui)  ações da call, botões largos de largura igual.
+//   Faixa 3 (`VoiceQuickControls`, montada pelo `AppShell` dentro da faixa do
+//                   usuário) microfone, fone e configurações.
+//
+// Faixa 3 mora em outro lugar da árvore porque a faixa do usuário atravessa o
+// rail de servidores (344px), e microfone/fone/engrenagem são controles do
+// APARELHO, não da chamada: continuam alcançáveis sem nenhuma call ativa —
+// inclusive o testador de microfone (VOICE-21).
+//
+// Sem botão morto: a faixa 2 do Discord tem vídeo, tela, atividades e
+// soundboard; aqui só compartilhar tela existe de verdade, então só ele
+// aparece, ocupando a largura toda. Se um dia outra ação existir, `flex-1` já
+// divide o espaço em partes iguais.
+export function VoiceControlBar(): React.JSX.Element | null {
+  const { servers, joinedVoiceChannelId, setJoinedVoiceChannelId, showStage } = useSelection()
+  const { connectionState, isSharing, startScreenShare, stopScreenShare } = useVoice()
 
   // Plano 07-07 (VOICE-17): observa `voiceStates` do canal conectado e toca
-  // som de entrada/saída — vive aqui porque este já é o "centro de
-  // controles de voz" do shell, sem criar um novo ponto de montagem.
+  // som de entrada/saída. Continua aqui, e agora com alcance maior: desde a
+  // correção pós-Windows este componente é montado pelo `AppShell` nas duas
+  // visões, então o som não depende mais de a sidebar de canais estar na tela.
+  // Chamado ANTES de qualquer retorno — a regra dos hooks vale mesmo para o
+  // caminho que não desenha nada.
   useVoiceJoinLeaveSounds()
-
-  const setMutedMutation = useMutation(api.voice.setMuted)
-  const setDeafenedMutation = useMutation(api.voice.setDeafened)
-
-  const [muted, setMutedState] = useState(false)
 
   // `getChannel` (não `listChannels`) é deliberado: o canal de voz conectado
   // pode pertencer a um servidor diferente do que está selecionado agora na
@@ -78,45 +60,175 @@ export function VoiceControlBar(): React.JSX.Element {
 
   const hasIntention = joinedVoiceChannelId !== null
   const isReady = hasIntention && connectionState === 'connected'
+  const isReconnecting =
+    connectionState === 'reconnecting' || connectionState === 'signalReconnecting'
+
+  // SHARE-01/02 (Plano 08-02): um único botão de alternância. Sem confirmação
+  // e sem seletor aqui — quem pergunta qual tela/janela compartilhar é o
+  // `ScreenSharePicker` (Plano 08-04), disparado pelo processo main.
+  //
+  // A qualidade ("Fluida"/"Nítida", SHARE-08) continua no popover de
+  // configurações de voz, agora na faixa do usuário. O motivo original era
+  // falta de largura; hoje é hierarquia: qualidade é preferência de máquina,
+  // não ação de chamada.
+  //
+  // `voiceStates.sharing` no Convex também não é escrito daqui: quem escreve é
+  // o listener de `LocalTrackPublished`/`LocalTrackUnpublished` em
+  // `voice-context.tsx`, porque a track publicada é o fato, e o clique é só a
+  // intenção.
+  //
+  // Não é `async`: `startScreenShare`/`stopScreenShare` nunca rejeitam (todo
+  // erro, cancelamento incluso, já vira log dentro delas), e `isSharing` vem do
+  // evento de publicação real do `Room`.
+  function toggleScreenShare(): void {
+    void (isSharing ? stopScreenShare() : startScreenShare())
+  }
+
+  function leaveVoiceChannel(): void {
+    setJoinedVoiceChannelId(null)
+  }
+
+  // Sem intenção de voz, o rodapé inteiro deixa de existir — nem faixa, nem
+  // borda, nem espaço reservado. Mesma decisão de ESPAÇO do Plano 08.5-09
+  // ("desconectado não renderiza texto nenhum"), levada até o fim agora que os
+  // controles que precisavam ficar sempre visíveis (microfone, fone,
+  // configurações) moram na faixa do usuário. O salto de layout que o 08.5-09
+  // evitava com um `div` vazio não existe mais: não há mais nada nesta faixa
+  // para saltar.
+  if (!hasIntention) return null
+
+  const channelName = connectedChannel?.name
+  const serverName = servers?.find((server) => server._id === connectedChannel?.serverId)?.name
+  // "{canal} / {servidor}" é a segunda linha do Discord. Cai para só o canal
+  // enquanto `getChannel` não resolveu ou quando o servidor não está na lista
+  // (nunca deveria acontecer — `getChannel` exige participação —, mas o
+  // fallback é mais barato que a suposição).
+  const contextLine = [channelName, serverName].filter(Boolean).join(' / ')
+
+  const statusLabel = isReconnecting
+    ? 'Reconectando...'
+    : isReady
+      ? 'Voz conectada'
+      : 'Conectando...'
+  // `--success` / `--warning` são significado (qualidade de conexão), não
+  // destaque — não contam contra a regra do tom único do Plano 08.5-01.
+  const statusTone = isReconnecting ? 'text-warning' : isReady ? 'text-success' : 'text-foreground'
+
+  const statusLines = (
+    <>
+      <span className={cn('flex w-full items-center gap-1.5 text-sm font-medium', statusTone)}>
+        <Signal className="size-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{statusLabel}</span>
+      </span>
+      <span className="w-full truncate text-xs text-muted-foreground">{contextLine}</span>
+    </>
+  )
+
+  return (
+    <div className="flex-none border-t border-border px-2 py-2">
+      {/* FAIXA 1 — status da call */}
+      <div className="flex items-center gap-1">
+        {isReady ? (
+          // Plano 08.5-03: o status conectado é o SEGUNDO caminho de volta ao
+          // palco (o primeiro é clicar no canal de voz na sidebar). O contrato
+          // é o gesto, não a frase: continua sendo o bloco de status inteiro
+          // que leva ao palco, agora com o nome do canal na segunda linha em
+          // vez de dentro do rótulo.
+          <button
+            type="button"
+            onClick={showStage}
+            aria-label="Voltar para a call"
+            title="Voltar para a call"
+            className="flex min-w-0 flex-1 flex-col items-start rounded-md px-1 py-0.5 text-left hover:bg-accent/50"
+          >
+            {statusLines}
+          </button>
+        ) : (
+          // Conectando/reconectando não leva a palco nenhum: não há sala para
+          // mostrar ainda, e um botão que não faz nada é pior que texto.
+          <div className="flex min-w-0 flex-1 flex-col items-start px-1 py-0.5">{statusLines}</div>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={leaveVoiceChannel}
+              aria-label="Sair do canal de voz"
+            >
+              <PhoneOff className="text-destructive" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Desconectar</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* FAIXA 2 — ações da call. `variant="outline"` e não `ghost`: num tema
+          monocromático o `bg-accent` do ghost é o mesmo cinza do fundo desta
+          coluna e o botão sumiria em repouso. O outline traz borda + um véu
+          mais claro, que é o que faz a faixa parecer clicável. */}
+      <div className="mt-1.5 flex items-center gap-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="min-w-0 flex-1"
+          disabled={!isReady}
+          aria-pressed={isSharing}
+          onClick={toggleScreenShare}
+        >
+          <MonitorUp className={cn(isSharing && 'text-success')} />
+          <span className="truncate">
+            {isSharing ? 'Parar de compartilhar' : 'Compartilhar tela'}
+          </span>
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// FAIXA 3 — controles rápidos, montados pelo `AppShell` ao lado do painel do
+// usuário (ver a nota de disposição no topo deste arquivo).
+//
+// O estado de mute veio junto com os botões: `muted` é `useState` local — não
+// porque é mock, mas porque não existe ainda (Plano 07-04) uma query pública
+// de "minha linha de voiceStates" para ler a fonte da verdade do servidor. Por
+// isso, ao completar um NOVO join, o estado local reseta para "destravado" —
+// mesma linha de base que `upsertVoiceState` usa para uma linha nova.
+//
+// `deafened` NÃO é local: mora em `voice-context.tsx` desde o Plano 08.5-11,
+// porque volume individual (VOICE-18) e ensurdecimento escrevem na MESMA
+// propriedade das tracks remotas e um efeito só aplica os dois.
+export function VoiceQuickControls(): React.JSX.Element {
+  const { joinedVoiceChannelId } = useSelection()
+  const { room, connectionState, setManualMute, deafened, setDeafened } = useVoice()
+
+  const setMutedMutation = useMutation(api.voice.setMuted)
+  const setDeafenedMutation = useMutation(api.voice.setDeafened)
+
+  const [muted, setMutedState] = useState(false)
+
+  const hasIntention = joinedVoiceChannelId !== null
+  const isReady = hasIntention && connectionState === 'connected'
 
   // Reconciliação mínima ao (re)conectar: uma nova intenção de join sempre
-  // nasce destrava (nem mutada, nem ensurdecida) — não dispara em
-  // reconexões automáticas do próprio LiveKit (connectionState oscilando
-  // connected -> reconnecting -> connected sem `joinedVoiceChannelId`
-  // mudar), só quando o usuário de fato troca de canal de voz. Ajuste de
-  // estado durante o render (não dentro de um `useEffect`) — padrão
-  // recomendado pelo React para "resetar estado quando uma prop muda", sem
-  // o commit extra de um efeito rodando depois do primeiro paint.
+  // nasce destravada — não dispara em reconexões automáticas do próprio
+  // LiveKit (connectionState oscilando connected -> reconnecting -> connected
+  // sem `joinedVoiceChannelId` mudar), só quando o usuário de fato troca de
+  // canal de voz. Ajuste de estado durante o render (não dentro de um
+  // `useEffect`) — padrão recomendado pelo React para "resetar estado quando
+  // uma prop muda", sem o commit extra de um efeito rodando depois do primeiro
+  // paint. O reset do ENSURDECER não está aqui de propósito: acontece dentro
+  // de `voice-context.tsx`, no join bem-sucedido (Plano 08.5-11).
   const [syncedChannelId, setSyncedChannelId] = useState(joinedVoiceChannelId)
   if (joinedVoiceChannelId !== syncedChannelId) {
     setSyncedChannelId(joinedVoiceChannelId)
     if (joinedVoiceChannelId !== null) {
       setMutedState(false)
-      // O reset do ENSURDECER saiu daqui no Plano 08.5-11 e passou a acontecer
-      // dentro de `voice-context.tsx`, no join bem-sucedido — onde
-      // `deafenedRef` já era zerado pela mesma linha de base desde o Plano
-      // 07-11. Não é uma escolha de estilo: `deafened` agora é estado de OUTRO
-      // componente (o provider), e chamar o setter dele durante a renderização
-      // DESTE é exatamente o "Cannot update a component while rendering a
-      // different component" do React.
-      //
-      // O que muda na prática: o ícone só volta de "ensurdecido" quando o join
-      // conclui, em vez de na hora do clique no canal. Nesse intervalo o botão
-      // está `disabled={!isReady}` de qualquer forma — e o estado passa a ser
-      // CONSISTENTE com o que a reprodução de fato está fazendo, que antes não
-      // era: um join que falhava deixava este ícone destravado com o
-      // `deafenedRef` ainda em `true`.
     }
   }
-
-  // O efeito que ajustava o volume de reprodução (0 ou 1) de toda track remota
-  // (e o reaplicava em `TrackSubscribed`) SAIU daqui no Plano 08.5-11, inteiro,
-  // para `voice-context.tsx`. Volume individual por participante (VOICE-18) e
-  // ensurdecimento escrevem na mesma propriedade do SDK, e dois efeitos
-  // separados brigando por ela significam "o volume que eu ajustei voltou
-  // sozinho" toda vez que alguém entra na call. Agora existe UM ponto de
-  // aplicação no app inteiro, com a precedência (ensurdecer > silenciado >
-  // volume) decidida por uma função pura e testada.
 
   async function toggleMuted(): Promise<void> {
     const next = !muted
@@ -126,14 +238,12 @@ export function VoiceControlBar(): React.JSX.Element {
       console.error('[voice] setMuted falhou', err)
       return
     }
-    // Plano 07-05: sincroniza o mute manual com o VAD ANTES de tocar na
-    // track — sem isso, um monitor de VAD já em andamento poderia reabrir
-    // o microfone no instante seguinte se a pessoa estivesse falando.
+    // Plano 07-05: sincroniza o mute manual com o VAD ANTES de tocar na track —
+    // sem isso, um monitor de VAD já em andamento poderia reabrir o microfone
+    // no instante seguinte se a pessoa estivesse falando.
     setManualMute(next)
-    // VOICE-16: mesmo neste caminho de toggle (que na prática só
-    // muta/desmuta a track já publicada com as opções do join — ver
-    // `setTrackEnabled` do SDK, que reusa a track existente via
-    // `track.unmute()` em vez de recriar), as três opções são passadas de
+    // VOICE-16: mesmo neste caminho de toggle (que na prática só muta/desmuta a
+    // track já publicada com as opções do join), as três opções são passadas de
     // novo explicitamente. Nunca ficam implícitas em nenhum caminho que
     // habilita o microfone.
     await room.localParticipant.setMicrophoneEnabled(!next, {
@@ -142,17 +252,14 @@ export function VoiceControlBar(): React.JSX.Element {
       autoGainControl: true
     })
     setMutedState(next)
-    // Plano 07-11 (pedido do usuário após teste em Windows): tom de
-    // mute/desmute do PRÓPRIO microfone. Chamado SÓ aqui — o único lugar
-    // onde a mudança de mute é uma decisão manual real (clique no botão do
-    // rodapé). Nunca chamado do VAD nem do push-to-talk (`voice-context.tsx`),
-    // que ligam/desligam a track a cada fala/tecla, nem do lado "ensurdecer
-    // implica mutar" de `toggleDeafened` abaixo — ver justificativa em
-    // `playMuteStateChangeTone` (voice-sounds.ts).
+    // Plano 07-11: tom de mute/desmute do PRÓPRIO microfone. Chamado SÓ aqui —
+    // o único lugar onde a mudança de mute é uma decisão manual real. Nunca do
+    // VAD nem do push-to-talk (`voice-context.tsx`), nem do lado "ensurdecer
+    // implica mutar" de `toggleDeafened`.
     playMuteStateChangeTone(next)
-    // Desativar mute enquanto ensurdecido também desativa o ensurdecimento
-    // — a mutation já aplicou essa semântica no servidor (design §8); aqui
-    // só refletimos o resultado na UI e na reprodução local.
+    // Desativar mute enquanto ensurdecido também desativa o ensurdecimento — a
+    // mutation já aplicou essa semântica no servidor (design §8); aqui só
+    // refletimos o resultado na UI e na reprodução local.
     if (!next && deafened) {
       setDeafened(false)
     }
@@ -166,99 +273,23 @@ export function VoiceControlBar(): React.JSX.Element {
       console.error('[voice] setDeafened falhou', err)
       return
     }
-    // Plano 07-11: espelha em `voice-context.tsx` (`deafenedRef`), para que
-    // o tom de "eu saí" (disparado na transição de saída, ver
-    // `voice-context.tsx`) saiba se deve ficar em silêncio — mesma
-    // sincronização de `setManualMute`, mas para ensurdecer.
-    // Plano 08.5-11: esta mesma chamada agora é TAMBÉM o que atualiza o ícone
-    // (o estado mora no contexto) e o que faz o efeito de volume de lá
-    // reexecutar, zerando/restaurando a reprodução de todo mundo. Uma
-    // chamada, três consequências, um lugar só.
+    // Plano 08.5-11: esta chamada é o que atualiza o ícone (o estado mora no
+    // contexto), o que faz o efeito de volume de lá reexecutar zerando ou
+    // restaurando a reprodução de todo mundo, e o que informa ao tom de "eu
+    // saí" que ele deve ficar em silêncio (Plano 07-11). Uma chamada, três
+    // consequências, um lugar só.
     setDeafened(next)
     // Ativar deafen implica mute (design §8) — a mutation já aplicou isso no
     // servidor; aqui refletimos no microfone real e no ícone.
     if (next && !muted) {
-      // Mesma sincronização de VOICE-05 acima: sem isto, VAD ativo
-      // reabriria o microfone na próxima fala mesmo com o usuário
-      // ensurdecido (que implica mutado).
       setManualMute(true)
       await room.localParticipant.setMicrophoneEnabled(false)
       setMutedState(true)
     }
   }
 
-  // SHARE-01/02 (Plano 08-02): um único botão de alternância. Sem
-  // confirmação e sem seletor aqui — quem pergunta qual tela/janela
-  // compartilhar é o `ScreenSharePicker` (Plano 08-04), disparado pelo
-  // processo main.
-  //
-  // A qualidade ("Fluida"/"Nítida", SHARE-08) NÃO tem controle neste rodapé:
-  // mora no popover de configurações de voz, o botão de engrenagem logo ao
-  // lado (Plano 08-05). Motivo em `VoiceSettingsPopover.tsx` — a coluna é
-  // fixa em 240px e não sobra largura para dois botões de texto.
-  //
-  // `voiceStates.sharing` no Convex também não é escrito daqui: quem
-  // escreve é o listener de `LocalTrackPublished`/`LocalTrackUnpublished`
-  // em `voice-context.tsx`, porque a track publicada é o fato, e o clique é
-  // só a intenção.
-  //
-  // Não é `async`: `startScreenShare`/`stopScreenShare` nunca rejeitam (todo
-  // erro, cancelamento incluso, já vira log dentro delas), e `isSharing` vem
-  // do evento de publicação real do `Room`, não de um estado otimista daqui
-  // — não há nada para aguardar neste componente.
-  function toggleScreenShare(): void {
-    void (isSharing ? stopScreenShare() : startScreenShare())
-  }
-
-  function leaveVoiceChannel(): void {
-    setJoinedVoiceChannelId(null)
-  }
-
-  const isReconnecting =
-    connectionState === 'reconnecting' || connectionState === 'signalReconnecting'
-  const channelName = connectedChannel?.name
-
   return (
-    <div className="flex-none h-14 border-t border-border bg-secondary px-2 flex items-center gap-2">
-      {/* Plano 08.5-09: sem conexão nenhuma, o texto "Não conectado a nenhum
-          canal de voz" NÃO é renderizado. A decisão é de ESPAÇO, não de
-          estética: a coluna é fixa em 240px e o estado conectado já consome
-          ~216px só com os 5 botões e os espaçamentos (5×32 + 5×8 + px-2), de
-          modo que qualquer texto aqui é útil apenas quando há algo a dizer
-          sobre a conexão. Desconectado é evidente pela ausência do botão de
-          desconectar e pelos controles de voz desabilitados.
-          O `div` vazio com `flex-1` fica de propósito: sem ele os controles
-          saltariam da direita para a esquerda ao conectar/desconectar, porque
-          é o bloco de status que hoje os empurra. Ele encolhe a zero quando
-          falta largura (`flex-1` = `flex: 1 1 0%`), então não rouba nada. */}
-      {!hasIntention ? (
-        <div className="flex-1" aria-hidden="true" />
-      ) : (
-        <div className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
-          {isReconnecting ? (
-            <span className="text-warning font-medium">Reconectando...</span>
-          ) : connectionState === 'connected' ? (
-            // Plano 08.5-03: o status conectado é o SEGUNDO caminho de volta ao
-            // palco (o primeiro é clicar no canal de voz na sidebar) — mesmo lugar
-            // onde o Discord põe o painel da call. Custa um elemento: o texto que
-            // já existia vira botão, sem mudar o que está escrito.
-            <button
-              type="button"
-              onClick={showStage}
-              aria-label="Voltar para a call"
-              title="Voltar para a call"
-              className="max-w-full truncate text-left text-foreground font-medium hover:underline"
-            >
-              Conectado a {channelName}
-            </button>
-          ) : (
-            <span className="text-foreground font-medium">
-              Conectando a {channelName ?? '...'}...
-            </span>
-          )}
-        </div>
-      )}
-
+    <div className="flex flex-none items-center gap-0.5">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -291,47 +322,11 @@ export function VoiceControlBar(): React.JSX.Element {
         <TooltipContent>{deafened ? 'Desativar surdina' : 'Ensurdecer'}</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            disabled={!isReady}
-            aria-pressed={isSharing}
-            aria-label={isSharing ? 'Parar compartilhamento de tela' : 'Compartilhar tela'}
-            onClick={toggleScreenShare}
-          >
-            <MonitorUp className={cn(isSharing && 'text-success')} />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {isSharing ? 'Parar compartilhamento' : 'Compartilhar tela'}
-        </TooltipContent>
-      </Tooltip>
-
-      {/* Plano 07-09: sempre renderizado, não só com `hasIntention` — o testador de
-          microfone (VOICE-21) precisa ser alcançável sem nenhum canal conectado. As
-          seções que dependem de um `Room` real continuam gated por
-          `hasVoiceIntention` dentro do próprio popover. */}
+      {/* Plano 07-09: sempre renderizado, não só com `hasIntention` — o
+          testador de microfone (VOICE-21) precisa ser alcançável sem nenhum
+          canal conectado. As seções que dependem de um `Room` real continuam
+          gated por `hasVoiceIntention` dentro do próprio popover. */}
       <VoiceSettingsPopover disabled={hasIntention && !isReady} hasVoiceIntention={hasIntention} />
-
-      {hasIntention && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={leaveVoiceChannel}
-              aria-label="Sair do canal de voz"
-            >
-              <PhoneOff className="text-destructive" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Desconectar</TooltipContent>
-        </Tooltip>
-      )}
     </div>
   )
 }

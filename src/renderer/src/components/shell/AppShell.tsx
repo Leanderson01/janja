@@ -3,7 +3,7 @@ import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
 import { ScreenSharePicker } from '@/components/shell/ScreenSharePicker'
 import { ServerRail } from '@/components/shell/ServerRail'
-import { VoiceControlBar } from '@/components/shell/VoiceControlBar'
+import { VoiceControlBar, VoiceQuickControls } from '@/components/shell/VoiceControlBar'
 import { DmConversationView } from '@/components/friends/DmConversationView'
 import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
@@ -94,13 +94,22 @@ function ShellBody(): React.JSX.Element {
           </div>
         </div>
 
-        {/* Faixa 3: identidade + controles rápidos de voz. Atravessa o rail e a
-            coluna de canais (os 344px inteiros), que é exatamente o espaço que
-            faltava — o painel do usuário disputava 240px com o rodapé de voz e
-            perdia. `border-sidebar-border` (não `border-border`) porque a faixa
-            está sobre `--sidebar`. */}
+        {/* Faixa 3: identidade à esquerda, microfone/fone/configurações à
+            direita — a mesma linha do Discord. Atravessa o rail e a coluna de
+            canais (os 344px inteiros), que é exatamente o espaço que faltava:
+            o painel do usuário disputava 240px com cinco botões do rodapé de
+            voz e perdia.
+
+            Os três botões são controles do APARELHO, não da chamada: existem
+            com ou sem call ativa (o testador de microfone, VOICE-21, depende
+            disso), enquanto as faixas 1 e 2 — status e ações da call — só
+            aparecem conectado, na coluna de canais.
+
+            `border-sidebar-border` (não `border-border`) porque a faixa está
+            sobre `--sidebar`. */}
         <div className="flex-none flex items-center gap-1 border-t border-sidebar-border px-2 py-1.5">
           <UserPanel />
+          <VoiceQuickControls />
         </div>
       </div>
 
