@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef } from 'react'
 import { useConvexAuth, useMutation } from 'convex/react'
 import { api } from '../../../../../convex/_generated/api'
 import { toProfileHint } from '@/lib/profile-hint'
+import { auth } from '@platform/auth'
 import { LoginScreen } from './LoginScreen'
 
 // Portão de autenticação: decide entre a tela de login e a aplicação real
@@ -20,8 +21,10 @@ import { LoginScreen } from './LoginScreen'
 // O access token do WorkOS — o JWT que o Convex verifica — não carrega claim
 // de e-mail nem de nome, então lá dentro `identity.email` chega `undefined` e
 // a derivação antiga caía no `sub` opaco (`user_01m0bc3v...`). Quem TEM o
-// perfil de verdade é o processo main, que recebe o objeto `User` completo do
-// `authenticateWithCodeAndVerifier` e o expõe em `window.auth.getUser()`.
+// perfil de verdade é quem falou com a WorkOS: no Electron, o processo main,
+// que recebe o objeto `User` completo do `authenticateWithCodeAndVerifier`; na
+// web, o `@workos-inc/authkit-react`, que recebe o MESMO objeto no navegador.
+// Os dois respondem por `auth.getProfile()` — que nunca lança, por contrato.
 // Passamos isso adiante como dica; o servidor valida tudo, dá precedência a
 // qualquer claim verificada e nunca deixa a dica influenciar o `workosId`
 // (ver o comentário longo de `ensureUser` em convex/users.ts).
@@ -39,8 +42,8 @@ export function AuthGate({ children }: { children: ReactNode }): React.JSX.Eleme
       return
     }
     if (ensuredRef.current) return
-    window.auth
-      .getUser()
+    auth
+      .getProfile()
       .catch((err: unknown) => {
         console.error('Não foi possível ler o perfil do WorkOS:', err)
         return null

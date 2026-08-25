@@ -163,4 +163,8 @@ export const auth: PlatformAuth = {
  * `LoginScreen` mostra. Existir nos dois lados é o que permite `main.tsx`
  * decidir sem um `if (isElectron)`.
  */
-export const isAuthConfigured = true
+// Anotado como `boolean` (e não deixado no literal `true`) para os dois alvos
+// terem o MESMO tipo: com o literal, `if (!isAuthConfigured)` em `main.tsx`
+// viraria um ramo provadamente morto no typecheck do desktop, e o próximo
+// leitor concluiria que a tela de configuração incompleta não é necessária.
+export const isAuthConfigured: boolean = true

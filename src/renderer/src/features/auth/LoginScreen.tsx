@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
 import { HydraMark } from '@/components/brand/HydraMark'
+import { capabilities } from '@platform/capabilities'
 
 // Tela de login minimalista de propósito — a Fase 3 (components/shell/**) cuida do
 // visual definitivo depois. Aqui só precisa ser funcional/usável para o checkpoint
@@ -14,12 +15,18 @@ export function LoginScreen(): React.JSX.Element {
   async function handleClick(): Promise<void> {
     setPending(true)
     setError(null)
-    const result = await signIn()
-    // Em caso de sucesso, o main process dispara onAuthChange e o AuthGate troca a
-    // tela sozinho — não há nada a fazer aqui além de soltar o botão em caso de erro.
-    if (!result.success) {
+    try {
+      await signIn()
+      // Em caso de sucesso NÃO soltamos o botão de propósito, nos dois alvos: no
+      // Electron o processo main dispara `onAuthChange` e o `AuthGate` troca a
+      // tela sozinho; na web esta própria aba navega para a WorkOS e não volta.
+    } catch (err: unknown) {
+      // `signIn()` do contrato LANÇA em vez de devolver `{ success, error }` — a
+      // mensagem exibida continua sendo exatamente a mesma de antes (o
+      // `result.error` do IPC virou a `message` do Error em
+      // `platform/electron/auth.tsx`).
       setPending(false)
-      setError(result.error ?? 'Falha ao entrar. Tente novamente.')
+      setError(err instanceof Error ? err.message : 'Falha ao entrar. Tente novamente.')
     }
   }
 
@@ -29,13 +36,22 @@ export function LoginScreen(): React.JSX.Element {
         <HydraMark className="size-12" />
         <h1 className="text-xl font-semibold tracking-tight">Hydra</h1>
         <Button onClick={handleClick} disabled={pending}>
-          {pending ? 'Abrindo o navegador…' : 'Entrar com Google'}
+          {/* Paridade DECLARADA, não string duplicada por tela: quem abre um
+              navegador externo (e volta por deep link) é só o alvo com
+              integração de desktop. Na web, quem navega é esta própria aba. */}
+          {pending
+            ? capabilities.desktopIntegration
+              ? 'Abrindo o navegador…'
+              : 'Redirecionando…'
+            : 'Entrar com Google'}
         </Button>
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {/* Erro de sessão vindo do processo main (ex.: app sem MAIN_VITE_WORKOS_CLIENT_ID).
-            Antes isso travava o app numa tela "Carregando…" eterna; agora a pessoa
-            pelo menos lê qual é o problema em vez de encarar uma tela morta. */}
+        {/* Erro de sessão vindo da plataforma — no Electron, do processo main
+            (ex.: app sem MAIN_VITE_WORKOS_CLIENT_ID). Antes isso travava o app
+            numa tela "Carregando…" eterna; agora a pessoa pelo menos lê qual é o
+            problema em vez de encarar uma tela morta. Na web este campo é sempre
+            `null`: configuração ausente vira a tela de `main.tsx`. */}
         {sessionError && (
           <p className="text-muted-foreground max-w-sm text-center text-xs">{sessionError}</p>
         )}

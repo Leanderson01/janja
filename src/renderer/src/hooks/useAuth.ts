@@ -1,64 +1,48 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useMemo } from 'react'
+import { auth } from '@platform/auth'
+import type { SessionUser } from '@/platform/contract'
 
 /**
- * Mirrors `AuthUser` from `src/main/auth/types.ts`, duplicated locally rather than imported.
- * `src/main` is not part of the renderer's `tsconfig.web.json` `include` glob (separate
- * process, separate TS config), so importing across that boundary does not resolve cleanly —
- * the official WorkOS Electron example makes the same call (its `useAuth.ts` redefines `User`
- * locally instead of importing from main). Keep these fields in sync with
- * `src/main/auth/types.ts` by hand if that shape ever changes.
+ * O caminho conhecido para a sessão — agora um reexport fino do contrato de
+ * plataforma.
+ *
+ * O ARQUIVO NÃO FOI APAGADO de propósito: `LoginScreen.tsx` e `UserPanel.tsx`
+ * já o importam desde a Fase 2, e manter o nome conhecido deixa o diff desta
+ * fase do tamanho da mudança real (a FONTE do token trocou no alvo web) em vez
+ * do tamanho de um rename. Quem implementa continua sendo um só lugar:
+ * `@platform/auth`, escolhido pelo bundler.
+ *
+ * O tipo do usuário mora hoje em `platform/contract.ts` como `SessionUser` — a
+ * duplicação em relação a `src/main/auth/types.ts` deixou de ser um contorno e
+ * virou o formato canônico dos dois alvos (o mesmo `User` do `authkit-js`, o
+ * mesmo `AuthUserLike` de `lib/profile-hint.ts`). O motivo de não importar de
+ * `src/main` está escrito em `platform/electron/auth.tsx`, junto do código que
+ * depende dele.
  */
-export interface AuthUser {
-  workosId: string
-  email: string
-  firstName: string | null
-  lastName: string | null
-  profilePictureUrl: string | null
-}
+export type AuthUser = SessionUser
 
 interface UseAuthReturn {
-  user: AuthUser | null
+  user: SessionUser | null
   loading: boolean
-  /** Falha de comunicação com o processo main, ou app mal configurado. */
+  /**
+   * Electron: falha de comunicação com o processo main, ou app mal
+   * configurado. Web: sempre `null` — ver o comentário de `useSession` em
+   * `platform/web/auth.tsx`.
+   */
   error: string | null
-  signIn: () => Promise<{ success: boolean; error?: string }>
-  signOut: () => Promise<{ success: boolean; error?: string }>
+  /** LANÇA em caso de falha (antes devolvia `{ success, error }`). */
+  signIn: () => Promise<void>
+  signOut: () => Promise<void>
 }
 
 export function useAuth(): UseAuthReturn {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    // `.catch` + `.finally` não são zelo excessivo: sem eles, qualquer rejeição
-    // desta promise deixa `loading` em true para sempre, e o app fica numa tela
-    // "Carregando…" eterna, sem erro visível e sem caminho de saída. Foi
-    // exatamente o que aconteceu quando o clientId do WorkOS não estava
-    // configurado — o handler de IPC lançava, a promise rejeitava, e o app
-    // travava em silêncio.
-    //
-    // Falhar aqui significa "não há sessão utilizável": tratamos como deslogado,
-    // guardamos a causa para a interface poder mostrá-la, e liberamos o loading.
-    window.auth
-      .getUser()
-      .then((u) => setUser(u))
-      .catch((err: unknown) => {
-        console.error('Falha ao consultar a sessão:', err)
-        setUser(null)
-        setError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => setLoading(false))
-
-    return window.auth.onAuthChange(({ user: u }) => {
-      setUser(u)
-      setError(null)
-      setLoading(false)
-    })
-  }, [])
-
-  const signIn = useCallback(() => window.auth.signIn(), [])
-  const signOut = useCallback(() => window.auth.signOut(), [])
-
-  return { user, loading, error, signIn, signOut }
+  const { user, loading, error } = auth.useSession()
+  // `signIn`/`signOut` são funções de módulo (identidade estável nos dois
+  // alvos). O `useMemo` depende dos três CAMPOS, e não do objeto devolvido por
+  // `useSession`: o lado Electron devolve um objeto novo a cada render, e
+  // depender dele memorizaria nada.
+  return useMemo(
+    () => ({ user, loading, error, signIn: auth.signIn, signOut: auth.signOut }),
+    [user, loading, error]
+  )
 }

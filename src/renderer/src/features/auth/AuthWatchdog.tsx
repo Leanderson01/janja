@@ -1,5 +1,6 @@
 import { useConvexAuth } from 'convex/react'
 import { useEffect, useState } from 'react'
+import { auth } from '@platform/auth'
 
 // Mitigação do Pitfall 4 (get-convex/convex-backend#259): o cliente Convex pode
 // travar em isAuthenticated:false permanentemente após expiração do access token,
@@ -8,7 +9,20 @@ import { useEffect, useState } from 'react'
 // a frequência do bug), mas não o elimina — este componente é a rede de segurança:
 // loga localmente quando a queda acontece e, como último recurso, recarrega a janela
 // silenciosamente se a sessão continuar presa em não-autenticado por tempo demais
-// enquanto o main process ainda considera a sessão válida.
+// enquanto a plataforma ainda considera a sessão válida.
+//
+// NA WEB O MESMO PITFALL REAPARECE, COM OUTRA CAUSA POSSÍVEL: o `getAccessToken`
+// do AuthKit lança `LoginRequiredError` quando o refresh falha de vez, o
+// adaptador devolve `null` (nunca exceção, por contrato) e o Convex trava em
+// `isAuthenticated: false`. A primeira linha de defesa nesse caso é o
+// `onRefreshFailure` do provider (`platform/web/auth.tsx`), que tenta entrar de
+// novo; este componente é a SEGUNDA. E a saída continua legítima nos dois
+// alvos: recarregar a aba refaz o handshake do AuthKit do zero, como recarregar
+// a janela refaz o do IPC.
+//
+// A pergunta "a sessão ainda vale?" é a única parte que muda por alvo, e por
+// isso ela é do contrato: no Electron ela vai ao processo main; na web, ao
+// contexto do AuthKit (`user !== null`).
 const RELOAD_AFTER_MS = 15_000
 
 export function AuthWatchdog(): null {
@@ -50,12 +64,12 @@ export function AuthWatchdog(): null {
   useEffect(() => {
     if (!dropped) return undefined
     const timeout = setTimeout(() => {
-      // Confirma que o main process ainda considera a sessão válida antes de recarregar
+      // Confirma que a plataforma ainda considera a sessão válida antes de recarregar
       // — evita reload em loop se o usuário realmente fez logout de propósito.
-      window.auth.getUser().then((user) => {
-        if (user) {
+      auth.hasLiveSession().then((alive) => {
+        if (alive) {
           console.warn(
-            '[auth-watchdog] isAuthenticated ainda false com sessão válida no main — recarregando janela.'
+            '[auth-watchdog] isAuthenticated ainda false com sessão viva na plataforma — recarregando.'
           )
           window.location.reload()
         }
