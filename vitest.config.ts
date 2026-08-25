@@ -11,6 +11,13 @@ export default defineConfig({
     alias: {
       '@renderer': resolve('src/renderer/src'),
       '@': resolve('src/renderer/src'),
+      // `@platform` aponta para o ELECTRON aqui de proposito: a suite existente
+      // (os 23 testes do ScreenSharePicker, voice-context, auth) testa o alvo
+      // desktop, e um alias que apontasse para a web trocaria o codigo sob
+      // teste sem que nenhum arquivo de teste mudasse. Teste especifico do
+      // alvo web importa por caminho relativo (`./web/...`), como faz
+      // `src/renderer/src/platform/capabilities.test.ts`.
+      '@platform': resolve('src/renderer/src/platform/electron'),
     },
   },
   test: {

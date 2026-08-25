@@ -10,6 +10,12 @@ import { AuthGate } from './features/auth/AuthGate'
 import { AuthWatchdog } from './features/auth/AuthWatchdog'
 import { PresenceHeartbeat } from './features/auth/PresenceHeartbeat'
 import { HydraMark } from '@/components/brand/HydraMark'
+// Primeiro consumidor real do alias `@platform` (Fase 10): resolve para
+// `platform/electron` sob `electron.vite.config.ts` e para `platform/web` sob
+// `vite.config.web.ts`. E o que da sentido a `scripts/verify-web-bundle.mjs` —
+// sem NENHUM consumidor, o lado escolhido nao entra no bundle e nao ha o que
+// afirmar sobre o artefato.
+import { capabilities } from '@platform/capabilities'
 
 // Tela mínima e autocontida — não depende de nenhum componente que precise do
 // Convex já montado (não pode: é exibida exatamente quando o Convex não está
@@ -32,6 +38,10 @@ function ConvexNotConfiguredScreen(): React.JSX.Element {
     </div>
   )
 }
+
+// Log de boot: em qualquer relato de bug a primeira pergunta passa a ter
+// resposta na primeira linha do console — qual alvo esta rodando.
+console.info('[platform]', capabilities.target, capabilities.buildTargetSentinel)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

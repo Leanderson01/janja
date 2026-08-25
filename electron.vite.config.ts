@@ -34,7 +34,14 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),
-        '@': resolve('src/renderer/src')
+        '@': resolve('src/renderer/src'),
+        // A costura da Fase 10. O espelho esta em `vite.config.web.ts`
+        // (-> platform/web). Quem escolhe entre as duas implementacoes e o
+        // BUNDLER, nunca um `if (isElectron)` em codigo de feature: o que nao
+        // existe no alvo simplesmente nao entra no grafo de modulos.
+        // O contrato de TIPOS continua sendo importado por `@/platform/contract`,
+        // que e o mesmo arquivo nos dois alvos.
+        '@platform': resolve('src/renderer/src/platform/electron')
       }
     },
     build: {

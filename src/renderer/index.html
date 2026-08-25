@@ -16,7 +16,7 @@
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob: https://*.convex.cloud; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob: https://*.convex.cloud; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com https://api.workos.com"
     />
     <!--
       A CSP padrão do template do electron-vite é `default-src 'self'`, que
@@ -36,6 +36,19 @@
         falha silenciosa que travou o app na Fase 2 e é o motivo deste
         comentário existir. `blob:` NÃO cobre isto: o arquivo anexado vem por
         URL do storage, não de um blob local.
+
+      connect-src https://api.workos.com: NECESSÁRIO SÓ NO ALVO WEB (Fase 10).
+        No navegador quem troca o código PKCE por token é o próprio
+        `authkit-js`, com um `POST /user_management/authenticate` feito da
+        página. Sem esta entrada o Chromium recusa a requisição **sem gerar
+        erro de aplicação**: o login simplesmente não termina — a mesma classe
+        de falha silenciosa que travou a Fase 2. No desktop a entrada é
+        inofensiva: lá quem fala com a WorkOS é o processo main, que não passa
+        por CSP nenhuma. Um único index.html serve os dois alvos de propósito;
+        um `index.web.html` duplicaria esta lista e este comentário, e qualquer
+        divergência futura entre as duas cópias viraria um bloqueio silencioso.
+      `frame-ancestors` NÃO entra aqui: a diretiva é ignorada em <meta> por
+        especificação. Ela vira cabeçalho de resposta na Vercel (Plano 10-04).
 
       A mídia WebRTC em si (UDP/ICE) não passa por CSP — só a sinalização.
       Manter esta lista explícita em vez de afrouxar para `*`: o renderer
