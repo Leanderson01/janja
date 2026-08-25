@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { AuthUser } from '../main/auth/types'
 import { SCREENSHARE_CHANNELS } from '../main/screenshare-types'
-import type { ScreenShareSource } from '../main/screenshare-types'
+import type { ScreenShareChoice, ScreenSharePickRequest } from '../main/screenshare-types'
 
 // Custom APIs for renderer
 const api = {}
@@ -72,15 +72,20 @@ const voiceApi = {
 // nunca expor `ipcRenderer` bruto, só estes três canais já nomeados.
 const screenshareApi = {
   /** Registra o diálogo de escolha; devolve a função de remoção do listener. */
-  onPickRequested: (callback: (data: { sources: ScreenShareSource[] }) => void): (() => void) => {
-    const listener = (_: Electron.IpcRendererEvent, data: { sources: ScreenShareSource[] }): void =>
+  onPickRequested: (callback: (data: ScreenSharePickRequest) => void): (() => void) => {
+    const listener = (_: Electron.IpcRendererEvent, data: ScreenSharePickRequest): void =>
       callback(data)
     ipcRenderer.on(SCREENSHARE_CHANNELS.PICK_REQUESTED, listener)
     return () => ipcRenderer.removeListener(SCREENSHARE_CHANNELS.PICK_REQUESTED, listener)
   },
-  /** O usuário escolheu esta fonte. Uma via, sem retorno. */
-  chooseSource: (sourceId: string): void => {
-    ipcRenderer.send(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, sourceId)
+  /**
+   * O usuário escolheu esta fonte, com ou sem áudio de sistema. Uma via, sem
+   * retorno. `systemAudio` viaja JUNTO com a fonte de propósito: é uma única
+   * decisão do usuário, tomada num único clique, e separá-la em dois canais
+   * abriria a chance de o main conceder com base num valor de outro pedido.
+   */
+  chooseSource: (choice: ScreenShareChoice): void => {
+    ipcRenderer.send(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice)
   },
   /**
    * O usuário fechou o diálogo sem escolher. Precisa ser chamado em TODO

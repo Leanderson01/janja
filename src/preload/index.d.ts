@@ -1,6 +1,10 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { AuthUser } from '../main/auth/types'
-import type { ScreenShareSource as SharedScreenShareSource } from '../main/screenshare-types'
+import type {
+  ScreenShareChoice as SharedScreenShareChoice,
+  ScreenSharePickRequest as SharedScreenSharePickRequest,
+  ScreenShareSource as SharedScreenShareSource
+} from '../main/screenshare-types'
 
 interface AuthApi {
   signIn(): Promise<{ success: boolean; error?: string }>
@@ -18,8 +22,8 @@ interface VoiceApi {
 
 interface ScreenShareApi {
   /** main -> renderer: abre o seletor com estas fontes. Devolve o cleanup. */
-  onPickRequested(callback: (data: { sources: ScreenShareSource[] }) => void): () => void
-  chooseSource(sourceId: string): void
+  onPickRequested(callback: (data: ScreenSharePickRequest) => void): () => void
+  chooseSource(choice: ScreenShareChoice): void
   cancelPicker(): void
 }
 
@@ -30,6 +34,8 @@ declare global {
   // arquivo `.d.ts` está no `include` das duas configs, então a definição
   // atravessa a fronteira sem virar uma segunda cópia para sair de sincronia.
   type ScreenShareSource = SharedScreenShareSource
+  type ScreenSharePickRequest = SharedScreenSharePickRequest
+  type ScreenShareChoice = SharedScreenShareChoice
 
   interface Window {
     electron: ElectronAPI

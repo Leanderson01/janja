@@ -9,11 +9,14 @@ import {
   PICKER_TIMEOUT_MS,
   SCREENSHARE_CHANNELS,
   THUMBNAIL_SIZE,
+  type ScreenShareChoice,
   type ScreenShareSource
 } from './screenshare-types'
 
 // SHARE-01/03/04 (Planos 08-02 e 08-04): captura de tela + áudio de sistema,
-// com seletor próprio.
+// com seletor próprio. A correção do eco (Pitfall 1, 2026-08-20) fez do áudio
+// de sistema uma concessão condicional em vez de incondicional — ver o bloco
+// no fim do handler.
 //
 // O renderer nunca chama `desktopCapturer` — ele chama `getDisplayMedia()`
 // (por baixo de `setScreenShareEnabled` do livekit-client), e o Chromium
@@ -65,33 +68,68 @@ let registered = false
  * atrasado (usuário clicando depois do timeout, listener duplicado, renderer
  * recarregado) um no-op em vez de um segundo `callback`.
  */
+/**
+ * A escolha resolvida: a fonte concreta do `desktopCapturer` mais o que o
+ * usuário decidiu sobre o áudio de sistema no diálogo.
+ */
+type PickResult = {
+  source: DesktopCapturerSource
+  systemAudio: boolean
+}
+
 type PendingPick = {
-  resolve: (source: DesktopCapturerSource | null) => void
+  resolve: (result: PickResult | null) => void
   sources: DesktopCapturerSource[]
   timeout: ReturnType<typeof setTimeout>
 }
 let pending: PendingPick | null = null
 
 /**
- * Encerra a escolha pendente, se houver, com a fonte de `sourceId` (ou `null`
+ * Encerra a escolha pendente, se houver, com a escolha do usuário (ou `null`
  * para cancelar). Idempotente de propósito: limpa `pending` ANTES de resolver,
  * então uma segunda chamada — cancelar depois de escolher, dois cliques, um
  * timeout que corre contra o clique — não faz nada.
  */
-function settlePending(sourceId: string | null): void {
+function settlePending(choice: ScreenShareChoice | null): void {
   const current = pending
   if (!current) return
   pending = null
   clearTimeout(current.timeout)
 
+  if (choice === null) {
+    current.resolve(null)
+    return
+  }
+
   // Id desconhecido (renderer fora de sincronia, lista velha) cai no mesmo
   // caminho do cancelamento: `null`. Nunca deixa a espera pendurada.
-  const source =
-    sourceId === null ? null : (current.sources.find((item) => item.id === sourceId) ?? null)
-  if (sourceId !== null && source === null) {
-    console.warn('[screenshare] fonte escolhida não existe mais na lista:', sourceId)
+  const source = current.sources.find((item) => item.id === choice.sourceId) ?? null
+  if (source === null) {
+    console.warn('[screenshare] fonte escolhida não existe mais na lista:', choice.sourceId)
+    current.resolve(null)
+    return
   }
-  current.resolve(source)
+
+  current.resolve({ source, systemAudio: choice.systemAudio })
+}
+
+/**
+ * Traduz o que chegou pelo IPC em uma escolha confiável, ou `null` (=
+ * cancelar) se não der para confiar.
+ *
+ * `sourceId` é exigido como string: sem ele não há o que conceder. Já
+ * `systemAudio` é comparado com `=== true` em vez de validado — payload
+ * malformado vira "sem áudio de sistema", não vira cancelamento. É a mesma
+ * escolha do `sanitize` de `screenshare-preferences.ts`, pelo mesmo motivo:
+ * o único valor que LIGA o loopback é um `true` literal e explícito, e a
+ * degradação (compartilhar sem som) é infinitamente melhor que a falha
+ * (não compartilhar) ou que o defeito (eco de volta na call).
+ */
+function toChoice(payload: unknown): ScreenShareChoice | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const candidate = payload as Partial<Record<keyof ScreenShareChoice, unknown>>
+  if (typeof candidate.sourceId !== 'string') return null
+  return { sourceId: candidate.sourceId, systemAudio: candidate.systemAudio === true }
 }
 
 function toSerializableSource(source: DesktopCapturerSource): ScreenShareSource {
@@ -117,8 +155,9 @@ function toSerializableSource(source: DesktopCapturerSource): ScreenShareSource 
  */
 function requestPick(
   window: BrowserWindow,
-  sources: DesktopCapturerSource[]
-): Promise<DesktopCapturerSource | null> {
+  sources: DesktopCapturerSource[],
+  audioAvailable: boolean
+): Promise<PickResult | null> {
   // Defesa 4: se por algum caminho inesperado um pedido anterior ainda estiver
   // pendente, ele é cancelado agora. Sem isto, o `getDisplayMedia` antigo
   // ficaria esperando para sempre, porque a resposta do renderer resolveria só
@@ -130,7 +169,7 @@ function requestPick(
     settlePending(null)
   }
 
-  return new Promise<DesktopCapturerSource | null>((resolve) => {
+  return new Promise<PickResult | null>((resolve) => {
     const timeout = setTimeout(() => {
       console.warn('[screenshare] nenhuma escolha em %dms — cancelando o pedido', PICKER_TIMEOUT_MS)
       settlePending(null)
@@ -143,7 +182,10 @@ function requestPick(
 
     try {
       window.webContents.send(SCREENSHARE_CHANNELS.PICK_REQUESTED, {
-        sources: sources.map(toSerializableSource)
+        sources: sources.map(toSerializableSource),
+        // O diálogo precisa saber se o áudio SEQUER foi pedido nesta chamada
+        // para poder ser honesto no toggle — ver `ScreenSharePickRequest`.
+        audioAvailable
       })
     } catch (err) {
       console.error('[screenshare] falha ao enviar a lista de fontes ao renderer:', err)
@@ -173,13 +215,14 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
   // listeners resolvem por efeito colateral. Registrados uma única vez, aqui
   // fora do handler de captura — dentro dele empilhariam um par novo a cada
   // pedido.
-  ipcMain.on(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, (_event, sourceId: unknown) => {
-    if (typeof sourceId !== 'string') {
-      console.warn('[screenshare] choose-source com id inválido — tratando como cancelamento')
+  ipcMain.on(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, (_event, payload: unknown) => {
+    const choice = toChoice(payload)
+    if (choice === null) {
+      console.warn('[screenshare] choose-source com payload inválido — tratando como cancelamento')
       settlePending(null)
       return
     }
-    settlePending(sourceId)
+    settlePending(choice)
   })
 
   ipcMain.on(SCREENSHARE_CHANNELS.CANCEL_PICKER, () => {
@@ -188,7 +231,12 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
 
   // `session.defaultSession` só existe depois de `app.whenReady()` — quem
   // chama é responsável por isso (ver src/main/index.ts).
-  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    // `audioRequested` reflete a constraint que o renderer passou a
+    // `getDisplayMedia()` — ela é fixada ANTES de o seletor abrir e não pode
+    // mudar depois. Guardada aqui para compor o E lógico da concessão lá
+    // embaixo (ver `ScreenShareChoice` em screenshare-types.ts).
+    const audioRequested = request?.audioRequested === true
     let sources: DesktopCapturerSource[]
     try {
       sources = await desktopCapturer.getSources({
@@ -222,9 +270,9 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
       return
     }
 
-    let chosen: DesktopCapturerSource | null
+    let chosen: PickResult | null
     try {
-      chosen = await requestPick(window, sources)
+      chosen = await requestPick(window, sources, audioRequested)
     } catch (err) {
       // `requestPick` foi escrita para nunca rejeitar; este catch existe para
       // que "nunca" continue verdadeiro se alguém a mudar.
@@ -242,10 +290,45 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
       return
     }
 
+    // ------------------------------------------------------------------
+    // A correção do Pitfall 1 mora nestas linhas.
+    //
     // `audio: 'loopback'` é o áudio de SISTEMA do Windows (WASAPI loopback),
-    // não o microfone. O filtro do próprio áudio da call (`restrictOwnAudio`,
-    // Pitfall 1) não mora aqui: ele é uma constraint de captura, passada do
-    // renderer em `voice-context.tsx` — este handler só concede a fonte.
-    callback({ video: chosen, audio: 'loopback' })
+    // não o microfone — e ele captura TUDO que sai pelo dispositivo de saída,
+    // inclusive a voz dos outros participantes que o próprio app está
+    // tocando. Era concedido incondicionalmente, e é essa concessão (não o
+    // pedido do renderer) que cria a captura: por isso o eco relatado em
+    // 2026-08-20 acontecia mesmo com `restrictOwnAudio: true` do outro lado.
+    //
+    // Agora é um E lógico dos dois lados, e o lado restritivo vence:
+    //  - o usuário precisa ter deixado o toggle ligado no diálogo;
+    //  - o renderer precisa ter pedido áudio nesta chamada.
+    //
+    // Sem concessão não existe track de áudio nenhuma na captura — eco zero
+    // por construção, sem depender de o Chromium honrar constraint alguma.
+    //
+    // `restrictOwnAudio` continua sendo passada do renderer quando o áudio
+    // está ligado; ela é a defesa PARA o caso ligado, não a que sustenta o
+    // caso desligado. Ver `screenshare-diagnostics.ts` para saber se ela está
+    // sendo aplicada de fato nesta máquina.
+    // ------------------------------------------------------------------
+    const grantLoopback = chosen.systemAudio && audioRequested
+    if (chosen.systemAudio && !audioRequested) {
+      // Só acontece quando o usuário LIGA o toggle dentro do diálogo tendo
+      // começado com ele desligado: a constraint desta chamada já foi
+      // fechada. A escolha ficou persistida e vale a partir do próximo
+      // compartilhamento — e o diálogo já avisou isso na tela.
+      console.warn(
+        '[screenshare] áudio de sistema pedido no seletor, mas esta captura foi aberta sem áudio — vale a partir do próximo compartilhamento'
+      )
+    }
+    console.log(
+      '[screenshare] concedendo captura: fonte=%s audioRequested=%s escolhaDoUsuario=%s loopbackConcedido=%s',
+      chosen.source.id,
+      audioRequested,
+      chosen.systemAudio,
+      grantLoopback
+    )
+    callback(grantLoopback ? { video: chosen.source, audio: 'loopback' } : { video: chosen.source })
   })
 }

@@ -17,7 +17,7 @@
 export const SCREENSHARE_CHANNELS = {
   /** main -> renderer: lista de fontes disponíveis, para o diálogo exibir. */
   PICK_REQUESTED: 'screenshare:pick-requested',
-  /** renderer -> main, uma via: o usuário escolheu esta fonte. */
+  /** renderer -> main, uma via: o usuário escolheu esta fonte (e se quer áudio). */
   CHOOSE_SOURCE: 'screenshare:choose-source',
   /** renderer -> main, uma via: o usuário fechou o diálogo sem escolher. */
   CANCEL_PICKER: 'screenshare:cancel-picker'
@@ -42,6 +42,57 @@ export interface ScreenShareSource {
   appIconDataUrl?: string
   /** Derivado de `id.startsWith('screen:')` no processo main. */
   isScreen: boolean
+}
+
+/**
+ * O que o processo main manda junto com a lista quando abre o seletor.
+ *
+ * `audioAvailable` é `request.audioRequested` do
+ * `setDisplayMediaRequestHandler` — ou seja, se o renderer chegou a PEDIR
+ * áudio nesta chamada de `getDisplayMedia()`. O seletor precisa saber disso
+ * para não mentir: a constraint de áudio é fixada no momento da chamada, que
+ * é ANTES de o diálogo abrir, então ligar o toggle com `audioAvailable:
+ * false` não pode produzir áudio nesta transmissão por mais que o main
+ * conceda. Ver `ScreenShareChoice` abaixo.
+ */
+export interface ScreenSharePickRequest {
+  sources: ScreenShareSource[]
+  audioAvailable: boolean
+}
+
+/**
+ * A decisão do usuário, viajando do diálogo até o `callback` do
+ * `setDisplayMediaRequestHandler`.
+ *
+ * ------------------------------------------------------------------
+ * Pitfall 1 (PITFALLS.md), a correção do eco. Havia dois lados capazes de
+ * decidir sobre o áudio de sistema e eles não conversavam:
+ *
+ *   - o renderer, ao montar as constraints de `getDisplayMedia()`
+ *     (`SCREEN_SHARE_CAPTURE_OPTIONS` em `voice-context.tsx`);
+ *   - o processo main, ao conceder `audio: 'loopback'` no `callback`.
+ *
+ * PEDIR não é o mesmo que CONCEDER, e só a concessão cria a captura WASAPI
+ * que gera o eco. Enquanto o main concedia loopback incondicionalmente, o
+ * renderer não tinha como desligar o áudio de sistema de verdade — no
+ * máximo pedia gentilmente. Agora a regra é um E lógico explícito, e o lado
+ * restritivo sempre vence:
+ *
+ *   loopback concedido  <=>  request.audioRequested  E  choice.systemAudio
+ *
+ * Compartilhar com `systemAudio: false` tem eco zero por construção: sem
+ * concessão não existe track de áudio nenhuma para ecoar.
+ * ------------------------------------------------------------------
+ */
+export interface ScreenShareChoice {
+  /** Id opaco vindo de `ScreenShareSource.id`. */
+  sourceId: string
+  /**
+   * `true` só quando o usuário deixou o toggle do diálogo ligado. Qualquer
+   * outro valor é tratado como `false` no processo main — a direção segura é
+   * a direção padrão, igual ao `sanitize` de `screenshare-preferences.ts`.
+   */
+  systemAudio: boolean
 }
 
 /** Tamanho das miniaturas pedidas ao `desktopCapturer` (16:9). */
