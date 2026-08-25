@@ -9,6 +9,7 @@ import { AuthGate } from './features/auth/AuthGate'
 import { AuthWatchdog } from './features/auth/AuthWatchdog'
 import { PresenceHeartbeat } from './features/auth/PresenceHeartbeat'
 import { HydraMark } from '@/components/brand/HydraMark'
+import { RootErrorBoundary } from '@/components/boundary/RootErrorBoundary'
 // Primeiro consumidor real do alias `@platform` (Fase 10): resolve para
 // `platform/electron` sob `electron.vite.config.ts` e para `platform/web` sob
 // `vite.config.web.ts`. E o que da sentido a `scripts/verify-web-bundle.mjs` —
@@ -81,4 +82,15 @@ function appTree(): React.JSX.Element {
 // resposta na primeira linha do console — qual alvo esta rodando.
 console.info('[platform]', capabilities.target, capabilities.buildTargetSentinel)
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{appTree()}</StrictMode>)
+// `RootErrorBoundary` POR FORA DE TUDO, inclusive das telas de configuração
+// incompleta. É o único lugar da árvore onde um erro de render vira texto em
+// vez de uma raiz vazia — e raiz vazia aqui é a TELA PRETA que o primeiro
+// cadastro na web produziu em 2026-08-25 (a causa daquele caso está corrigida
+// em `AuthGate`; isto é a rede para o próximo). Inerte enquanto nada lança:
+// renderiza `children` e nada mais, então a árvore do desktop continua a
+// mesma.
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <RootErrorBoundary>{appTree()}</RootErrorBoundary>
+  </StrictMode>
+)
