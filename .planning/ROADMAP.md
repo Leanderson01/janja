@@ -451,7 +451,18 @@ sessão de verificação, junto com o resto.
 
 **Requirements**: provável requisito novo (SHARE-09), a definir no planejamento.
 
-**Plans**: TBD
+**Plans**: 6 planos em 4 ondas (pesquisa em `08.6-RESEARCH.md`; caminho decidido:
+`loopback-capture@2.0.0` em modo EXCLUIR com o PID do próprio main — captura o
+sistema inteiro menos a árvore de processos do Hydra, que é quem toca a voz dos
+outros. Tela inteira e janela usam o mesmo código. `startSystemAudio()` e
+`audio: 'loopback'` ficam PROIBIDOS: são loopback de dispositivo, o eco de volta.)
+
+- [ ] 08.6-01-dependencia-e-empacotamento-PLAN.md — dependência nativa pinada, asarUnpack, exclusão do cmake-js, externalização explícita e guarda de build
+- [ ] 08.6-02-captura-nativa-modo-excluir-PLAN.md — captura WASAPI por processo no main, portões de capacidade, watchdog e teardown
+- [ ] 08.6-03-ponte-pcm-para-track-PLAN.md — preload + AudioWorklet com ring buffer + MediaStreamDestination
+- [ ] 08.6-04-fiacao-publicacao-e-encerramento-PLAN.md — loopback nunca mais concedido; track publicada com source ScreenShareAudio e forceStereo
+- [ ] 08.6-05-ui-honesta-do-toggle-PLAN.md — texto novo do toggle, estado desabilitado por incapacidade da máquina
+- [ ] 08.6-06-checkpoint-windows-PLAN.md — verificação humana em Windows com 3+ pessoas (item nº 1: a voz dos outros NÃO entra)
 
 
 ### Fase 10: Versão web
