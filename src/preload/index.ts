@@ -3,6 +3,11 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { AuthUser } from '../main/auth/types'
 import { SCREENSHARE_CHANNELS } from '../main/screenshare-types'
 import type { ScreenShareChoice, ScreenSharePickRequest } from '../main/screenshare-types'
+import { SCREENSHARE_AUDIO_CHANNELS } from '../main/screenshare-audio-types'
+import type {
+  ScreenShareAudioStartResult,
+  ScreenShareAudioStatus
+} from '../main/screenshare-audio-types'
 
 // Custom APIs for renderer
 const api = {}
@@ -94,6 +99,56 @@ const screenshareApi = {
    */
   cancelPicker: (): void => {
     ipcRenderer.send(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+  },
+  /**
+   * Áudio do compartilhamento por PROCESSO (Fase 8.6). Fica como subchave de
+   * `screenshare` em vez de um sexto objeto global porque é a MESMA feature: o
+   * renderer que pede a tela é o mesmo que pede o som dela, e quem procurar
+   * "como ligo o áudio do compartilhamento" vai olhar aqui primeiro.
+   *
+   * Os nomes de canal vêm de `src/main/screenshare-audio-types.ts` — mesmo
+   * motivo já escrito acima para `SCREENSHARE_CHANNELS` (Pitfall 2: nome
+   * divergente não gera erro, gera um `send` que cai no vazio).
+   */
+  audio: {
+    /**
+     * Pede ao main para começar a captura. **Resolve SEMPRE, nunca rejeita**:
+     * "não dá para capturar" é um resultado (`{ ok: false, reason }`), não uma
+     * exceção. Quem chama trata `ok: false` como "compartilha sem som, com o
+     * motivo na tela" — jamais como falha do compartilhamento.
+     */
+    start: (): Promise<ScreenShareAudioStartResult> =>
+      ipcRenderer.invoke(SCREENSHARE_AUDIO_CHANNELS.START),
+    /** Uma via, sem retorno. Idempotente do lado do main. */
+    stop: (): void => {
+      ipcRenderer.send(SCREENSHARE_AUDIO_CHANNELS.STOP)
+    },
+    /**
+     * main -> renderer: um chunk de PCM cru (s16le, estéreo intercalado, 48k).
+     * Devolve a função de remoção do listener, como `onPickRequested`.
+     *
+     * ATENÇÃO — este é o canal de MAIOR VOLUME do app: ~100 mensagens/s,
+     * ~192 KB/s, ~1,9 KB por mensagem. Um listener vazado aqui não é
+     * vazamento cosmético: é trabalho acumulado POR SEGUNDO, em cima do
+     * thread principal do renderer, para o resto da vida da janela. Chamar o
+     * cleanup em TODO caminho de saída não é higiene, é requisito.
+     *
+     * E não existe fluxo contínuo: o addon descarta buffers silenciosos
+     * (-70 dBFS), então "parou de chegar chunk" é o som normal do silêncio,
+     * não sinal de falha. Ver SILENCE_WATCHDOG_MS.
+     */
+    onChunk: (callback: (chunk: Uint8Array) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, chunk: Uint8Array): void => callback(chunk)
+      ipcRenderer.on(SCREENSHARE_AUDIO_CHANNELS.CHUNK, listener)
+      return () => ipcRenderer.removeListener(SCREENSHARE_AUDIO_CHANNELS.CHUNK, listener)
+    },
+    /** main -> renderer: capturando / não chegou áudio / parou / falhou. */
+    onStatus: (callback: (status: ScreenShareAudioStatus) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, status: ScreenShareAudioStatus): void =>
+        callback(status)
+      ipcRenderer.on(SCREENSHARE_AUDIO_CHANNELS.STATUS, listener)
+      return () => ipcRenderer.removeListener(SCREENSHARE_AUDIO_CHANNELS.STATUS, listener)
+    }
   }
 }
 
