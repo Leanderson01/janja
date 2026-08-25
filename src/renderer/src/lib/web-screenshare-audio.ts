@@ -217,11 +217,11 @@ export function describeWebScreenShareAudio(
       'compartilhe uma ABA em vez da tela inteira.',
     log:
       `${WEB_SCREENSHARE_AUDIO_LOG_PREFIX} VEREDITO audio-unknown-support: a faixa de áudio foi ` +
-      'publicada, mas este navegador NÃO REPORTA a propriedade restrictOwnAudio em getSettings() ' +
-      '(veio undefined). Este navegador não reporta `restrictOwnAudio`; a versão do Chrome ' +
-      'precisa ser >= 141 (Windows ou Mac) — confira em chrome://version. Não dá para saber se o ' +
-      'filtro foi aplicado: trate como NÃO aplicado. Para o experimento do eco do Plano 10-09, ' +
-      'este resultado invalida a base de comparação e o teste precisa ser refeito. ' +
+      'publicada, mas este navegador não reporta `restrictOwnAudio` em getSettings() (veio ' +
+      'undefined); a versão do Chrome precisa ser >= 141, em Windows ou Mac — confira em ' +
+      'chrome://version. Não dá para saber se o filtro foi aplicado: trate como NÃO aplicado. ' +
+      'Para o experimento do eco do Plano 10-09, este resultado INVALIDA a base de comparação e ' +
+      'o teste precisa ser refeito num Chrome mais novo. ' +
       notaDaSuperficie(displaySurface) +
       ' ' +
       entradas(input)

@@ -116,7 +116,7 @@ describe('describeWebScreenShareAudio', () => {
     expect(verdict.log).toContain('não reporta `restrictOwnAudio`')
     expect(verdict.log).toContain('>= 141')
     // O terceiro resultado da §5.4: a base de comparação está errada.
-    expect(verdict.log).toContain('invalida a base de comparação')
+    expect(verdict.log).toContain('INVALIDA a base de comparação')
     expect(verdict.log).toContain('restrictOwnAudio=undefined')
   })
 
