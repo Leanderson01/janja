@@ -48,7 +48,10 @@ describe('screenshare-preferences — sem localStorage nenhum', () => {
 
   it('save não lança e devolve o valor sanitizado, mesmo sem onde persistir', () => {
     expect(() => saveScreenSharePreferences({ quality: 'nitida' })).not.toThrow()
-    expect(saveScreenSharePreferences({ quality: 'nitida' })).toEqual({ quality: 'nitida' })
+    expect(saveScreenSharePreferences({ quality: 'nitida' })).toEqual({
+      quality: 'nitida',
+      systemAudio: false
+    })
   })
 })
 
@@ -59,23 +62,58 @@ describe('screenshare-preferences — com localStorage', () => {
     store = installFakeStorage()
   })
 
-  it('sem nada salvo, devolve o default "fluida"', () => {
-    expect(loadScreenSharePreferences()).toEqual({ quality: 'fluida' })
+  it('sem nada salvo, devolve o default "fluida" e áudio de sistema DESLIGADO', () => {
+    expect(loadScreenSharePreferences()).toEqual({ quality: 'fluida', systemAudio: false })
   })
 
   it('o que foi salvo é o que volta a ser lido (persistência entre sessões)', () => {
     saveScreenSharePreferences({ quality: 'nitida' })
-    expect(store.get(STORAGE_KEY)).toBe(JSON.stringify({ quality: 'nitida' }))
-    expect(loadScreenSharePreferences()).toEqual({ quality: 'nitida' })
+    expect(store.get(STORAGE_KEY)).toBe(JSON.stringify({ quality: 'nitida', systemAudio: false }))
+    expect(loadScreenSharePreferences()).toEqual({ quality: 'nitida', systemAudio: false })
 
     saveScreenSharePreferences({ quality: 'fluida' })
-    expect(loadScreenSharePreferences()).toEqual({ quality: 'fluida' })
+    expect(loadScreenSharePreferences()).toEqual({ quality: 'fluida', systemAudio: false })
   })
 
   it('merge com o valor persistido: salvar nada não reseta a escolha', () => {
     saveScreenSharePreferences({ quality: 'nitida' })
-    expect(saveScreenSharePreferences({})).toEqual({ quality: 'nitida' })
-    expect(loadScreenSharePreferences()).toEqual({ quality: 'nitida' })
+    expect(saveScreenSharePreferences({})).toEqual({ quality: 'nitida', systemAudio: false })
+    expect(loadScreenSharePreferences()).toEqual({ quality: 'nitida', systemAudio: false })
+  })
+
+  // Correção do eco (Pitfall 1): os dois campos são independentes de
+  // verdade. Antes deste campo existir, `saveScreenSharePreferences` tinha um
+  // único campo e o merge nunca foi exercido de fato — este é o teste que o
+  // comentário do módulo prometia.
+  it('ligar o áudio de sistema não mexe na qualidade, e vice-versa', () => {
+    saveScreenSharePreferences({ quality: 'nitida' })
+    expect(saveScreenSharePreferences({ systemAudio: true })).toEqual({
+      quality: 'nitida',
+      systemAudio: true
+    })
+    expect(saveScreenSharePreferences({ quality: 'fluida' })).toEqual({
+      quality: 'fluida',
+      systemAudio: true
+    })
+    expect(loadScreenSharePreferences().systemAudio).toBe(true)
+  })
+
+  it('o áudio de sistema desligado volta a ser lido como desligado', () => {
+    saveScreenSharePreferences({ systemAudio: true })
+    saveScreenSharePreferences({ systemAudio: false })
+    expect(loadScreenSharePreferences().systemAudio).toBe(false)
+  })
+
+  // A direção segura tem que ser a direção padrão: nenhum lixo no
+  // `localStorage` pode LIGAR o loopback por acidente e trazer o eco de volta.
+  it.each([
+    ['campo ausente (JSON de uma versão anterior)', '{"quality":"nitida"}'],
+    ['string "true" em vez de booleano', '{"systemAudio":"true"}'],
+    ['número 1', '{"systemAudio":1}'],
+    ['null', '{"systemAudio":null}']
+  ])('%s nunca liga o áudio de sistema', (_caso, raw) => {
+    store.set(STORAGE_KEY, raw)
+    expect(loadScreenSharePreferences().systemAudio).toBe(false)
   })
 
   it.each([
@@ -99,7 +137,10 @@ describe('screenshare-preferences — com localStorage', () => {
       }
     })
     expect(() => saveScreenSharePreferences({ quality: 'nitida' })).not.toThrow()
-    expect(saveScreenSharePreferences({ quality: 'nitida' })).toEqual({ quality: 'nitida' })
+    expect(saveScreenSharePreferences({ quality: 'nitida' })).toEqual({
+      quality: 'nitida',
+      systemAudio: false
+    })
   })
 
   it('getItem que lança não derruba a leitura', () => {

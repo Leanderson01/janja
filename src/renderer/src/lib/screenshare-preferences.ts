@@ -24,6 +24,21 @@ export type ScreenSharePreferences = {
    * `livekit-client` de propósito, para continuar sendo só persistência.
    */
   quality: ScreenShareQuality
+  /**
+   * Se o áudio do sistema (loopback WASAPI) acompanha o compartilhamento.
+   *
+   * Também é estado de MÁQUINA, pelo mesmo motivo de `quality` e por um
+   * segundo, específico: quem compartilha de um notebook com alto-falante
+   * aberto e quem compartilha de um desktop com fone não correm o mesmo
+   * risco de eco (Pitfall 1). A escolha pertence ao computador, não à conta.
+   *
+   * Lido em dois lugares, com papéis diferentes:
+   *  - `voice-context.tsx` decide se PEDE áudio ao `getDisplayMedia`;
+   *  - `ScreenSharePicker.tsx` inicializa o toggle do diálogo, e o valor que
+   *    o usuário deixar lá viaja com a fonte escolhida até o processo main,
+   *    que é quem CONCEDE (ou não) o loopback.
+   */
+  systemAudio: boolean
 }
 
 const STORAGE_KEY = 'janja:screenshare-preferences'
@@ -32,8 +47,21 @@ const STORAGE_KEY = 'janja:screenshare-preferences'
 // em upload doméstico brasileiro, e o modo de falha de "nítida" numa conexão
 // fraca (imagem travando em slideshow) é bem pior que o de "fluida" numa
 // conexão boa (texto um pouco menos nítido).
+//
+// `systemAudio: false` é o default pelo mesmo tipo de raciocínio — qual modo
+// de falha é pior. Com o áudio ligado, o loopback do WASAPI captura tudo que
+// sai pelo dispositivo de saída, inclusive a voz dos outros participantes que
+// o próprio app está tocando: numa call de 4 pessoas, as outras 3 passam a se
+// ouvir (Pitfall 1, confirmado em uso real em 2026-08-20). Com o áudio
+// desligado, o pior que acontece é o vídeo ir sem som. Tela muda é um
+// aborrecimento; call inutilizada por eco é um defeito.
+//
+// Este default é a única linha a inverter quando o diagnóstico de
+// `screenshare-diagnostics.ts` provar que `restrictOwnAudio` está de fato
+// sendo aplicada pelo Chromium desta versão do Electron.
 export const DEFAULT_SCREEN_SHARE_PREFERENCES: ScreenSharePreferences = {
-  quality: 'fluida'
+  quality: 'fluida',
+  systemAudio: false
 }
 
 function isScreenShareQuality(value: unknown): value is ScreenShareQuality {
@@ -49,7 +77,16 @@ function sanitize(raw: unknown): ScreenSharePreferences {
     ? candidate.quality
     : DEFAULT_SCREEN_SHARE_PREFERENCES.quality
 
-  return { quality }
+  // Qualquer coisa que não seja um booleano cai no default, e o default é
+  // `false`: um JSON velho (gravado antes deste campo existir), corrompido ou
+  // adulterado nunca deve LIGAR o áudio de sistema por acidente. A direção
+  // segura tem que ser a direção padrão.
+  const systemAudio =
+    typeof candidate.systemAudio === 'boolean'
+      ? candidate.systemAudio
+      : DEFAULT_SCREEN_SHARE_PREFERENCES.systemAudio
+
+  return { quality, systemAudio }
 }
 
 // Nunca lança — `localStorage` ausente/corrompido/indisponível (modo privado,
