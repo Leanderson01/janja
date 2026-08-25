@@ -7,6 +7,7 @@ import { handleCallback, getUser } from './auth/auth'
 import { setupAuthIpcHandlers, notifyAuthChange } from './auth/ipc-handlers'
 import { startPttHook, setPttModeActive, stopPttHook } from './voice/ptt'
 import { registerScreenShareHandler } from './screenshare'
+import { registerScreenShareAudioHandlers } from './screenshare-audio'
 import { VOICE_CHANNELS } from './voice/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -165,6 +166,17 @@ if (!gotTheLock) {
     // for fechada), então o seletor precisa resolver a janela no momento do
     // pedido de captura, não agora.
     registerScreenShareHandler(() => mainWindow)
+
+    // Fase 8.6 (SHARE-03): áudio do compartilhamento capturado por PROCESSO,
+    // em modo EXCLUIR — o sistema inteiro MENOS a árvore de processos deste
+    // app. É o que mata o eco por construção, sem depender de constraint
+    // nenhuma. Aqui do lado do registro acima, e pelo mesmo motivo: a janela
+    // vai como GETTER, porque ela ainda não existe neste ponto.
+    //
+    // O módulo carrega o addon nativo de forma PREGUIÇOSA (nunca no topo do
+    // arquivo): fora do Windows o `require` falha, e a falha vira "sem áudio,
+    // com motivo" em vez de derrubar o processo main.
+    registerScreenShareAudioHandlers(() => mainWindow)
 
     createWindow()
 
