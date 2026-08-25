@@ -19,8 +19,9 @@
     "verify:no-secrets": "node scripts/verify-no-secrets.mjs",
     "verify:renderer-runtime": "node scripts/verify-renderer-runtime.mjs",
     "verify:convex-paths": "node scripts/verify-convex-paths.mjs",
+    "verify:native-audio": "node scripts/verify-native-audio-packaging.mjs",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run verify:build-env && npm run build && npm run verify:renderer-runtime && npm run verify:no-secrets && electron-builder --win",
+    "build:win": "npm run verify:build-env && npm run build && npm run verify:renderer-runtime && npm run verify:native-audio && npm run verify:no-secrets && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "typecheck:convex": "node scripts/verify-convex-paths.mjs && tsc --noEmit -p tsconfig.convex.json"
