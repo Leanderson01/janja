@@ -9,9 +9,78 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+
+  # --- Ferramenta de BUILD que entrou como dependencia de RUNTIME -------------
+  # `loopback-capture` declara `cmake-js` em `dependencies` (nao em
+  # devDependencies), e o electron-builder empacota `dependencies`. O cmake-js so
+  # roda no script `compile` do proprio pacote, que nunca executamos: o `.node`
+  # x64 ja vem pre-compilado no tarball. Nada dele e requerido em runtime —
+  # `dist/index.cjs` do loopback-capture requer apenas `bindings` e `node:os`
+  # (medido: grep -o 'require("[^"]*")' node_modules/loopback-capture/dist/index.cjs).
+  #
+  # A lista abaixo NAO e suposicao. Foi MEDIDA comparando o fecho de dependencias
+  # de producao com e sem a aresta loopback-capture -> cmake-js:
+  #   com a aresta: 145 pacotes | sem a aresta: 106 | exclusivos do cmake-js: 39
+  # e conferida contra o fecho a partir dos requires que sobrevivem nos bundles
+  # (out/main/index.js e out/preload/index.js), que sao 9 pacotes:
+  #   @electron-toolkit/{preload,utils}, @workos-inc/node, bindings,
+  #   file-uri-to-path, loopback-capture, node-addon-api, node-gyp-build,
+  #   uiohook-napi — nenhum deles na lista abaixo (colisao: NENHUMA).
+  # `bindings`, `file-uri-to-path` e `node-addon-api` NAO sao excluidos:
+  # `bindings` e requerido em runtime para achar o .node.
+  # Antes da exclusao o app.asar continha os 39; a asercao 4 de
+  # scripts/verify-native-audio-packaging.mjs falha o build se cmake-js voltar, e
+  # a asercao 5 falha se alguma destas exclusoes derrubar algo que o runtime usa.
+  - '!node_modules/@isaacs/fs-minipass/**'
+  - '!node_modules/ansi-regex/**'
+  - '!node_modules/ansi-styles/**'
+  - '!node_modules/chownr/**'
+  - '!node_modules/cliui/**'
+  - '!node_modules/cmake-js/**'
+  - '!node_modules/color-convert/**'
+  - '!node_modules/color-name/**'
+  - '!node_modules/debug/**'
+  - '!node_modules/deep-extend/**'
+  - '!node_modules/emoji-regex/**'
+  - '!node_modules/escalade/**'
+  - '!node_modules/fs-extra/**'
+  - '!node_modules/get-caller-file/**'
+  - '!node_modules/graceful-fs/**'
+  - '!node_modules/ini/**'
+  - '!node_modules/is-fullwidth-code-point/**'
+  - '!node_modules/isexe/**'
+  - '!node_modules/jsonfile/**'
+  - '!node_modules/minimist/**'
+  - '!node_modules/minipass/**'
+  - '!node_modules/minizlib/**'
+  - '!node_modules/ms/**'
+  - '!node_modules/node-api-headers/**'
+  - '!node_modules/rc/**'
+  - '!node_modules/require-directory/**'
+  - '!node_modules/semver/**'
+  - '!node_modules/string-width/**'
+  - '!node_modules/strip-ansi/**'
+  - '!node_modules/strip-json-comments/**'
+  - '!node_modules/tar/**'
+  - '!node_modules/universalify/**'
+  - '!node_modules/url-join/**'
+  - '!node_modules/which/**'
+  - '!node_modules/wrap-ansi/**'
+  - '!node_modules/y18n/**'
+  - '!node_modules/yallist/**'
+  - '!node_modules/yargs/**'
+  - '!node_modules/yargs-parser/**'
 asarUnpack:
   - resources/**
   - node_modules/uiohook-napi/**
+  # Um .node dentro do app.asar nao pode ser carregado: o LoadLibrary do Windows
+  # precisa de um caminho de arquivo REAL no disco, e o asar e um arquivo unico.
+  # `app.asar.unpacked/` e onde ele fica de verdade. Mesmo precedente do
+  # uiohook-napi (Fase 9). Desempacotamos o diretorio inteiro, e nao so o .node,
+  # porque `bindings` sobe de `dist/index.cjs` ate achar um `package.json` para
+  # descobrir o module_root — se o package.json ficasse dentro do asar e o .node
+  # fora, a resolucao apontaria para o lugar errado.
+  - node_modules/loopback-capture/**
 win:
   executableName: Hydra
 nsis:
