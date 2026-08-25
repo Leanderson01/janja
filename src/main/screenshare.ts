@@ -12,11 +12,14 @@ import {
   type ScreenShareChoice,
   type ScreenShareSource
 } from './screenshare-types'
+import { isProcessAudioSupported } from './screenshare-audio'
+import type { ScreenShareAudioCapability } from './screenshare-audio-types'
 
-// SHARE-01/03/04 (Planos 08-02 e 08-04): captura de tela + áudio de sistema,
-// com seletor próprio. A correção do eco (Pitfall 1, 2026-08-20) fez do áudio
-// de sistema uma concessão condicional em vez de incondicional — ver o bloco
-// no fim do handler.
+// SHARE-01/03/04 (Planos 08-02 e 08-04): captura de tela com seletor próprio.
+//
+// Fase 8.6: este handler concede SÓ VÍDEO, sempre, em todos os caminhos. O
+// áudio do compartilhamento deixou de sair daqui — ver o bloco no fim do
+// handler e `src/main/screenshare-audio.ts`.
 //
 // O renderer nunca chama `desktopCapturer` — ele chama `getDisplayMedia()`
 // (por baixo de `setScreenShareEnabled` do livekit-client), e o Chromium
@@ -70,7 +73,12 @@ let registered = false
  */
 /**
  * A escolha resolvida: a fonte concreta do `desktopCapturer` mais o que o
- * usuário decidiu sobre o áudio de sistema no diálogo.
+ * usuário decidiu sobre o áudio no diálogo.
+ *
+ * `systemAudio` continua atravessando o IPC e continua sendo LOGADO aqui, mas
+ * o processo main não decide mais nada com ele: quem age sobre a escolha do
+ * usuário é o renderer, que relê a preferência persistida depois que o seletor
+ * fecha e só então inicia (ou não) a captura por processo.
  */
 type PickResult = {
   source: DesktopCapturerSource
@@ -121,7 +129,7 @@ function settlePending(choice: ScreenShareChoice | null): void {
  * `systemAudio` é comparado com `=== true` em vez de validado — payload
  * malformado vira "sem áudio de sistema", não vira cancelamento. É a mesma
  * escolha do `sanitize` de `screenshare-preferences.ts`, pelo mesmo motivo:
- * o único valor que LIGA o loopback é um `true` literal e explícito, e a
+ * o único valor que LIGA o áudio é um `true` literal e explícito, e a
  * degradação (compartilhar sem som) é infinitamente melhor que a falha
  * (não compartilhar) ou que o defeito (eco de volta na call).
  */
@@ -156,7 +164,7 @@ function toSerializableSource(source: DesktopCapturerSource): ScreenShareSource 
 function requestPick(
   window: BrowserWindow,
   sources: DesktopCapturerSource[],
-  audioAvailable: boolean
+  audioCapability: ScreenShareAudioCapability
 ): Promise<PickResult | null> {
   // Defesa 4: se por algum caminho inesperado um pedido anterior ainda estiver
   // pendente, ele é cancelado agora. Sem isto, o `getDisplayMedia` antigo
@@ -183,9 +191,13 @@ function requestPick(
     try {
       window.webContents.send(SCREENSHARE_CHANNELS.PICK_REQUESTED, {
         sources: sources.map(toSerializableSource),
-        // O diálogo precisa saber se o áudio SEQUER foi pedido nesta chamada
+        // O diálogo precisa saber se ESTA MÁQUINA consegue áudio por processo,
         // para poder ser honesto no toggle — ver `ScreenSharePickRequest`.
-        audioAvailable
+        // Não é mais "o renderer pediu áudio nesta chamada": nada de áudio é
+        // fixado antes do diálogo, então ligar o toggle aqui dentro passa a
+        // valer para ESTA transmissão.
+        audioAvailable: audioCapability.supported,
+        ...(audioCapability.supported ? {} : { audioUnavailableReason: audioCapability.reason })
       })
     } catch (err) {
       console.error('[screenshare] falha ao enviar a lista de fontes ao renderer:', err)
@@ -233,9 +245,11 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
   // chama é responsável por isso (ver src/main/index.ts).
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     // `audioRequested` reflete a constraint que o renderer passou a
-    // `getDisplayMedia()` — ela é fixada ANTES de o seletor abrir e não pode
-    // mudar depois. Guardada aqui para compor o E lógico da concessão lá
-    // embaixo (ver `ScreenShareChoice` em screenshare-types.ts).
+    // `getDisplayMedia()`. Desde a Fase 8.6 ela é SEMPRE `false` (o renderer
+    // pede `audio: false`) e não compõe mais concessão nenhuma — é lida só
+    // para o log, porque saber que alguém pediu algo que não vai receber é
+    // exatamente o tipo de coisa que se quer ver no console quando o áudio
+    // sumir sem explicação.
     const audioRequested = request?.audioRequested === true
     let sources: DesktopCapturerSource[]
     try {
@@ -270,9 +284,14 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
       return
     }
 
+    // A capacidade REAL desta máquina de capturar áudio por processo — é isso
+    // que o seletor recebe em `audioAvailable`. Barato de consultar: em
+    // não-Windows nem chega a tocar no addon, e a carga do addon é cacheada.
+    const audioCapability = isProcessAudioSupported()
+
     let chosen: PickResult | null
     try {
-      chosen = await requestPick(window, sources, audioRequested)
+      chosen = await requestPick(window, sources, audioCapability)
     } catch (err) {
       // `requestPick` foi escrita para nunca rejeitar; este catch existe para
       // que "nunca" continue verdadeiro se alguém a mudar.
@@ -291,44 +310,39 @@ export function registerScreenShareHandler(getMainWindow: () => BrowserWindow | 
     }
 
     // ------------------------------------------------------------------
-    // A correção do Pitfall 1 mora nestas linhas.
+    // ESTA CONCESSÃO É SÓ VÍDEO, EM TODOS OS CAMINHOS. NÃO ACRESCENTE `audio`.
     //
-    // `audio: 'loopback'` é o áudio de SISTEMA do Windows (WASAPI loopback),
-    // não o microfone — e ele captura TUDO que sai pelo dispositivo de saída,
-    // inclusive a voz dos outros participantes que o próprio app está
-    // tocando. Era concedido incondicionalmente, e é essa concessão (não o
-    // pedido do renderer) que cria a captura: por isso o eco relatado em
-    // 2026-08-20 acontecia mesmo com `restrictOwnAudio: true` do outro lado.
+    // 1. `audio: 'loopback'` é loopback de DISPOSITIVO: o Windows entrega
+    //    tudo que sai pela saída padrão da placa — inclusive a voz dos outros
+    //    participantes, que é este mesmo app que está tocando. Quem
+    //    compartilhava devolvia todo mundo para a call com atraso. É o
+    //    defeito de 2026-08-20, com 4 pessoas numa chamada, e ele vinha da
+    //    CONCESSÃO (não do pedido do renderer): era o `callback` daqui que
+    //    criava a captura WASAPI. NUNCA CONCEDER, EM NENHUM CAMINHO. O E
+    //    lógico com o pedido do renderer, que existiu entre o FIX e esta
+    //    fase, também morreu: uma porta que só abre às vezes continua sendo
+    //    uma porta.
     //
-    // Agora é um E lógico dos dois lados, e o lado restritivo vence:
-    //  - o usuário precisa ter deixado o toggle ligado no diálogo;
-    //  - o renderer precisa ter pedido áudio nesta chamada.
+    // 2. `'loopbackWithMute'` — a outra string que o Electron aceita
+    //    (`electron.d.ts:23719-23723`) — NÃO É a saída. Ela silencia a
+    //    reprodução local do dispositivo: mata o eco calando quem
+    //    compartilha, que passa a não ouvir mais a call em que está. Trocar
+    //    "todo mundo se ouvindo" por "o apresentador surdo" não é correção.
     //
-    // Sem concessão não existe track de áudio nenhuma na captura — eco zero
-    // por construção, sem depender de o Chromium honrar constraint alguma.
-    //
-    // `restrictOwnAudio` continua sendo passada do renderer quando o áudio
-    // está ligado; ela é a defesa PARA o caso ligado, não a que sustenta o
-    // caso desligado. Ver `screenshare-diagnostics.ts` para saber se ela está
-    // sendo aplicada de fato nesta máquina.
+    // 3. O áudio agora vem de outro lugar: `src/main/screenshare-audio.ts`,
+    //    captura WASAPI POR PROCESSO em modo EXCLUIR (o sistema inteiro menos
+    //    a árvore de processos deste app), entregue como PCM ao renderer e
+    //    publicada por ele como uma track SEPARADA
+    //    (`Track.Source.ScreenShareAudio`). O `getDisplayMedia` desta fase é
+    //    só vídeo, e é por isso que ele pode ser incondicional.
     // ------------------------------------------------------------------
-    const grantLoopback = chosen.systemAudio && audioRequested
-    if (chosen.systemAudio && !audioRequested) {
-      // Só acontece quando o usuário LIGA o toggle dentro do diálogo tendo
-      // começado com ele desligado: a constraint desta chamada já foi
-      // fechada. A escolha ficou persistida e vale a partir do próximo
-      // compartilhamento — e o diálogo já avisou isso na tela.
-      console.warn(
-        '[screenshare] áudio de sistema pedido no seletor, mas esta captura foi aberta sem áudio — vale a partir do próximo compartilhamento'
-      )
-    }
     console.log(
-      '[screenshare] concedendo captura: fonte=%s audioRequested=%s escolhaDoUsuario=%s loopbackConcedido=%s',
+      '[screenshare] concedendo captura (só vídeo): fonte=%s audioRequested=%s escolhaDoUsuario=%s audioPorProcessoDisponivel=%s',
       chosen.source.id,
       audioRequested,
       chosen.systemAudio,
-      grantLoopback
+      audioCapability.supported
     )
-    callback(grantLoopback ? { video: chosen.source, audio: 'loopback' } : { video: chosen.source })
+    callback({ video: chosen.source })
   })
 }

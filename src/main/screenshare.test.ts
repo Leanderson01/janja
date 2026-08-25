@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PICKER_TIMEOUT_MS, SCREENSHARE_CHANNELS } from './screenshare-types'
+import {
+  PICKER_TIMEOUT_MS,
+  SCREENSHARE_CHANNELS,
+  type ScreenSharePickRequest
+} from './screenshare-types'
 
 // Pitfall 2 (PITFALLS.md) é a razão deste arquivo existir: um handler de
 // `setDisplayMediaRequestHandler` que termina sem chamar `callback` deixa a
@@ -20,10 +24,16 @@ import { PICKER_TIMEOUT_MS, SCREENSHARE_CHANNELS } from './screenshare-types'
 // contrato do handler, não que a captura funciona (WSL2 não tem tela nem
 // áudio, e `desktopCapturer` real nunca roda aqui).
 
-const { getSourcesMock, setDisplayMediaRequestHandlerMock, ipcMainOnMock } = vi.hoisted(() => ({
+const {
+  getSourcesMock,
+  setDisplayMediaRequestHandlerMock,
+  ipcMainOnMock,
+  isProcessAudioSupportedMock
+} = vi.hoisted(() => ({
   getSourcesMock: vi.fn(),
   setDisplayMediaRequestHandlerMock: vi.fn(),
-  ipcMainOnMock: vi.fn()
+  ipcMainOnMock: vi.fn(),
+  isProcessAudioSupportedMock: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -34,13 +44,27 @@ vi.mock('electron', () => ({
   }
 }))
 
+// O portão de capacidade real (`src/main/screenshare-audio.ts`) consulta
+// `process.platform`, `os.release()` e tenta `require` de um `.node` que só
+// existe para Windows — neste ambiente ele responderia sempre `not-windows` e
+// os dois lados de `audioAvailable` nunca seriam exercitados. Mockado, porque
+// o que este arquivo prova é o CONTRATO do handler: o que a capacidade disser,
+// o seletor recebe.
+vi.mock('./screenshare-audio', () => ({
+  isProcessAudioSupported: isProcessAudioSupportedMock
+}))
+
+// `audio` continua no tipo DE PROPÓSITO, mesmo que nenhum caminho do handler
+// possa produzi-lo: é o que permite escrever a varredura que cobra a ausência
+// da chave. Um tipo que não admite `audio` provaria o teste, não o código.
 type Streams = { video?: { id: string; name: string }; audio?: string }
 type DisplayMediaHandler = (request: unknown, callback: (streams: Streams) => void) => Promise<void>
 
-// O que o Chromium entrega ao handler. `audioRequested` é a metade do E
-// lógico que o renderer controla (a constraint de `getDisplayMedia`); a outra
-// metade é o toggle do seletor, que chega em `choice()` abaixo. Concessão de
-// loopback = as duas verdadeiras.
+// O que o Chromium entrega ao handler. `audioRequested` era metade de um E
+// lógico até a Fase 8.6; hoje NÃO decide nada — o renderer pede
+// `audio: false` sempre, e o handler concede só vídeo em qualquer caso. As
+// duas constantes continuam aqui justamente para provar essa indiferença: o
+// `true` é o cenário que ANTES abria a porta do loopback.
 const AUDIO_REQUESTED = { audioRequested: true }
 const AUDIO_NOT_REQUESTED = { audioRequested: false }
 
@@ -106,6 +130,9 @@ async function waitForPicker(window: FakeWindow): Promise<void> {
 describe('registerScreenShareHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Padrão dos testes: máquina capaz. Quem prova o caminho de
+    // indisponibilidade sobrescreve.
+    isProcessAudioSupportedMock.mockReturnValue({ supported: true })
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A linha de diagnóstico da concessão (`[screenshare] concedendo
@@ -211,23 +238,53 @@ describe('registerScreenShareHandler', () => {
       await done
     })
 
-    it('conta ao seletor se o áudio sequer foi pedido nesta captura', async () => {
+    it('conta ao seletor que ESTA MÁQUINA suporta áudio por processo', async () => {
       getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+      isProcessAudioSupportedMock.mockReturnValue({ supported: true })
       const { handler, window, emit } = await setup()
 
+      // `audioRequested: false` de propósito: na Fase 8.6 é sempre isso que o
+      // renderer manda, e `audioAvailable` NÃO pode mais espelhá-lo.
       const done = handler(AUDIO_NOT_REQUESTED, vi.fn())
       await waitForPicker(window)
 
-      // Sem isto o diálogo mentiria: o usuário ligaria o toggle e não sairia
-      // som nenhum, porque a constraint desta chamada de `getDisplayMedia`
-      // já foi fechada antes de o seletor abrir.
-      expect(window.webContents.send).toHaveBeenCalledWith(
-        SCREENSHARE_CHANNELS.PICK_REQUESTED,
-        expect.objectContaining({ audioAvailable: false })
-      )
+      const payload = window.webContents.send.mock.calls.at(-1)?.[1] as ScreenSharePickRequest
+      expect(payload.audioAvailable).toBe(true)
+      // Sem motivo quando dá: um `reason` presente com `audioAvailable: true`
+      // seria uma contradição para o diálogo desenhar.
+      expect(payload.audioUnavailableReason).toBeUndefined()
 
       emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
       await done
+    })
+
+    it('conta ao seletor o MOTIVO quando esta máquina não suporta', async () => {
+      getSourcesMock.mockResolvedValue([fakeSource('screen:0:0', 'Tela 1')])
+
+      // Os quatro motivos do portão (`screenshare-audio-types.ts`) — o
+      // diálogo precisa deles para dizer "precisa do Windows 11" em vez de
+      // apenas desabilitar um toggle sem explicação.
+      for (const reason of [
+        'not-windows',
+        'windows-too-old',
+        'addon-unavailable',
+        'start-failed'
+      ] as const) {
+        isProcessAudioSupportedMock.mockReturnValue({ supported: false, reason })
+        const { handler, window, emit } = await setup()
+
+        const done = handler(AUDIO_REQUESTED, vi.fn())
+        await waitForPicker(window)
+
+        const payload = window.webContents.send.mock.calls.at(-1)?.[1] as ScreenSharePickRequest
+        // `audioRequested: true` e ainda assim `false`: a pergunta que este
+        // campo responde deixou de ser "o renderer pediu?".
+        expect(payload.audioAvailable).toBe(false)
+        expect(payload.audioUnavailableReason).toBe(reason)
+
+        emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+        await done
+      }
     })
 
     it('chama callback({}) quando não existe janela para exibir o seletor', async () => {
@@ -269,7 +326,7 @@ describe('registerScreenShareHandler', () => {
   })
 
   describe('resposta do usuário', () => {
-    it('concede a fonte escolhida com loopback quando os DOIS lados querem áudio', async () => {
+    it('concede a fonte escolhida — e só o vídeo dela', async () => {
       const screen = fakeSource('screen:0:0', 'Tela 1')
       const chosen = fakeSource('window:42:0', 'Navegador', true)
       getSourcesMock.mockResolvedValue([screen, chosen])
@@ -281,9 +338,11 @@ describe('registerScreenShareHandler', () => {
       emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('window:42:0'))
       await done
 
-      // A fonte concedida é a ESCOLHIDA, não `sources[0]` (Plano 08-02).
+      // A fonte concedida é a ESCOLHIDA, não `sources[0]` (Plano 08-02) — e
+      // vem sozinha: `audioRequested: true` + toggle ligado era exatamente a
+      // combinação que abria o loopback de dispositivo até a Fase 8.6.
       expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith({ video: chosen, audio: 'loopback' })
+      expect(callback).toHaveBeenCalledWith({ video: chosen })
     })
 
     it('chama callback({}) exatamente uma vez quando o usuário cancela', async () => {
@@ -345,7 +404,7 @@ describe('registerScreenShareHandler', () => {
       await done
 
       expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(callback).toHaveBeenCalledWith({ video: screen })
     })
 
     it('não quebra com resposta do renderer sem nenhuma escolha pendente', async () => {
@@ -365,13 +424,231 @@ describe('registerScreenShareHandler', () => {
   // não bastou.
   //
   // A concessão é o único lugar onde a captura de fato nasce — pedir não é
-  // conceder. Estes testes cobram o E lógico: loopback só quando o renderer
-  // pediu áudio E o usuário deixou o toggle ligado. Qualquer outro caso
-  // precisa sair SEM a chave `audio`, porque é isso que garante eco zero por
-  // construção, sem depender de o Chromium honrar constraint nenhuma.
+  // conceder. Até a Fase 8.6 estes testes cobravam um E lógico (loopback só
+  // quando os dois lados quisessem); agora cobram algo mais forte e mais fácil
+  // de verificar: **nenhum caminho do handler produz a chave `audio`**. Uma
+  // porta que só abre às vezes continua sendo uma porta.
   // ------------------------------------------------------------------
-  describe('concessão do áudio de sistema (Pitfall 1 — eco)', () => {
-    it('NÃO concede loopback quando o usuário desligou o áudio no seletor', async () => {
+  describe('a porta do loopback de dispositivo está fechada (Pitfall 1 — eco)', () => {
+    // A VARREDURA. Não é "mais um caso": é a regra inteira, cobrada sobre
+    // TODOS os caminhos do handler que chegam a chamar `callback`, de uma vez
+    // só. Um caso a mais provaria um caminho; isto prova que não existe
+    // caminho nenhum sobrando — que é exatamente a diferença entre "o eco foi
+    // corrigido onde a gente olhou" e "a porta não existe mais".
+    //
+    // Um caminho novo acrescentado ao handler no futuro só passa aqui se for
+    // acrescentado a esta lista, e é essa fricção que se quer.
+    it('varredura: NENHUM caminho do handler concede a chave `audio`', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      type Cenario = { nome: string; rodar: () => Promise<Array<ReturnType<typeof vi.fn>>> }
+
+      const cenarios: Cenario[] = [
+        {
+          nome: 'getSources rejeita',
+          rodar: async () => {
+            getSourcesMock.mockRejectedValue(new Error('boom'))
+            const { handler } = await setup()
+            const cb = vi.fn()
+            await handler(AUDIO_REQUESTED, cb)
+            return [cb]
+          }
+        },
+        {
+          nome: 'nenhuma fonte disponível',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([])
+            const { handler } = await setup()
+            const cb = vi.fn()
+            await handler(AUDIO_REQUESTED, cb)
+            return [cb]
+          }
+        },
+        {
+          nome: 'sem janela para exibir o seletor',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler } = await setup(null)
+            const cb = vi.fn()
+            await handler(AUDIO_REQUESTED, cb)
+            return [cb]
+          }
+        },
+        {
+          nome: 'janela já destruída',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler } = await setup(fakeWindow(true))
+            const cb = vi.fn()
+            await handler(AUDIO_REQUESTED, cb)
+            return [cb]
+          }
+        },
+        {
+          nome: 'envio da lista ao renderer lança',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const janela = fakeWindow()
+            janela.webContents.send.mockImplementation(() => {
+              throw new Error('IPC morto')
+            })
+            const { handler } = await setup(janela)
+            const cb = vi.fn()
+            await handler(AUDIO_REQUESTED, cb)
+            return [cb]
+          }
+        },
+        {
+          nome: 'usuário cancela',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CANCEL_PICKER)
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'id desconhecido',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('window:999:0'))
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'payload sem sourceId',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, { id: 'screen:0:0' })
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'escolha com toggle LIGADO e renderer pedindo áudio (o caso que abria a porta)',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'escolha com toggle LIGADO e renderer sem pedir áudio',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_NOT_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'escolha com toggle DESLIGADO',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', false))
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'escolha com systemAudio malformado',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, {
+              sourceId: 'screen:0:0',
+              systemAudio: 'true'
+            })
+            await done
+            return [cb]
+          }
+        },
+        {
+          nome: 'máquina SEM suporte a áudio por processo, com o toggle ligado',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            isProcessAudioSupportedMock.mockReturnValue({
+              supported: false,
+              reason: 'addon-unavailable'
+            })
+            const { handler, window, emit } = await setup()
+            const cb = vi.fn()
+            const done = handler(AUDIO_REQUESTED, cb)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+            await done
+            isProcessAudioSupportedMock.mockReturnValue({ supported: true })
+            return [cb]
+          }
+        },
+        {
+          nome: 'pedido novo cancela o anterior (dois callbacks vivos ao mesmo tempo)',
+          rodar: async () => {
+            getSourcesMock.mockResolvedValue([screen])
+            const { handler, window, emit } = await setup()
+            const primeiro = vi.fn()
+            const primeiroDone = handler(AUDIO_REQUESTED, primeiro)
+            await waitForPicker(window)
+
+            window.webContents.send.mockClear()
+            const segundo = vi.fn()
+            const segundoDone = handler(AUDIO_REQUESTED, segundo)
+            await waitForPicker(window)
+            emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+            await Promise.all([primeiroDone, segundoDone])
+            return [primeiro, segundo]
+          }
+        }
+      ]
+
+      for (const { nome, rodar } of cenarios) {
+        const callbacks = await rodar()
+        for (const cb of callbacks) {
+          // Pitfall 2 continua valendo dentro da varredura: exatamente um.
+          expect(cb, nome).toHaveBeenCalledTimes(1)
+          const concedido = cb.mock.calls[0]?.[0] as Streams
+          // `not.toContain('audio')` e não `audio: undefined`: a chave não
+          // pode nem EXISTIR. `{ video, audio: undefined }` é a forma
+          // documentada de errar aqui.
+          expect(Object.keys(concedido ?? {}), nome).not.toContain('audio')
+          expect(JSON.stringify(concedido ?? {}), nome).not.toContain('loopback')
+        }
+      }
+
+      // O timeout defensivo é o 15º caminho e tem suíte própria (precisa de
+      // relógio falso); ele também termina em `callback({})`.
+      expect(cenarios).toHaveLength(14)
+    })
+
+    it('não concede áudio quando o usuário desligou o toggle no seletor', async () => {
       const screen = fakeSource('screen:0:0', 'Tela 1')
       getSourcesMock.mockResolvedValue([screen])
       const { handler, window, emit } = await setup()
@@ -383,29 +660,57 @@ describe('registerScreenShareHandler', () => {
       await done
 
       // `{ video }` sem a chave `audio` — não `{ video, audio: undefined }`,
-      // e muito menos `audio: 'loopback'`. Este é o caminho DEFAULT do app.
+      // e muito menos `audio: 'loopback'` — hoje esse valor não é produzível
+      // por caminho nenhum (ver a varredura acima).
       expect(callback).toHaveBeenCalledTimes(1)
       expect(callback).toHaveBeenCalledWith({ video: screen })
     })
 
-    it('NÃO concede loopback quando o renderer não pediu áudio, mesmo com o toggle ligado', async () => {
+    it('`systemAudio: true` na escolha NÃO muda o que é concedido', async () => {
       const screen = fakeSource('screen:0:0', 'Tela 1')
       getSourcesMock.mockResolvedValue([screen])
-      const { handler, window, emit } = await setup()
 
-      const callback = vi.fn()
-      const done = handler(AUDIO_NOT_REQUESTED, callback)
-      await waitForPicker(window)
-      emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
-      await done
+      // Os dois valores de `audioRequested` cruzados com o toggle LIGADO: a
+      // concessão é a mesma nos dois, byte por byte.
+      for (const request of [AUDIO_REQUESTED, AUDIO_NOT_REQUESTED]) {
+        const { handler, window, emit } = await setup()
+        const callback = vi.fn()
+        const done = handler(request, callback)
+        await waitForPicker(window)
+        emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+        await done
 
-      // O usuário ligou o toggle DENTRO do diálogo, com a captura já aberta
-      // sem áudio. A escolha fica persistida para a próxima vez; conceder
-      // loopback agora seria conceder uma captura que o renderer não vai
-      // consumir. E o descompasso é avisado, nunca silencioso.
-      expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith({ video: screen })
-      expect(console.warn).toHaveBeenCalled()
+        expect(callback).toHaveBeenCalledTimes(1)
+        expect(callback).toHaveBeenCalledWith({ video: screen })
+      }
+
+      // E não há mais aviso de "vale a partir do próximo compartilhamento":
+      // esse descompasso deixou de existir, porque nada de áudio é fixado
+      // antes do diálogo abrir.
+      expect(console.warn).not.toHaveBeenCalled()
+    })
+
+    it('a capacidade da máquina não influencia a concessão — ela é sempre só vídeo', async () => {
+      const screen = fakeSource('screen:0:0', 'Tela 1')
+      getSourcesMock.mockResolvedValue([screen])
+
+      for (const capability of [
+        { supported: true },
+        { supported: false, reason: 'windows-too-old', detail: '10.0.19045' }
+      ]) {
+        isProcessAudioSupportedMock.mockReturnValue(capability)
+        const { handler, window, emit } = await setup()
+        const callback = vi.fn()
+        const done = handler(AUDIO_REQUESTED, callback)
+        await waitForPicker(window)
+        emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
+        await done
+
+        // Máquina capaz não é motivo para conceder loopback: o áudio dela vem
+        // por FORA do `getDisplayMedia` (captura por processo no renderer).
+        expect(callback).toHaveBeenCalledTimes(1)
+        expect(callback).toHaveBeenCalledWith({ video: screen })
+      }
     })
 
     it('trata systemAudio ausente ou não-booleano como desligado, sem cancelar', async () => {
@@ -451,7 +756,7 @@ describe('registerScreenShareHandler', () => {
       expect(callback).toHaveBeenCalledWith({ video: screen })
     })
 
-    it('sem áudio numa tentativa não impede loopback na seguinte', async () => {
+    it('a decisão não fica pegajosa entre tentativas sucessivas', async () => {
       const screen = fakeSource('screen:0:0', 'Tela 1')
       getSourcesMock.mockResolvedValue([screen])
       const { handler, window, emit } = await setup()
@@ -469,9 +774,10 @@ describe('registerScreenShareHandler', () => {
       emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0', true))
       await secondDone
 
-      // A decisão é por compartilhamento, não pegajosa no processo main.
+      // A decisão é por compartilhamento, não pegajosa no processo main — e
+      // nas duas ela é a mesma coisa: só vídeo.
       expect(first).toHaveBeenCalledWith({ video: screen })
-      expect(second).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(second).toHaveBeenCalledWith({ video: screen })
     })
 
     it('cancelar continua sendo callback({}) — não vira uma concessão sem áudio', async () => {
@@ -526,7 +832,7 @@ describe('registerScreenShareHandler', () => {
       await vi.advanceTimersByTimeAsync(PICKER_TIMEOUT_MS * 2)
 
       expect(callback).toHaveBeenCalledTimes(1)
-      expect(callback).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(callback).toHaveBeenCalledWith({ video: screen })
     })
   })
 
@@ -554,7 +860,7 @@ describe('registerScreenShareHandler', () => {
       expect(first).toHaveBeenCalledTimes(1)
       expect(first).toHaveBeenCalledWith({})
       expect(second).toHaveBeenCalledTimes(1)
-      expect(second).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(second).toHaveBeenCalledWith({ video: screen })
     })
 
     it('um pedido novo cancela o anterior em vez de deixar dois pendentes', async () => {
@@ -580,7 +886,7 @@ describe('registerScreenShareHandler', () => {
       emit(SCREENSHARE_CHANNELS.CHOOSE_SOURCE, choice('screen:0:0'))
       await secondDone
       expect(second).toHaveBeenCalledTimes(1)
-      expect(second).toHaveBeenCalledWith({ video: screen, audio: 'loopback' })
+      expect(second).toHaveBeenCalledWith({ video: screen })
       expect(first).toHaveBeenCalledTimes(1)
     })
   })
