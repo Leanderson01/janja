@@ -90,10 +90,13 @@ function AuthProvider({ children }: { children: ReactNode }): React.JSX.Element 
       // O QUE SE PERDE, COM TODAS AS LETRAS: o refresh token fica em
       // `localStorage`, legível por JavaScript da própria origem. O risco
       // concreto é XSS. A MITIGAÇÃO É REQUISITO VERIFICÁVEL, NÃO BOA INTENÇÃO:
-      // zero `dangerouslySetInnerHTML` e zero ESCRITA de `innerHTML` no
-      // renderer (hoje: zero e zero — as ocorrências de `innerHTML` no repo são
-      // LEITURAS em asserções de `LinkPreviewCard.test.tsx`), CSP restritiva
-      // mantida em `src/renderer/index.html`, e nenhum script de terceiro.
+      // zero `dangerouslySetInnerHTML` em qualquer lugar e zero ESCRITA de
+      // `innerHTML` em código de PRODUÇÃO. Contagem de hoje, conferida:
+      // `dangerouslySetInnerHTML` = 0; `innerHTML` = 6 ocorrências, todas em
+      // teste — 5 LEITURAS em asserções de `LinkPreviewCard.test.tsx` e 1
+      // escrita de string CONSTANTE vazia em `platform/web/ptt.test.ts`.
+      // Também: CSP restritiva mantida em `src/renderer/index.html` (sem
+      // `unsafe-inline` em `script-src`) e nenhum script de terceiro.
       // Essa contagem passa a ser invariante do projeto: quem a quebrar está
       // entregando o refresh token de todo mundo junto.
       devMode={true}
