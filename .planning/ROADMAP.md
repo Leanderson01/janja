@@ -31,6 +31,7 @@ o resto existe para sustentá-las.
 - [ ] **Fase 7: Voz** - Call estável de 10 pessoas, controles completos
 - [ ] **Fase 8: Compartilhamento de tela** - Tela + áudio de sistema sem eco
 - [ ] **Fase 9: Polimento e empacotamento** - Instalador Windows, regressão final
+- [ ] **Fase 10: Versão web** - Navegador, sem instalar; sem PTT global (bloqueada pela verificação)
 
 ## Paralelismo
 
@@ -402,6 +403,54 @@ Plans:
 - [ ] 09-02 — AUTH-07: página de conclusão de login via HTTP action do Convex, e correção do throw em escopo de módulo do convex-client
 - [ ] 09-03 — Checkpoints: config no WorkOS, instalador em máquina limpa, e regressão final com 10 pessoas
 
+### Fase 10: Versão web
+
+**Goal**: Quem não quer instalar nada entra pelo navegador e usa chat, servidores,
+canais, amigos, DMs e voz — sabendo, na própria interface, o que a web não faz.
+
+**Depends on**: a sessão de verificação em Windows (`.planning/CHECKPOINT-WINDOWS.md`)
+e a resolução do eco de áudio de sistema. **Não começar antes disso**: o app ainda não
+foi validado uma vez com o grupo, e abrir uma segunda plataforma dobra a superfície de
+verificação de algo que nunca foi verificado.
+
+**Origem**: pedido do Leo em 2026-08-20.
+
+**Medição que sustenta o escopo** (feita em 2026-08-20, não é estimativa): **10 dos 96
+arquivos** do renderer tocam a ponte do Electron. O resto é React comum e roda no
+navegador sem mudança. Os 10 se agrupam em três costuras de tamanhos muito diferentes:
+
+| Costura | Arquivos | Tamanho |
+|---|---|---|
+| Autenticação | 5 (`useAuth`, `useConvexAuthAdapter`, `AuthGate`, `AuthWatchdog`, `profile-hint`) | **grande** — hoje o login vai pelo processo main, volta por protocolo customizado e a sessão vive cifrada em disco. Na web vira o redirect normal do AuthKit, mais simples no fim, mas é reescrever o adaptador feito à mão sobre `ConvexProviderWithAuth` |
+| Compartilhamento de tela | 2 (`ScreenSharePicker`, `screenshare-diagnostics`) | **negativo** — o navegador traz o próprio seletor; os 9 caminhos de `callback()` e os 27 testes que os protegem deixam de existir |
+| Voz (push-to-talk) | 1 (`voice-context`) | **pequeno em código, caro em produto** — ver perdas abaixo |
+
+Convex e LiveKit não mudam: os dois já falam com o navegador, e o LiveKit já está atrás
+de TLS na VPS.
+
+**Perdas assumidas, por limite de plataforma e não por escopo:**
+
+1. **Push-to-talk sem foco (VOICE-11) morre.** Navegador não captura tecla fora de
+   foco — é a razão de existir o `uiohook-napi`. Na web, PTT só com o app em foco. Isso
+   precisa estar dito na interface, não descoberto pelo usuário no meio de uma call.
+2. **Áudio de sistema no compartilhamento fica mais fraco**: sem loopback do WASAPI,
+   sobra o que o próprio seletor do Chrome oferece. **Possível ganho escondido**: nesse
+   caminho quem monta a captura é o Chrome, que sabe de quem é cada fluxo — é plausível
+   que o eco encontrado em 2026-08-20 não exista na web. Se confirmar, a versão web
+   vira evidência sobre a causa do eco no desktop.
+3. Instância única, deep link, bandeja e atualização automática deixam de existir.
+
+**Hospedagem — decidido: Vercel.** O app é uma SPA que fala com o Convex; não há
+servidor para rodar. A VPS não ganharia nada e passaria a competir por banda com o
+LiveKit, que é quem realmente precisa dela. Custo de configuração: cadastrar a origem
+web como redirect URI novo na WorkOS.
+
+**Requirements**: a definir no planejamento. Provável requisito novo de "paridade
+declarada" — a web precisa dizer o que não faz.
+
+**Plans**: TBD
+
+
 ## Progress
 
 **Execution Order:**
@@ -422,6 +471,7 @@ implementadores distintos).
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/17 | Planned | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
+| 10. Versão web | 0/? | Planned (bloqueada pela verificação) | - |
 
 ---
 *Roadmap created: 2026-08-18*
