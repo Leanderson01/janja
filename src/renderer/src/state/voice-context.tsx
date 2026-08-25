@@ -56,6 +56,8 @@ import {
   type ParticipantVolumes
 } from '../lib/participant-volumes'
 
+import { pushToTalk } from '@platform/ptt'
+
 import { useSelection } from './selection-context'
 
 // VOICE-16: cancelamento de eco, supressão de ruído e ganho automático
@@ -645,7 +647,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // captura teclado à toa em modo 'vad' (o padrão). Sincroniza a cada vez
     // que a preferência é (re)aplicada, independente de haver canal
     // conectado agora (ver src/main/voice/ptt.ts).
-    window.voice.setPttModeActive(prefs.mode === 'ptt')
+    //
+    // No alvo web isto é no-op documentado (não há captura nativa para ligar);
+    // a chamada fica incondicional de propósito — quem sabe o que fazer com
+    // ela é a plataforma, não este arquivo.
+    pushToTalk.setActive(prefs.mode === 'ptt')
 
     if (activeChannelRef.current === null) return
 
@@ -1424,9 +1430,13 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Plano 07-06 (VOICE-11): push-to-talk real, via hook global de teclado
-  // no processo main — `globalShortcut` do Electron não separa
-  // keydown/keyup, então não dá pra fazer "segurar para falar" com ele.
+  // Plano 07-06 (VOICE-11): push-to-talk real. No DESKTOP, via hook global de
+  // teclado no processo main — `globalShortcut` do Electron não separa
+  // keydown/keyup, então não dá pra fazer "segurar para falar" com ele. No
+  // alvo WEB (Plano 10-02), via `keydown`/`keyup` na própria janela, que só
+  // funciona com o app em foco. Quem escolhe é o alias `@platform`; os dois
+  // handlers abaixo são idênticos nos dois alvos e não sabem qual está
+  // rodando.
   // Registrado uma única vez, no mount do provider — não depende de estar
   // conectado, já que o usuário pode segurar a tecla antes mesmo de entrar
   // num canal; nesses dois handlers, `activeChannelRef.current === null`
@@ -1438,31 +1448,31 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // track publicada) em vez de duplicar essa lógica aqui.
     applyVoicePreferences()
 
-    const offKeyDown = window.voice.onPttKeyDown(() => {
-      if (activeChannelRef.current === null) return
-      if (loadVoicePreferences().mode !== 'ptt') return
-      // Mute manual sempre vence — mesma regra do VAD (ver
-      // `startVadMonitor` acima): segurar a tecla de PTT nunca reabre o
-      // microfone se o usuário mutou pelo botão do rodapé.
-      if (manualMuteRef.current) return
-      void room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
-    })
-
-    const offKeyUp = window.voice.onPttKeyUp(() => {
-      if (activeChannelRef.current === null) return
-      if (loadVoicePreferences().mode !== 'ptt') return
-      // Desligar é sempre permitido, mesmo com mute manual ativo — harmless,
-      // a track já estaria desabilitada.
-      void room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+    const offPtt = pushToTalk.subscribe({
+      onDown: () => {
+        if (activeChannelRef.current === null) return
+        if (loadVoicePreferences().mode !== 'ptt') return
+        // Mute manual sempre vence — mesma regra do VAD (ver
+        // `startVadMonitor` acima): segurar a tecla de PTT nunca reabre o
+        // microfone se o usuário mutou pelo botão do rodapé.
+        if (manualMuteRef.current) return
+        void room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
+      },
+      onUp: () => {
+        if (activeChannelRef.current === null) return
+        if (loadVoicePreferences().mode !== 'ptt') return
+        // Desligar é sempre permitido, mesmo com mute manual ativo — harmless,
+        // a track já estaria desabilitada.
+        void room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+      }
     })
 
     return () => {
-      offKeyDown()
-      offKeyUp()
+      offPtt()
       // Nunca deixar a captura nativa do teclado ligada além da vida deste
       // provider (hot-reload/remontagem inclusos) — o mount seguinte
       // ressincroniza via `applyVoicePreferences()` acima.
-      window.voice.setPttModeActive(false)
+      pushToTalk.setActive(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
