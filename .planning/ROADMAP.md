@@ -507,10 +507,52 @@ servidor para rodar. A VPS não ganharia nada e passaria a competir por banda co
 LiveKit, que é quem realmente precisa dela. Custo de configuração: cadastrar a origem
 web como redirect URI novo na WorkOS.
 
-**Requirements**: a definir no planejamento. Provável requisito novo de "paridade
-declarada" — a web precisa dizer o que não faz.
+**Requirements**: WEB-01..WEB-05, registrados em `REQUIREMENTS.md` pelo Plano 10-09.
+O requisito novo de **paridade declarada** (WEB-05) foi confirmado no planejamento: a
+web precisa dizer o que não faz, a partir de uma única fonte de verdade
+(`capabilities`), nunca de uma string duplicada por tela.
 
-**Plans**: TBD
+**Pesquisa**: `.planning/phases/10-versao-web/10-RESEARCH.md`
+**Checkpoint operacional**: `.planning/CHECKPOINT-WEB.md` (criado pelo Plano 10-04)
+
+**Decisões travadas no planejamento** (não reabrir sem motivo novo):
+- Auth por `@workos-inc/authkit-react` + o `ConvexProviderWithAuth` que já existe.
+  **Sem** `@convex-dev/workos`: o `dist` publicado dele tem 30 linhas, não importa
+  `authkit-react` em runtime, é o `useConvexAuthAdapter.ts` que o repo já tem — e
+  descarta o `forceRefreshToken`, que é a alavanca do `AuthWatchdog` (Pitfall 4).
+- `devMode: true` no AuthKit (refresh token em `localStorage`). O cookie HttpOnly
+  exigiria custom auth domain da WorkOS a US$ 99/mês. Decisão de custo, com a
+  mitigação registrada como invariante: zero `dangerouslySetInnerHTML` no renderer.
+- O alvo web mantém `root: 'src/renderer'`. O `@tailwindcss/vite` varre a partir do
+  root do Vite; raiz diferente = build verde e **app sem estilo nenhum**.
+- Hospedagem na Vercel, preset "Other", `npm run build:web`, saída `dist-web`,
+  install `npm ci --ignore-scripts` (o `postinstall` baixa o Electron).
+- **Deploy cedo, no Plano 10-04**: configuração de WorkOS/Vercel revela problema
+  antes de existir feature em cima.
+- **Nenhuma mudança em `convex/`.** A fase inteira não exige push do Convex.
+
+**Três defeitos do app atual que a web expôs**, tratados como trabalho de primeira
+classe (não são "da versão web"):
+1. Falta `room.startAudio()` — o renderer anexa tracks remotas e nunca trata autoplay
+   (Plano 10-05).
+2. Dois clientes da mesma pessoa: o SFU derruba um, e o `participant_left` do
+   derrubado apaga a linha de `voiceStates` do que ficou (Plano 10-08).
+3. `suppressLocalAudioPlayback` não é repassado por
+   `screenCaptureToDisplayMediaStreamOptions` — se for preciso, vai dentro de
+   `audio: {}` (Plano 10-06).
+
+**Plans**: 9 plans, em 6 ondas
+
+Plans:
+- [ ] 10-01 — Alvo web e o contrato de plataforma (onda 1)
+- [ ] 10-02 — Costura de voz e tela: `@platform/ptt` e `@platform/screenshare` (onda 2)
+- [ ] 10-03 — Costura de autenticação: authkit-react, devMode, adaptador (onda 2)
+- [ ] 10-04 — Checkpoint humano: WorkOS, Vercel e login real (onda 3)
+- [ ] 10-05 — Voz na web: autoplay, permissão e saída de áudio (onda 4)
+- [ ] 10-06 — Áudio do compartilhamento na web e a prova do `restrictOwnAudio` (onda 4)
+- [ ] 10-07 — Paridade declarada + guardas de lint e de bundle (onda 5)
+- [ ] 10-08 — Convivência dos dois clientes (onda 5)
+- [ ] 10-09 — Checkpoint humano final: o experimento do eco e a regressão (onda 6)
 
 
 ## Progress
@@ -534,7 +576,7 @@ implementadores distintos).
 | 8.5. Repaginação da UI | 0/17 | Planned | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
 | 8.6. Áudio por processo | 5/6 | Código completo; falta o checkpoint em Windows | - |
-| 10. Versão web | 0/? | Planned (bloqueada pela verificação) | - |
+| 10. Versão web | 0/9 | Planned (bloqueada pela verificação) | - |
 
 ---
 *Roadmap created: 2026-08-18*
