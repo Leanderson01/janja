@@ -89,6 +89,26 @@ npm run typecheck    # só as checagens de tipo
 npx vitest run       # testes do backend Convex
 ```
 
+## Versão web
+
+O mesmo `src/renderer` também roda no navegador (Fase 10), hospedado na Vercel.
+
+```bash
+npm run dev:web      # dev server (Vite) — http://localhost:5173
+npm run build:web    # typecheck web + build para dist-web
+npm run preview:web  # serve o dist-web localmente
+```
+
+O alvo web lê `VITE_WORKOS_CLIENT_ID` (o `MAIN_VITE_WORKOS_CLIENT_ID` é exposto
+pelo electron-vite ao processo **main**, não ao renderer). É o mesmo valor, e o
+client id é público por design.
+
+**O alvo web e o desktop falam com o MESMO Convex, o MESMO LiveKit e a MESMA
+aplicação WorkOS — não existe ambiente separado.** O que muda é só de onde vem o
+token: no Electron do processo main via IPC, na web do `@workos-inc/authkit-react`.
+Configuração externa (redirects, CORS e o projeto da Vercel):
+`.planning/CHECKPOINT-WEB.md`.
+
 ## Onde está o quê
 
 | Caminho | Conteúdo |
