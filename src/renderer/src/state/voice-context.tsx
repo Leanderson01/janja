@@ -8,7 +8,9 @@ import {
   type ReactNode
 } from 'react'
 import { useAction, useMutation } from 'convex/react'
+import { toast } from 'sonner'
 import {
+  AudioPresets,
   ConnectionQuality,
   ConnectionState,
   Room,
@@ -33,10 +35,9 @@ import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
 import {
-  instrumentGetDisplayMedia,
-  logCaptureSupport,
-  logPublishedScreenShareAudio
-} from '../lib/screenshare-diagnostics'
+  createScreenShareAudioBridge,
+  type ScreenShareAudioBridge
+} from '../lib/screenshare-audio-bridge'
 import { playSelfLeaveTone } from '../lib/voice-sounds'
 import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
 import {
@@ -68,55 +69,78 @@ const AUDIO_CAPTURE_OPTIONS = {
   autoGainControl: true
 }
 
-// SHARE-01/02/03/04 (Plano 08-02): opções de captura do compartilhamento de
-// tela. Espelho deliberado (e invertido) de `AUDIO_CAPTURE_OPTIONS`, no
-// mesmo lugar, porque a diferença entre os dois é o ponto inteiro:
+// SHARE-01/02/03/04 (Plano 08-02) + Fase 8.6: opções de captura do
+// compartilhamento de tela. Só vídeo, sempre — `contentHint` é a única parte
+// variável, e vem da preferência de qualidade (Plano 08-05).
 //
-// - `restrictOwnAudio: true` foi desenhada para impedir o eco descrito no
-//   Pitfall 1. O loopback do WASAPI captura TUDO que sai pelo dispositivo de
-//   saída — inclusive a voz dos outros participantes que o próprio LiveKit
-//   está tocando no fone de quem compartilha. Sem esta flag, essa voz é
-//   republicada na track de screenshare e volta com atraso para quem falou.
-//   Usar fone não resolve (o loopback é do dispositivo, não do alto-falante).
-//   Ela NÃO bastou: o eco aconteceu em uso real em 2026-08-20, com Electron
-//   43.4.0 (a versão que a pesquisa apontou como a que parou de descartar a
-//   flag) e com a constraint comprovadamente chegando ao `getDisplayMedia`.
-//   Continua sendo passada — se funcionar em alguma configuração, o benefício
-//   é de graça — mas deixou de ser a defesa principal. A defesa principal
-//   agora é não pedir/não conceder o loopback (ver `systemAudio` abaixo), e
-//   `screenshare-diagnostics.ts` é quem vai dizer se esta flag chega a ser
-//   aplicada nesta máquina.
-// - `echoCancellation`/`noiseSuppression`/`autoGainControl: false` é o
-//   inverso de VOICE-16 de propósito: aquelas três foram desenhadas para voz
-//   de microfone. Aplicadas a áudio de sistema (música, jogo, vídeo) só
-//   degradam a fidelidade.
-const SYSTEM_AUDIO_CAPTURE_OPTIONS = {
-  restrictOwnAudio: true,
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false
-}
-
-// Virou função (era uma constante até a correção do eco) porque as duas
-// partes variáveis são decididas por compartilhamento, não pelo módulo:
-// `contentHint` vem da preferência de qualidade (Plano 08-05) e `audio` vem da
-// preferência de áudio de sistema.
+// ------------------------------------------------------------------
+// NOTA HISTÓRICA: `restrictOwnAudio`, e por que NÃO voltar a apostar nela.
 //
-// `audio: false` não é detalhe: é metade do E lógico que garante eco zero. Com
-// ele, `request.audioRequested` chega `false` ao handler do processo main, que
-// então concede `{ video }` sem loopback nenhum — as duas pontas dizendo a
-// mesma coisa, e a captura de dispositivo simplesmente não é aberta. Ver o
-// bloco de `ScreenShareChoice` em `src/main/screenshare-types.ts`.
+// Ela era a premissa da Fase 8 inteira: uma constraint pedindo ao Chromium
+// que o loopback não capturasse o áudio que o próprio app está tocando (= a
+// voz dos outros participantes). Chegou a ser CONFIRMADA como reconhecida por
+// este Chromium — não foi o caso de constraint descartada em silêncio, o
+// diagnóstico da época mediu isso — e o eco aconteceu assim mesmo, com quatro
+// pessoas numa call em 2026-08-20.
+//
+// O motivo é estrutural, não de versão: uma constraint é no máximo um PEDIDO,
+// e o loopback do WASAPI é de DISPOSITIVO — ele entrega a saída inteira da
+// placa por definição. Nenhuma flag muda o que o dispositivo é. Quem quiser
+// áudio de sistema sem eco precisa de outra CAPTURA, não de outra constraint:
+// é o que `src/main/screenshare-audio.ts` faz, mandando o próprio Windows
+// excluir a árvore de processos deste app.
+//
+// `echoCancellation`/`noiseSuppression`/`autoGainControl` saíram junto: sem
+// pedir áudio não há o que configurar (e as três foram desenhadas para voz de
+// microfone — em música/jogo/vídeo só degradam a fidelidade).
+// ------------------------------------------------------------------
+//
+// `audio: false` não é redundante com a concessão só-vídeo do processo main
+// (`src/main/screenshare.ts`): é a mesma afirmação dita nas duas pontas, e
+// custa uma linha. Pedir áudio aqui só produziria um `audioRequested: true`
+// que nunca será atendido.
 function screenShareCaptureOptions(
-  systemAudio: boolean,
   contentHint: ScreenShareCaptureOptions['contentHint']
 ): ScreenShareCaptureOptions {
-  return {
-    audio: systemAudio ? SYSTEM_AUDIO_CAPTURE_OPTIONS : false,
-    video: true,
-    contentHint
-  }
+  return { audio: false, video: true, contentHint }
 }
+
+// Fase 8.6: o texto que a pessoa lê quando o áudio do compartilhamento não vai
+// acontecer. A degradação é SEMPRE "compartilha sem som, com aviso" — nunca
+// "não compartilha", e nunca, jamais, um fallback para loopback de
+// dispositivo: trocar "sem som" por "todo mundo se ouvindo" não é degradar, é
+// devolver o defeito que originou esta fase.
+//
+// `not-windows` e `addon-unavailable` compartilham o mesmo texto de propósito:
+// para quem está usando, os dois são "esta instalação não consegue". A
+// distinção entre eles é de diagnóstico e vive no console/log do main.
+const AUDIO_UNAVAILABLE_MESSAGES: Record<ScreenShareAudioUnavailableReason, string> = {
+  'windows-too-old':
+    'Seu Windows não suporta áudio por aplicativo (precisa do Windows 11). A tela vai sem som.',
+  'not-windows':
+    'Não foi possível iniciar o áudio do compartilhamento nesta máquina. A tela vai sem som.',
+  'addon-unavailable':
+    'Não foi possível iniciar o áudio do compartilhamento nesta máquina. A tela vai sem som.',
+  // O HRESULT fica SÓ no console: ele é a informação que resolve o caso para
+  // quem for depurar, e ruído puro para quem só queria mostrar a tela.
+  'start-failed': 'O Windows recusou a captura de áudio. A tela vai sem som.'
+}
+
+// A ponte não montou (worklet bloqueado pela CSP, AudioContext recusado). A
+// captura nativa já começou quando isto acontece — quem trata precisa pará-la.
+const AUDIO_BRIDGE_FAILED_MESSAGE =
+  'Não foi possível preparar o áudio do compartilhamento. A tela vai sem som.'
+
+// Watchdog do processo main: a captura iniciou sem erro e nada chegou. Existe
+// aplicativo cujo áudio simplesmente não aparece no process loopback do
+// Windows (issue #414 do `microsoft/Windows-classic-samples`, relatada com o
+// Teams). Falhar de forma legível é o requisito — silêncio inexplicado é o
+// modo de falha que esta fase existe para não repetir.
+const NO_AUDIO_YET_MESSAGE =
+  'Nenhum áudio chegou do compartilhamento. Alguns aplicativos não permitem captura de áudio.'
+
+const AUDIO_PUBLISH_FAILED_MESSAGE =
+  'O áudio do compartilhamento não pôde ser publicado. A tela continua, sem som.'
 
 // SHARE-08 (Plano 08-05): os dois níveis de qualidade oferecidos ao usuário,
 // mapeados conforme `08-RESEARCH.md §5`. Dois níveis nomeados, nunca sliders
@@ -426,6 +450,20 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // identity de forma direta.
   const speakingSetRef = useRef<Set<string>>(new Set())
   const speakingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  // Fase 8.6: tudo que o áudio do compartilhamento abriu e que precisa ser
+  // fechado — a ponte (AudioContext + worklet + track) e as DUAS assinaturas
+  // de IPC. Ref e não estado: quem lê são callbacks assíncronos e handlers de
+  // evento do `Room`, onde uma closure sobre estado estaria velha; e mudar
+  // isto não deve rerenderizar nada (não há UI pendurada nele).
+  //
+  // `null` significa exatamente "não há áudio de compartilhamento no ar", e é
+  // o que torna `stopScreenShareAudio()` idempotente.
+  const screenShareAudioRef = useRef<{
+    bridge: ScreenShareAudioBridge
+    unsubscribeChunk: () => void
+    unsubscribeStatus: () => void
+  } | null>(null)
   const [speakingUserIds, setSpeakingUserIds] = useState<Set<string>>(new Set())
 
   // VOICE-15: qualidade de conexão por participante (incluindo a própria,
@@ -655,12 +693,16 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     return vadAnalysisTrackRef.current
   }, [])
 
-  // SHARE-01/03/04: publica a tela e, SE o usuário quiser, o áudio de
-  // sistema. O `getDisplayMedia` que o SDK dispara por baixo é interceptado
-  // pelo handler do processo main (`src/main/screenshare.ts`), que abre o
-  // seletor de fontes (Plano 08-04) e concede a escolha do usuário —
-  // concedendo `audio: 'loopback'` apenas quando os dois lados pediram
-  // (correção do Pitfall 1; ver `screenShareCaptureOptions` acima).
+  // SHARE-01/03/04: publica a tela e, SE o usuário quiser E esta máquina
+  // conseguir, o áudio do compartilhamento. O `getDisplayMedia` que o SDK
+  // dispara por baixo é interceptado pelo handler do processo main
+  // (`src/main/screenshare.ts`), que abre o seletor de fontes (Plano 08-04) e
+  // concede a escolha do usuário — SÓ VÍDEO, em todos os caminhos.
+  //
+  // Fase 8.6: o áudio virou um SEGUNDO PASSO, depois do vídeo, e vem de outra
+  // captura (WASAPI por processo, no main) publicada como track separada. A
+  // ordem é o desenho: o vídeo é o que não pode falhar, e nada do áudio pode
+  // derrubá-lo.
   //
   // SHARE-08 (Plano 08-05): a preferência de qualidade é lida AQUI, a cada
   // início — nunca capturada num estado de React no mount. É o que faz a
@@ -675,23 +717,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       console.warn('[screenshare] ignorando início: sala não conectada (%s)', room.state)
       return
     }
-    const { quality, systemAudio } = loadScreenSharePreferences()
+    // `systemAudio` NÃO é lido aqui: ele é relido depois do seletor fechar
+    // (ver `startScreenShareAudio`). Só a qualidade precisa ser decidida antes.
+    const { quality } = loadScreenSharePreferences()
     const { preset, contentHint } = QUALITY_PRESETS[quality]
 
-    // Diagnóstico do Pitfall 1: impresso a cada início, sem o usuário fazer
-    // nada além de compartilhar. A linha 1/4 sai ANTES da captura porque não
-    // depende dela — e é ela que diz se `restrictOwnAudio` sequer é
-    // reconhecida por este Chromium. Procurar por "diagnóstico" no console.
-    logCaptureSupport(systemAudio)
-    // Envolve `getDisplayMedia` só pelo tempo desta captura, para ver o
-    // MediaStream cru (linhas 2/4 e 3/4) — o `livekit-client` fica com
-    // `getAudioTracks()[0]` e descarta o resto sem dizer nada.
-    const restoreGetDisplayMedia = instrumentGetDisplayMedia()
-
+    // PASSO 1 — o vídeo. É o que não pode falhar, e é o único `await` desta
+    // função que pode abortar tudo.
     try {
       await room.localParticipant.setScreenShareEnabled(
         true,
-        screenShareCaptureOptions(systemAudio, contentHint),
+        screenShareCaptureOptions(contentHint),
         // Terceiro argumento (`publishOptions`), ausente de propósito em
         // 08-02. `screenShareEncoding` é o campo SEPARADO de
         // `videoEncoding` (`08-RESEARCH.md §5`): escrever no segundo não
@@ -699,14 +735,6 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         // (publica, só que na qualidade default).
         { screenShareEncoding: preset.encoding }
       )
-
-      // Linha 4/4 + veredito: o que ficou DE FATO no ar. Só esta leitura
-      // distingue "constraint aplicada e insuficiente" de "constraint
-      // descartada em silêncio" — as duas produzem exatamente o mesmo eco.
-      const audioPublication = room.localParticipant.getTrackPublication(
-        Track.Source.ScreenShareAudio
-      )
-      logPublishedScreenShareAudio(audioPublication?.track?.mediaStreamTrack ?? null, systemAudio)
     } catch (err) {
       // Caminho ESPERADO, não excepcional: o usuário cancela, ou nenhuma
       // tela está disponível (`callback({})` no processo main faz o
@@ -714,18 +742,206 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // não tratada — `isSharing` continua `false` porque nada foi
       // publicado, e o botão volta sozinho ao estado inicial.
       console.error('[screenshare] falha ao iniciar o compartilhamento de tela', err)
-    } finally {
-      // `finally` e não depois do `await`: o caminho de cancelamento é o
-      // COMUM aqui, e deixar o wrapper instalado faria a próxima captura
-      // logar duas vezes, a seguinte três, e assim por diante.
-      restoreGetDisplayMedia()
+      // `return` e não `finally`: sem vídeo no ar não existe áudio de
+      // compartilhamento para iniciar. Iniciar a captura nativa depois de um
+      // cancelamento deixaria o WASAPI rodando sem nada para alimentar.
+      return
+    }
+
+    // PASSO 2 — o áudio. Nada aqui derruba o que já está no ar.
+    await startScreenShareAudio()
+  }
+
+  /**
+   * O segundo passo do compartilhamento: captura de áudio POR PROCESSO no
+   * main, convertida em track pela ponte do renderer e publicada como
+   * `ScreenShareAudio`.
+   *
+   * Contrato desta função: ela NUNCA lança e NUNCA derruba o vídeo. Todo
+   * caminho de falha termina em "compartilha sem som, com aviso legível" — e
+   * nunca em loopback de dispositivo, que é o defeito de 2026-08-20 (ver a
+   * nota histórica no topo do arquivo e a proibição por extenso em
+   * `src/main/screenshare-audio-types.ts`).
+   */
+  async function startScreenShareAudio(): Promise<void> {
+    // A PREFERÊNCIA É RELIDA AQUI, DEPOIS de `setScreenShareEnabled` resolver
+    // — e a mudança de lugar é uma melhoria de comportamento, não arrumação.
+    //
+    // Até o FIX de 2026-08-25 ela era lida ANTES, porque compunha a constraint
+    // de `getDisplayMedia()`, que é fixada no momento da chamada — ou seja,
+    // antes de o seletor abrir. Consequência: ligar o toggle DENTRO do diálogo
+    // não valia para aquela transmissão, e o próprio diálogo precisava avisar
+    // "vale a partir do próximo compartilhamento".
+    //
+    // Agora nada de áudio é fixado antes do diálogo. O `ScreenSharePicker`
+    // persiste a escolha no clique, esta leitura acontece depois, e o toggle
+    // passa a valer IMEDIATAMENTE.
+    const { systemAudio } = loadScreenSharePreferences()
+    if (!systemAudio) return
+
+    try {
+      const result = await window.screenshare.audio.start()
+      if (!result.ok) {
+        // Não é falha do compartilhamento: é uma máquina que não consegue.
+        // `detail` (HRESULT, release do Windows, erro do `require`) fica no
+        // console; a pessoa lê a frase curta.
+        console.warn(
+          '[screenshare] áudio por processo indisponível (%s)%s',
+          result.reason,
+          result.detail ? `: ${result.detail}` : ''
+        )
+        toast.warning(AUDIO_UNAVAILABLE_MESSAGES[result.reason])
+        return
+      }
+
+      // `result.format` vem do main: o renderer não duplica 48000/2/16 como
+      // constante própria (o número mora no C++ de um pacote de terceiro).
+      const bridge = await createScreenShareAudioBridge(result.format).catch((err: unknown) => {
+        console.error('[screenshare] falha ao montar a ponte de áudio', err)
+        return null
+      })
+      if (!bridge) {
+        toast.warning(AUDIO_BRIDGE_FAILED_MESSAGE)
+        // A captura nativa JÁ começou. Sem isto o WASAPI ficaria capturando e
+        // o processo main mandando ~100 chunks/s para ninguém, para sempre.
+        window.screenshare.audio.stop()
+        return
+      }
+
+      const unsubscribeChunk = window.screenshare.audio.onChunk((bytes) => {
+        // Depois de `bridge.stop()` isto é no-op silencioso — o que cobre a
+        // corrida entre um último chunk em voo e o encerramento.
+        bridge.pushChunk(bytes)
+      })
+
+      const unsubscribeStatus = window.screenshare.audio.onStatus((status) => {
+        if (status.kind === 'no-audio-yet') {
+          console.warn('[screenshare] o watchdog do main não viu nenhum chunk de áudio')
+          toast.warning(NO_AUDIO_YET_MESSAGE)
+          return
+        }
+        if (status.kind === 'failed') {
+          console.error(
+            '[screenshare] a captura de áudio falhou (%s)%s',
+            status.reason,
+            status.detail ? `: ${status.detail}` : ''
+          )
+          toast.warning(AUDIO_UNAVAILABLE_MESSAGES[status.reason])
+          // A captura morreu do lado de lá; aqui sobrariam AudioContext,
+          // worklet e uma track publicada transmitindo silêncio.
+          void stopScreenShareAudio()
+        }
+      })
+
+      // Guardar ANTES de publicar: se `publishTrack` falhar, o `catch` abaixo
+      // precisa encontrar tudo para desmontar.
+      screenShareAudioRef.current = { bridge, unsubscribeChunk, unsubscribeStatus }
+
+      await room.localParticipant.publishTrack(bridge.track, {
+        // O gancho oficial (`livekit-client.esm.mjs:30086-30088`), e ganhar a
+        // fonte certa dá TRÊS coisas de graça:
+        //  1. `setScreenShareEnabled(false)` despublica esta track junto com a
+        //     de vídeo (`29822-29824`);
+        //  2. o republish pós-reconexão não tenta REINICIAR a track (`30743`)
+        //     — reiniciar uma track de `MediaStreamDestination` não faz
+        //     sentido e é onde uma reconexão viraria silêncio permanente;
+        //  3. o lado remoto agrupa este áudio com o vídeo do mesmo
+        //     compartilhamento.
+        // Publicar sem `source` deixaria `Unknown` e custaria as três.
+        source: Track.Source.ScreenShareAudio,
+        // NÃO É OTIMIZAÇÃO. O SDK decide estéreo lendo `channelCount` de
+        // `getSettings()`/`getConstraints()` (`30067-30070`), e a track de um
+        // `MediaStreamAudioDestinationNode` pode não reportar esse campo. Sem
+        // isto o resultado seria publicar MONO — e, na prática, em silêncio,
+        // sem erro nenhum no console.
+        forceStereo: true,
+        // Com estéreo o SDK já desliga os dois por padrão (`30071-30081`).
+        // Explícitos para que uma mudança de default não reintroduza DTX
+        // (transmissão descontínua) em música/jogo, onde ela pica o som.
+        dtx: false,
+        red: false,
+        // 128 kbps (`13098-13100`) — a escolha certa para áudio de
+        // transmissão, e o preço a pagar: somados aos ~2,0–2,5 Mbps do vídeo,
+        // são ~0,13 Mbps a mais de subida enquanto durar o compartilhamento.
+        audioPreset: AudioPresets.musicHighQualityStereo
+        // NÃO passar `stream`: a doc do próprio SDK (`options.d.ts:152-155`)
+        // diz que `screen_share` e `screen_share_audio` já vão para o mesmo
+        // `MediaStream` por padrão. Nomear à mão só cria a chance de errar.
+      })
+
+      // Esperado no console logo depois desta linha: um "silence detected" do
+      // `checkForSilence()` que o construtor de `LocalAudioTrack` dispara
+      // (`21107`). Publicamos antes do primeiro chunk chegar, então a track
+      // está mesmo em silêncio nesse instante. É COSMÉTICO — anotado aqui para
+      // ninguém caçar esse fantasma.
+      console.log('[screenshare] áudio por processo publicado (ScreenShareAudio, estéreo)')
+    } catch (err) {
+      console.error('[screenshare] falha ao publicar o áudio do compartilhamento', err)
+      toast.warning(AUDIO_PUBLISH_FAILED_MESSAGE)
+      await stopScreenShareAudio()
+    }
+  }
+
+  /**
+   * Fecha tudo que o áudio do compartilhamento abriu. Idempotente: chamar
+   * duas vezes (ou reentrar de dentro de um dos passos) não faz nada na
+   * segunda.
+   *
+   * Esta função é a resposta à Armadilha 5 da pesquisa: ao despublicar, o
+   * LiveKit chama `track.stop()` na track do `MediaStreamDestination`
+   * (`stopOnUnpublish` é `true` por padrão) — e não sabe NADA do
+   * `loopback-capture` nem do `AudioContext`. Sem este gancho explícito, o
+   * WASAPI continuaria capturando e o processo main continuaria mandando ~100
+   * callbacks/s para sempre.
+   */
+  async function stopScreenShareAudio(): Promise<void> {
+    const active = screenShareAudioRef.current
+    // Zerado no INÍCIO, não no fim — mesma regra do teardown do processo main
+    // (08.6-02). Há `await` no meio desta função, e durante ele chegam
+    // eventos (`LocalTrackUnpublished` que o próprio despublicar provoca, o
+    // `Disconnected` de uma queda). Zerar no fim faria essa reentrada
+    // desmontar tudo uma segunda vez.
+    screenShareAudioRef.current = null
+    if (!active) return
+
+    // Cada passo no seu try/catch: um `unsubscribe` que lance não pode
+    // impedir a captura nativa de parar, que é o que realmente custa caro
+    // deixar vivo.
+    try {
+      // Primeiro parar de RECEBER: ~100 mensagens/s, ~192 KB/s.
+      active.unsubscribeChunk()
+    } catch (err) {
+      console.warn('[screenshare] falha ao remover o listener de chunks', err)
+    }
+    try {
+      active.unsubscribeStatus()
+    } catch (err) {
+      console.warn('[screenshare] falha ao remover o listener de status', err)
+    }
+    try {
+      // Depois parar de PRODUZIR, do outro lado do IPC.
+      window.screenshare.audio.stop()
+    } catch (err) {
+      console.warn('[screenshare] falha ao pedir a parada da captura nativa', err)
+    }
+    try {
+      // Por último o grafo local: AudioContext, worklet e a track.
+      await active.bridge.stop()
+    } catch (err) {
+      console.warn('[screenshare] falha ao fechar a ponte de áudio', err)
     }
   }
 
   async function stopScreenShare(): Promise<void> {
+    // ANTES de despublicar, e a ordem importa: parar de alimentar a ponte
+    // evita chunks chegando a um grafo já fechado, e evita depender do
+    // `LocalTrackUnpublished` (que também chama isto, de propósito) para
+    // fechar a captura nativa.
+    await stopScreenShareAudio()
     try {
       // Sem argumentos de captura: `false` só despublica. O SDK remove as
-      // duas tracks (vídeo e áudio de sistema) sozinho.
+      // duas tracks (vídeo e áudio do compartilhamento) sozinho — é o que a
+      // `source: ScreenShareAudio` da publicação compra.
       await room.localParticipant.setScreenShareEnabled(false)
     } catch (err) {
       console.error('[screenshare] falha ao parar o compartilhamento de tela', err)
@@ -874,6 +1090,63 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed)
     }
   }, [participantVolumes, deafened, room])
+
+  // Fase 8.6: os caminhos de saída em que NINGUÉM CLICOU EM "PARAR".
+  //
+  // Efeito PRÓPRIO, e não mais uma linha dentro do efeito de ciclo de vida
+  // logo abaixo: aquele bloco é o contrato de mídia da Fase 8 e permanece
+  // byte-idêntico. Este aqui resolve outro problema — a Armadilha 5 da
+  // pesquisa desta fase — e por isso vive sozinho.
+  //
+  // O que ele cobre, e que `stopScreenShare()` não cobre:
+  //
+  // | Evento                | Cenário                                          |
+  // |-----------------------|--------------------------------------------------|
+  // | LocalTrackUnpublished | o Windows revogou a captura; o SDK despublicou    |
+  // |                       | sozinho; a tela compartilhada foi desconectada    |
+  // | Disconnected          | caí da sala / a rede caiu / saí do canal          |
+  // | cleanup do efeito     | o provider desmontou (hot-reload, fechar o app)   |
+  //
+  // A redundância com `stopScreenShare()` é DELIBERADA, exatamente como na
+  // tabela de cinco eventos do bloco abaixo: cada entrada cobre um jeito
+  // diferente de a transmissão acabar, e `stopScreenShareAudio()` é
+  // idempotente — a segunda chamada é um `return` no primeiro `if`.
+  //
+  // Sem isto, o modo de falha é o pior possível: a UI diz que parou, e o
+  // WASAPI continua capturando o sistema inteiro com o processo main mandando
+  // ~100 mensagens/s para um renderer que não escuta mais.
+  useEffect(() => {
+    function handleLocalTrackUnpublished(publication: LocalTrackPublication): void {
+      // Só a track de VÍDEO do compartilhamento dispara o encerramento. A de
+      // áudio também gera este evento (o SDK despublica as duas juntas), e
+      // reagir a ela seria só reentrância — inofensiva pela idempotência, mas
+      // ruído.
+      if (publication.source !== Track.Source.ScreenShare) return
+      void stopScreenShareAudio()
+    }
+
+    function handleDisconnected(): void {
+      void stopScreenShareAudio()
+    }
+
+    room.on(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
+    room.on(RoomEvent.Disconnected, handleDisconnected)
+
+    return () => {
+      room.off(RoomEvent.LocalTrackUnpublished, handleLocalTrackUnpublished)
+      room.off(RoomEvent.Disconnected, handleDisconnected)
+      // Desmontagem do provider: nem `Disconnected` nem `LocalTrackUnpublished`
+      // são garantidos aqui (o `room.disconnect()` do outro efeito é
+      // best-effort e assíncrono), e um AudioContext vazado segura dispositivo
+      // e thread de render até o processo morrer.
+      void stopScreenShareAudio()
+    }
+    // Deps só `[room]`: `stopScreenShareAudio` é redeclarada a cada render
+    // (função do corpo do componente), e listá-la faria este efeito derrubar e
+    // recriar os listeners a cada render. Ela só lê um ref e o
+    // `window.screenshare`, então a instância nova e a velha fazem exatamente
+    // a mesma coisa — nenhum estado fica preso numa closure velha.
+  }, [room])
 
   // SHARE-02/SHARE-06 (Plano 08-06): quais telas estão no ar AGORA. Efeito
   // separado do de áudio remoto de propósito — os dois escutam
