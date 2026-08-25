@@ -1,0 +1,28 @@
+// Segunda passada de typecheck sobre o MESMO codigo de `src/renderer/src`, com
+// o alias `@platform` resolvendo para a implementacao WEB.
+//
+// POR QUE ELA EXISTE: `tsconfig.web.json` e a config do alvo desktop — nela
+// `@platform/*` aponta para `platform/electron/*`. Sem esta segunda passada,
+// metade da costura NUNCA e compilada do ponto de vista de quem importa: a
+// implementacao web existiria apenas como arquivos soltos dentro do `include`,
+// checados isoladamente, sem ninguem provando que ela satisfaz o contrato NO
+// LUGAR onde os consumidores a consomem. Uma divergencia entre os dois lados
+// (assinatura diferente, export faltando) passaria verde ate o build web.
+//
+// Herda `include`, `jsx`, `baseUrl` e o resto de `tsconfig.web.json`; sobrescreve
+// APENAS o mapeamento de `@platform/*`. `paths` nao faz merge — a chave inteira e
+// substituida, entao `@renderer/*` e `@/*` sao repetidos aqui de proposito.
+//
+// `composite: false` e passado na linha de comando, como fazem os outros
+// typechecks do projeto (ver o script `typecheck:web-target` em package.json).
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"],
+      "@/*": ["src/renderer/src/*"],
+      "@platform/*": ["src/renderer/src/platform/web/*"]
+    }
+  }
+}

@@ -1,6 +1,14 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"],
+  "include": [
+    "electron.vite.config.*",
+    // O segundo alvo de build (Fase 10). Sem esta entrada, `vite.config.web.ts`
+    // nao e checado por NINGUEM: nem `typecheck:node` (que so cobria o config do
+    // electron-vite) nem `typecheck:web` (que cobre src/renderer/src).
+    "vite.config.web.*",
+    "src/main/**/*",
+    "src/preload/**/*"
+  ],
   "compilerOptions": {
     "composite": true,
     "types": ["electron-vite/node"]

@@ -16,6 +16,12 @@
       ],
       "@/*": [
         "src/renderer/src/*"
+      ],
+      // Esta config e a do alvo DESKTOP: aqui `@platform` e o Electron, igual ao
+      // alias de `electron.vite.config.ts`. O espelho do alvo web esta em
+      // `tsconfig.web-target.json`, que sobrescreve SO esta linha.
+      "@platform/*": [
+        "src/renderer/src/platform/electron/*"
       ]
     }
   }

@@ -1,5 +1,9 @@
 node_modules
 dist
+# Artefato do alvo web (Fase 10). O padrao `dist` acima casa so com o nome
+# exato; sem esta linha o primeiro `npm run build:web` despeja ~200 arquivos
+# no `git status` — e `git add` amplo ja quebrou o main uma vez (HANDOFF no 5).
+dist-web
 out
 .DS_Store
 .eslintcache

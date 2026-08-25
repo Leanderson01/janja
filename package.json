@@ -10,6 +10,7 @@
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck:web-target": "tsc --noEmit -p tsconfig.web-target.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:convex",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
@@ -24,7 +25,11 @@
     "build:win": "npm run verify:build-env && npm run build && npm run verify:renderer-runtime && npm run verify:native-audio && npm run verify:no-secrets && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "typecheck:convex": "node scripts/verify-convex-paths.mjs && tsc --noEmit -p tsconfig.convex.json"
+    "typecheck:convex": "node scripts/verify-convex-paths.mjs && tsc --noEmit -p tsconfig.convex.json",
+    "dev:web": "vite --config vite.config.web.ts",
+    "build:web": "npm run typecheck:web && npm run typecheck:web-target && vite build --config vite.config.web.ts",
+    "preview:web": "vite preview --config vite.config.web.ts",
+    "verify:web-bundle": "node scripts/verify-web-bundle.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
