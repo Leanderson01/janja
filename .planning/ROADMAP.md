@@ -31,6 +31,7 @@ o resto existe para sustentá-las.
 - [ ] **Fase 7: Voz** - Call estável de 10 pessoas, controles completos
 - [ ] **Fase 8: Compartilhamento de tela** - Tela + áudio de sistema sem eco
 - [ ] **Fase 9: Polimento e empacotamento** - Instalador Windows, regressão final
+- [ ] **Fase 8.6: Áudio de compartilhamento por processo** - Ligar o áudio da transmissão sem eco
 - [ ] **Fase 10: Versão web** - Navegador, sem instalar; sem PTT global (bloqueada pela verificação)
 
 ## Paralelismo
@@ -403,6 +404,56 @@ Plans:
 - [ ] 09-02 — AUTH-07: página de conclusão de login via HTTP action do Convex, e correção do throw em escopo de módulo do convex-client
 - [ ] 09-03 — Checkpoints: config no WorkOS, instalador em máquina limpa, e regressão final com 10 pessoas
 
+### Fase 8.6: Áudio de compartilhamento por processo
+
+**Goal**: Compartilhar tela COM áudio sem que os outros participantes se ouçam. Hoje o
+áudio de sistema é uma escolha desligada por padrão, porque ligá-la traz eco — isto aqui
+é o que permite ligá-la.
+
+**Origem**: relatado pelo Leo em 2026-08-20, com 4 pessoas numa call. É o Pitfall 1 se
+confirmando em uso real; ver `.planning/phases/08-compartilhamento-de-tela/08-FIX-eco-audio-sistema-SUMMARY.md`.
+
+**Por que a mitigação atual não basta**: desligar o áudio elimina o eco por construção,
+mas também elimina o áudio. O Leo quer o áudio da transmissão SEM o eco — que é o
+comportamento do Discord.
+
+**A causa, agora entendida**: `audio: 'loopback'` captura no nível do DISPOSITIVO. Tudo
+que sai pela saída padrão entra na captura, inclusive as vozes remotas que o próprio app
+está tocando. A constraint `restrictOwnAudio` é reconhecida por este Chromium
+(verificado no app pelo Leo: `getSupportedConstraints().restrictOwnAudio === true`) e
+ainda assim não resolve — o filtro de "áudio próprio" age onde o Chromium monta a
+captura e sabe de quem é cada fluxo; o loopback do WASAPI não é esse lugar.
+
+**O caminho**: a API de process loopback do Windows (build 20348+), que o Discord usa.
+Dois modos, e a fase precisa decidir entre eles ou combinar:
+
+| Modo | O que captura | Serve para |
+|---|---|---|
+| Incluir processo alvo | só o áudio do programa compartilhado | compartilhar UMA janela — o caso que o Leo descreveu |
+| Excluir nosso processo | o sistema inteiro menos o Hydra | compartilhar a TELA INTEIRA e ainda ter áudio |
+
+**Perguntas que a pesquisa precisa fechar antes de qualquer plano:**
+1. O pacote `loopback-capture` (npm, binários pré-compilados) serve à ABI do Electron
+   43? O projeto já recompila nativo para o `uiohook-napi` (`scripts/postinstall-rebuild.mjs`)
+   — esse caminho se aplica?
+2. Ele expõe o modo de EXCLUIR árvore de processo, ou só incluir? Se só incluir, o
+   compartilhamento de tela inteira fica sem resposta — e aí a saída é fork ou addon próprio.
+3. Como sair da janela escolhida (`desktopCapturer` devolve id com HWND) até o PID?
+4. Como levar PCM cru (16-bit, estéreo, 48 kHz) até uma track publicável pelo LiveKit —
+   `AudioWorklet` + `MediaStreamDestination` + `publishTrack`? Qual o custo de latência?
+5. O que acontece quando o programa compartilhado abre processos filhos (navegador com
+   processo por aba é o caso comum).
+6. Empacotamento: módulo nativo fora do asar, como o `uiohook-napi` — e o risco de
+   quebrar o instalador, que só se prova em Windows.
+
+**Depends on**: nada em código. Mas é trabalho de mídia e nativo: entra depois da
+sessão de verificação, junto com o resto.
+
+**Requirements**: provável requisito novo (SHARE-09), a definir no planejamento.
+
+**Plans**: TBD
+
+
 ### Fase 10: Versão web
 
 **Goal**: Quem não quer instalar nada entra pelo navegador e usa chat, servidores,
@@ -471,6 +522,7 @@ implementadores distintos).
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/17 | Planned | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
+| 8.6. Áudio por processo | 0/? | Planned | - |
 | 10. Versão web | 0/? | Planned (bloqueada pela verificação) | - |
 
 ---
