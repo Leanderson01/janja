@@ -457,11 +457,11 @@ sistema inteiro menos a árvore de processos do Hydra, que é quem toca a voz do
 outros. Tela inteira e janela usam o mesmo código. `startSystemAudio()` e
 `audio: 'loopback'` ficam PROIBIDOS: são loopback de dispositivo, o eco de volta.)
 
-- [ ] 08.6-01-dependencia-e-empacotamento-PLAN.md — dependência nativa pinada, asarUnpack, exclusão do cmake-js, externalização explícita e guarda de build
-- [ ] 08.6-02-captura-nativa-modo-excluir-PLAN.md — captura WASAPI por processo no main, portões de capacidade, watchdog e teardown
-- [ ] 08.6-03-ponte-pcm-para-track-PLAN.md — preload + AudioWorklet com ring buffer + MediaStreamDestination
-- [ ] 08.6-04-fiacao-publicacao-e-encerramento-PLAN.md — loopback nunca mais concedido; track publicada com source ScreenShareAudio e forceStereo
-- [ ] 08.6-05-ui-honesta-do-toggle-PLAN.md — texto novo do toggle, estado desabilitado por incapacidade da máquina
+- [x] 08.6-01-dependencia-e-empacotamento-PLAN.md — dependência nativa pinada, asarUnpack, exclusão do cmake-js, externalização explícita e guarda de build
+- [x] 08.6-02-captura-nativa-modo-excluir-PLAN.md — captura WASAPI por processo no main, portões de capacidade, watchdog e teardown
+- [x] 08.6-03-ponte-pcm-para-track-PLAN.md — preload + AudioWorklet com ring buffer + MediaStreamDestination
+- [x] 08.6-04-fiacao-publicacao-e-encerramento-PLAN.md — loopback nunca mais concedido; track publicada com source ScreenShareAudio e forceStereo
+- [x] 08.6-05-ui-honesta-do-toggle-PLAN.md — texto novo do toggle, estado desabilitado por incapacidade da máquina
 - [ ] 08.6-06-checkpoint-windows-PLAN.md — verificação humana em Windows com 3+ pessoas (item nº 1: a voz dos outros NÃO entra)
 
 
@@ -533,7 +533,7 @@ implementadores distintos).
 | 8. Compartilhamento de tela | 0/7 | Planned | - |
 | 8.5. Repaginação da UI | 0/17 | Planned | - |
 | 9. Polimento e empacotamento | 0/3 | Planned | - |
-| 8.6. Áudio por processo | 0/? | Planned | - |
+| 8.6. Áudio por processo | 5/6 | Código completo; falta o checkpoint em Windows | - |
 | 10. Versão web | 0/? | Planned (bloqueada pela verificação) | - |
 
 ---

@@ -379,3 +379,31 @@ contra código real sem falso positivo.
 O que continua **não** provado: nada de comportamento. O roteiro de
 `.planning/CHECKPOINT-WINDOWS.md` segue inteiro em aberto — 106 checagens, e a
 Sessão A (sozinho, ~30 min) é a que decide se vale chamar mais gente.
+
+## Marco — 2026-08-20: Fase 8.6 com código completo
+
+Os 5 planos autônomos do áudio por processo estão executados; resta o checkpoint
+humano (08.6-06), cujo roteiro já está em `.planning/CHECKPOINT-WINDOWS.md`, Parte 3.
+
+O que mudou, em uma linha: **o app parou de pedir o loopback de dispositivo do
+Windows**. `src/main/screenshare.ts` concede `callback({ video })` incondicional, e o
+áudio do compartilhamento passa a vir de uma captura por processo em modo EXCLUIR —
+tudo que o computador toca, menos o Hydra e seus filhos. É por isso que a voz dos
+outros participantes deixa de entrar: ela sai do nosso próprio processo.
+
+Cadeia nova: addon nativo no main → IPC → `AudioWorklet` → `MediaStreamDestination`
+→ `publishTrack(..., { source: ScreenShareAudio, forceStereo: true })`.
+
+Decisões travadas que valem para quem vier depois:
+- `startSystemAudio()` do pacote é **proibido** — é o loopback de dispositivo com
+  outro nome, ou seja, o eco de volta. A proibição está em comentário no código.
+- Quando a máquina não suporta (Windows < build 20348, addon indisponível, falha ao
+  iniciar), degrada para **sem áudio** com aviso. Nunca para o loopback antigo.
+- O default do toggle continua **desligado**, travado por teste. Inverter é decisão
+  do checkpoint, não de implementação.
+
+**A premissa que sustenta tudo isto ainda não foi provada**: que o pedaço do Chromium
+que toca a voz dos outros é processo filho do Hydra, e portanto cai dentro da árvore
+excluída. Não há documentação oficial afirmando isso. É o item nº 1 do checkpoint, e
+se cair, o desenho da fase cai junto — o caminho alternativo nomeado pela pesquisa é
+o modo INCLUIR por PID da janela, que é o que o Discord faz.
