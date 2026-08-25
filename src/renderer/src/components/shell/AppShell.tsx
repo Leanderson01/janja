@@ -1,7 +1,6 @@
 import { ChannelSidebar } from '@/components/shell/ChannelSidebar'
 import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
-import { ScreenSharePicker } from '@/components/shell/ScreenSharePicker'
 import { ServerRail } from '@/components/shell/ServerRail'
 import { VoiceControlBar, VoiceQuickControls } from '@/components/shell/VoiceControlBar'
 import { DmConversationView } from '@/components/friends/DmConversationView'
@@ -13,6 +12,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { LayoutProvider, useLayout } from '@/state/layout-context'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
 import { VoiceProvider } from '@/state/voice-context'
+import { screenShare } from '@platform/screenshare'
 
 // Layout de 4 regiões da Fase 3 (RESEARCH.md §3): rail e sidebar fixos à
 // esquerda, área de conversa elástica no centro, lista de membros fixa à
@@ -166,12 +166,18 @@ export function AppShell(): React.JSX.Element {
           <LayoutProvider>
             <ShellBody />
           </LayoutProvider>
-          {/* SHARE-01 (Plano 08-04): uma única instância por app, não por
-              canal — quem dispara o seletor é o processo main, que não sabe
-              (nem precisa saber) qual canal de voz está ativo. Montado aqui
-              dentro do VoiceProvider por vizinhança de assunto; não consome
-              o contexto de voz. */}
-          <ScreenSharePicker />
+          {/* O que só existe num alvo. No ELECTRON isto é o seletor de
+              tela/janela (SHARE-01, Plano 08-04): uma única instância por app,
+              não por canal — quem dispara o seletor é o processo main, que não
+              sabe (nem precisa saber) qual canal de voz está ativo. Montado
+              aqui dentro do VoiceProvider por vizinhança de assunto; não
+              consome o contexto de voz.
+
+              Na WEB isto é `() => null`: quem desenha o seletor é o Chrome, e
+              o componente do Electron nem chega a entrar no bundle — o alias
+              `@platform` resolve para outra pasta e o Rollup nunca o alcança.
+              É por isso que aqui não há `if` nenhum. */}
+          <screenShare.Extras />
           {/* Toasts são o canal de feedback padrão da Fase 8.5: envio de
               mensagem que falhou, ação de menu concluída, convite copiado.
               Substituem os `.catch(() => {})` mudos que hoje engolem o erro
