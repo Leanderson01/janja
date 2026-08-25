@@ -215,8 +215,8 @@ Papéis (e eles importam, porque não são simétricos):
    cruzado que percorre os cinco vereditos afirmando prefixo, palavra `VEREDITO`
    e os três valores de entrada em cada um. O plano pedia "um caso por regra +
    o negativo do `monitor`"; esses seis estão lá.
-2. **`npm run build:web` não pôde ser rodado inteiro** — não por causa deste
-   plano. Ver a seção de verificação.
+2. **Um erro de typecheck meu, corrigido dentro do próprio plano** (o tipo do
+   espião de `console` no teste novo). Ver a seção de verificação.
 
 ## Verificação — saída real
 
@@ -227,7 +227,9 @@ Papéis (e eles importam, porque não são simétricos):
 | `npx vitest run` (suíte inteira) | **46 arquivos, 711 testes passando** |
 | `npx eslint` nos 4 arquivos | **exit 0** |
 | `npx prettier --check` nos 4 arquivos | `All matched files use Prettier code style!` |
-| `npx vite build --config vite.config.web.ts` | **✓ built in 3.73s** |
+| `npm run typecheck` (node + web + convex) | **exit 0** |
+| `npm run typecheck:web-target` | **exit 0** |
+| `npm run build:web` | **✓ built in 3.24s** (exit 0) |
 | `npm run verify:web-bundle -- --strict-bridges` | **exit 0** — as 4 afirmações, em modo estrito |
 | `git diff --stat src/renderer/src/platform/electron/screenshare.tsx` | **vazio** |
 | `git diff --stat src/renderer/src/state/voice-context.tsx` | **vazio** |
@@ -241,28 +243,29 @@ testes** são de dois executores que rodaram em paralelo nesta mesma árvore
 `components/boundary/RootErrorBoundary.test.tsx`). A conta fecha:
 41+2+3 = 46 e 664+13+34 = 711.
 
-**O typecheck completo terminou vermelho — e nenhum dos erros é deste plano.**
-No fim da execução, `npm run typecheck` e `npm run typecheck:web-target`
-apontavam 5 erros, todos em arquivos que os executores paralelos estavam
-escrevendo naquele instante (`lib/vad.ts`, `lib/vad.test.ts`,
-`components/boundary/RootErrorBoundary.test.tsx` — criados/alterados segundos
-antes, ainda não commitados por eles).
+**Nota sobre o meio da execução, porque ela quase virou um falso positivo de
+regressão.** Durante boa parte deste plano o `npm run typecheck` esteve
+VERMELHO — 5 erros, nenhum deles deste plano, todos em arquivos que dois
+executores paralelos estavam escrevendo naquele instante nesta mesma árvore
+(`lib/vad.ts`, `lib/vad.test.ts`, `components/boundary/RootErrorBoundary.test.tsx`,
+`features/auth/AuthGate.test.tsx`, ainda não commitados por eles).
 
-A atribuição não é opinião, é uma execução: `tsconfig.web-target.json` com
-**apenas esses quatro arquivos alheios excluídos** compila **exit 0** —
-incluindo os quatro arquivos deste plano, no `include` inteiro do projeto, com
-`@platform` resolvendo para a web.
+A atribuição não foi opinião, foi uma execução: `tsconfig.web-target.json` com
+**apenas esses arquivos alheios excluídos** compilava exit 0 — incluindo os
+quatro arquivos deste plano, no `include` inteiro do projeto, com `@platform`
+resolvendo para a web (`tsconfig` temporário criado e removido no mesmo
+comando, `ATTRIB-EXIT=0`).
 
-```
-$ npx tsc --noEmit -p tsconfig.10-06-attrib.json --composite false
-ATTRIB-EXIT=0
-```
+Dois dos cinco erros **eram meus** e foram corrigidos, não atribuídos: o
+`let info: ReturnType<typeof vi.spyOn>` do teste novo não descreve um espião
+sobre `console` (os parâmetros de `console.info` não são `unknown[]`). Trocado
+por coletar as linhas em arrays próprios — mais simples do que descrever o
+espião, e o comentário no arquivo diz por quê.
 
-(O `tsconfig` temporário foi removido no mesmo comando.) É pela mesma razão que
-`npm run build:web` não pôde rodar inteiro: seus dois primeiros passos são
-justamente esses typechecks. O terceiro passo — o que constrói o artefato — foi
-rodado direto e passou, e o `verify:web-bundle --strict-bridges` sobre o
-artefato resultante passou também.
+Quando os executores vizinhos commitaram suas correções, a verificação foi
+refeita do zero e a tabela acima é essa segunda passada: **as quatro passadas
+de typecheck em exit 0, `build:web` inteiro em exit 0**, e o
+`verify:web-bundle --strict-bridges` sobre o artefato resultante também.
 
 **No artefato compilado (`dist-web/assets/index-qJKMJsFN.js`):** as **5**
 ocorrências de `VEREDITO` estão lá, minificação incluída. Literal de string
