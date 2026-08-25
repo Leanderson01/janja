@@ -40,6 +40,24 @@ afterEach(() => {
   delete (globalThis as unknown as { localStorage?: FakeStorage }).localStorage
 })
 
+describe('screenshare-preferences — o default do áudio é uma decisão travada', () => {
+  it('systemAudio nasce DESLIGADO, e inverter isso tem que ser deliberado', () => {
+    // Esta asserção não descreve um detalhe de implementação: ela protege uma
+    // decisão. Enquanto o item nº 1 do checkpoint 08.6-06 não for confirmado
+    // (3+ pessoas numa call real, no Windows, ninguém se ouvindo de volta), a
+    // premissa de que o serviço de áudio do Chromium cai dentro da árvore de
+    // processos EXCLUÍDA da captura continua não provada. Com ela falsa, um
+    // default ligado devolveria o eco de 2026-08-20 para todo mundo de uma
+    // vez — e, mesmo com ela verdadeira, ligado manda para a call tudo que a
+    // máquina estiver tocando.
+    //
+    // Se você chegou aqui porque este teste quebrou: ou o checkpoint foi
+    // confirmado e a inversão é intencional (troque as duas linhas juntas), ou
+    // alguém acabou de ligar o áudio de todo mundo sem querer.
+    expect(DEFAULT_SCREEN_SHARE_PREFERENCES.systemAudio).toBe(false)
+  })
+})
+
 describe('screenshare-preferences — sem localStorage nenhum', () => {
   it('load cai no default em vez de lançar', () => {
     expect(loadScreenSharePreferences()).toEqual(DEFAULT_SCREEN_SHARE_PREFERENCES)

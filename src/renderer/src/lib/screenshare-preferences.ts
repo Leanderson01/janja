@@ -25,18 +25,26 @@ export type ScreenSharePreferences = {
    */
   quality: ScreenShareQuality
   /**
-   * Se o áudio do sistema (loopback WASAPI) acompanha o compartilhamento.
+   * Se o áudio do computador acompanha o compartilhamento.
    *
-   * Também é estado de MÁQUINA, pelo mesmo motivo de `quality` e por um
-   * segundo, específico: quem compartilha de um notebook com alto-falante
-   * aberto e quem compartilha de um desktop com fone não correm o mesmo
-   * risco de eco (Pitfall 1). A escolha pertence ao computador, não à conta.
+   * Mesmo nome, mesmo tipo e mesmo default de antes da Fase 8.6 — o que
+   * mudou é o que ele LIGA. Era loopback de DISPOSITIVO (tudo que sai pela
+   * saída de som, inclusive a voz dos outros participantes que este app está
+   * tocando: o eco do Pitfall 1). Passou a ser loopback POR PROCESSO em modo
+   * EXCLUIR (`src/main/screenshare-audio.ts`): o Windows captura o
+   * computador inteiro MENOS a árvore de processos deste app, então a voz
+   * dos outros fica de fora e o Spotify não.
+   *
+   * Continua sendo estado de MÁQUINA, e agora por um motivo a mais: a
+   * capacidade é do computador (Windows 11+, addon carregado). Guardar isso
+   * na conta faria a escolha viajar para uma máquina que não suporta.
    *
    * Lido em dois lugares, com papéis diferentes:
-   *  - `voice-context.tsx` decide se PEDE áudio ao `getDisplayMedia`;
+   *  - o caminho de captura relê esta preferência ao iniciar o áudio, DEPOIS
+   *    que o seletor fecha — por isso ligar vale já para a transmissão atual;
    *  - `ScreenSharePicker.tsx` inicializa o toggle do diálogo, e o valor que
    *    o usuário deixar lá viaja com a fonte escolhida até o processo main,
-   *    que é quem CONCEDE (ou não) o loopback.
+   *    que é quem de fato inicia (ou não) a captura.
    */
   systemAudio: boolean
 }
@@ -49,16 +57,27 @@ const STORAGE_KEY = 'janja:screenshare-preferences'
 // conexão boa (texto um pouco menos nítido).
 //
 // `systemAudio: false` é o default pelo mesmo tipo de raciocínio — qual modo
-// de falha é pior. Com o áudio ligado, o loopback do WASAPI captura tudo que
-// sai pelo dispositivo de saída, inclusive a voz dos outros participantes que
-// o próprio app está tocando: numa call de 4 pessoas, as outras 3 passam a se
-// ouvir (Pitfall 1, confirmado em uso real em 2026-08-20). Com o áudio
-// desligado, o pior que acontece é o vídeo ir sem som. Tela muda é um
-// aborrecimento; call inutilizada por eco é um defeito.
+// de falha é pior — e continua `false` depois da Fase 8.6 por uma razão que
+// não é mais o eco de dispositivo: NADA desta fase foi verificado em Windows
+// ainda. Ligar por engano manda para a call o áudio da máquina inteira
+// (música, chamada de vídeo em outra aba, notificação) e, se a premissa mais
+// frágil da fase for falsa, a voz dos outros participantes junto. Não ligar
+// custa uma tela sem som. Tela muda é um aborrecimento; a call inteira
+// ouvindo o que você estava ouvindo é um defeito — e um vazamento.
 //
-// Este default é a única linha a inverter quando o diagnóstico de
-// `screenshare-diagnostics.ts` provar que `restrictOwnAudio` está de fato
-// sendo aplicada pelo Chromium desta versão do Electron.
+// PARA INVERTER ESTE DEFAULT (uma linha, mais o teste que a protege): o
+// item nº 1 do checkpoint 08.6-06 precisa estar confirmado — 3+ pessoas numa
+// call real, no Windows, compartilhando com o áudio ligado, e NINGUÉM se
+// ouvindo de volta. É o item que prova a premissa de que o serviço de áudio
+// do Chromium (quem toca a voz dos outros) é filho do processo-navegador e
+// portanto cai dentro da árvore EXCLUÍDA da captura — a afirmação mais
+// frágil da pesquisa, sem confirmação oficial explícita. Enquanto ela não
+// for observada em máquina de verdade, um default ligado reintroduziria o
+// defeito de 2026-08-20 para todo mundo de uma vez, por padrão.
+//
+// `screenshare-preferences.test.ts` tem uma asserção explícita sobre este
+// valor, com nome autoexplicativo: inverter o default é sempre uma decisão
+// DELIBERADA que quebra um teste, nunca um efeito colateral.
 export const DEFAULT_SCREEN_SHARE_PREFERENCES: ScreenSharePreferences = {
   quality: 'fluida',
   systemAudio: false
@@ -79,8 +98,10 @@ function sanitize(raw: unknown): ScreenSharePreferences {
 
   // Qualquer coisa que não seja um booleano cai no default, e o default é
   // `false`: um JSON velho (gravado antes deste campo existir), corrompido ou
-  // adulterado nunca deve LIGAR o áudio de sistema por acidente. A direção
-  // segura tem que ser a direção padrão.
+  // adulterado nunca deve LIGAR o áudio do computador por acidente. A direção
+  // segura tem que ser a direção padrão — e ela ficou mais importante, não
+  // menos, agora que ligado significa mandar o computador inteiro para a
+  // call.
   const systemAudio =
     typeof candidate.systemAudio === 'boolean'
       ? candidate.systemAudio
