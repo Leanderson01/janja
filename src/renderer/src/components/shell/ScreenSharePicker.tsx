@@ -251,7 +251,7 @@ const AUDIO_UNAVAILABLE_GENERIC =
 const AUDIO_UNAVAILABLE_TEXTS: Record<ScreenShareAudioUnavailableReason, string> = {
   'not-windows': 'Áudio de compartilhamento só funciona no Windows.',
   'windows-too-old':
-    'Seu Windows não tem suporte a áudio por aplicativo. Ele existe a partir do Windows 11.',
+    'Seu Windows não tem suporte a áudio por aplicativo. Ele existe a partir do Windows 10 versão 2004, com o sistema atualizado.',
   'addon-unavailable': AUDIO_UNAVAILABLE_GENERIC,
   'start-failed': AUDIO_UNAVAILABLE_GENERIC
 }

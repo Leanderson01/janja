@@ -49,15 +49,29 @@ export const SCREENSHARE_AUDIO_CHANNELS = {
  * `req.target-min-winverclnt` da doc oficial da Microsoft, e o mesmo número
  * declarado pela amostra `ApplicationLoopbackAudio`).
  *
- * 20348 é MAIOR que qualquer build de Windows 10 de consumidor (o 22H2 é
- * 19045), ou seja: na prática o recurso é Windows 11. Existe uma zona cinzenta
- * de Windows 10 2004+ totalmente atualizado onde há relatos de funcionamento
- * (README do `win-capture-audio`, plugin de OBS com uso em massa) — e é por
- * causa dessa zona cinzenta que o portão de versão é a PRIMEIRA barreira e
- * NUNCA a única. A barreira que vale de verdade é tentar `start()` e tratar a
- * falha: o HRESULT é quem sabe a resposta desta máquina.
+ * MAS a documentação está descrevendo o SDK, não o binário: 20348 é o build do
+ * Windows Server 2022, que era o Insider mais recente quando a página foi escrita
+ * em jan/2021. A API existe desde o Windows 10 versão 2004 (build 19041).
+ *
+ * A evidência que decide não é opinião — é o fonte de produção do OBS Studio,
+ * `plugins/win-wasapi/plugin-main.cpp`, inalterado desde 2021 e rodando em
+ * milhões de máquinas:
+ *
+ *     /* MS says 20348, but process filtering seems to work earlier *\/
+ *     minimum.build = 19041;
+ *
+ * Confirmado também pelo README do próprio pacote ("Windows 10 2004+"), pelo
+ * `win-capture-audio` ("usable since Windows 10 version 2004") e por usuários do
+ * OBS capturando áudio por aplicativo em Windows 10 22H2 (build 19045).
+ *
+ * Este portão existe só para recusar o que comprovadamente não tem a API. A
+ * barreira que vale de verdade é tentar `start()` e tratar a falha: o HRESULT é
+ * quem sabe a resposta desta máquina. Vale lembrar que `os.release()` devolve
+ * "10.0.19045" SEM a revisão, então o número nem carrega a informação que
+ * separa uma máquina atualizada de uma parada em 2020 — mais uma razão para o
+ * portão não ser a decisão final.
  */
-export const MIN_WINDOWS_BUILD_FOR_PROCESS_LOOPBACK = 20348
+export const MIN_WINDOWS_BUILD_FOR_PROCESS_LOOPBACK = 19041
 
 /**
  * Quanto tempo sem NENHUM chunk antes de avisar "não chegou áudio".

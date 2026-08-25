@@ -696,7 +696,7 @@ describe('registerScreenShareHandler', () => {
 
       for (const capability of [
         { supported: true },
-        { supported: false, reason: 'windows-too-old', detail: '10.0.19045' }
+        { supported: false, reason: 'windows-too-old', detail: '10.0.18363' }
       ]) {
         isProcessAudioSupportedMock.mockReturnValue(capability)
         const { handler, window, emit } = await setup()

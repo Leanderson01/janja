@@ -275,7 +275,7 @@ describe('ScreenSharePicker — máquina sem áudio por processo (Fase 8.6)', ()
   it.each([
     [
       'windows-too-old' as const,
-      /Seu Windows não tem suporte a áudio por aplicativo\. Ele existe a partir do Windows 11\./
+      /Seu Windows não tem suporte a áudio por aplicativo\. Ele existe a partir do Windows 10 versão 2004, com o sistema atualizado\./
     ],
     ['not-windows' as const, /Áudio de compartilhamento só funciona no Windows\./],
     [

@@ -142,13 +142,25 @@ describe('screenshare-audio', () => {
       expect(addon.loaderCalls()).toBe(0)
     })
 
-    it('reprova Windows 10 22H2 (build 19045 < 20348) e diz qual é o release', async () => {
+    // Windows 10 22H2 APROVA desde 2026-08-20: a documentação da Microsoft diz
+    // 20348, mas descreve o SDK, não o binário — o fonte de produção do OBS usa
+    // 19041 desde 2021 e há relatos de captura por aplicativo em 19045. Quem
+    // decide de verdade é o `start()`, tratando o HRESULT.
+    it('aprova Windows 10 22H2 (build 19045) e carrega o addon', async () => {
       const addon = fakeAddon()
       const mod = await load({ release: '10.0.19045', loader: addon.loader })
 
+      expect(mod.isProcessAudioSupported()).toMatchObject({ supported: true })
+      expect(addon.loaderCalls()).toBe(1)
+    })
+
+    it('reprova Windows 10 1909 (build 18363, anterior à API) e diz qual é o release', async () => {
+      const addon = fakeAddon()
+      const mod = await load({ release: '10.0.18363', loader: addon.loader })
+
       const capability = mod.isProcessAudioSupported()
       expect(capability).toMatchObject({ supported: false, reason: 'windows-too-old' })
-      expect(capability.supported === false && capability.detail).toContain('19045')
+      expect(capability.supported === false && capability.detail).toContain('18363')
       expect(addon.loaderCalls()).toBe(0)
     })
 
