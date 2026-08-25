@@ -32,6 +32,11 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
+import {
+  instrumentGetDisplayMedia,
+  logCaptureSupport,
+  logPublishedScreenShareAudio
+} from '../lib/screenshare-diagnostics'
 import { playSelfLeaveTone } from '../lib/voice-sounds'
 import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
 import {
@@ -67,32 +72,50 @@ const AUDIO_CAPTURE_OPTIONS = {
 // tela. Espelho deliberado (e invertido) de `AUDIO_CAPTURE_OPTIONS`, no
 // mesmo lugar, porque a diferença entre os dois é o ponto inteiro:
 //
-// - `restrictOwnAudio: true` é o que impede o eco descrito no Pitfall 1. O
-//   loopback do WASAPI captura TUDO que sai pelo dispositivo de saída —
-//   inclusive a voz dos outros participantes que o próprio LiveKit está
-//   tocando no fone de quem compartilha. Sem esta flag, essa voz é
+// - `restrictOwnAudio: true` foi desenhada para impedir o eco descrito no
+//   Pitfall 1. O loopback do WASAPI captura TUDO que sai pelo dispositivo de
+//   saída — inclusive a voz dos outros participantes que o próprio LiveKit
+//   está tocando no fone de quem compartilha. Sem esta flag, essa voz é
 //   republicada na track de screenshare e volta com atraso para quem falou.
 //   Usar fone não resolve (o loopback é do dispositivo, não do alto-falante).
-//   Só funciona a partir do Electron 43.4.0: antes disso a constraint era
-//   silenciosamente ignorada — é por isso que a versão mínima está fixada em
-//   `package.json`, e não é preferência.
+//   Ela NÃO bastou: o eco aconteceu em uso real em 2026-08-20, com Electron
+//   43.4.0 (a versão que a pesquisa apontou como a que parou de descartar a
+//   flag) e com a constraint comprovadamente chegando ao `getDisplayMedia`.
+//   Continua sendo passada — se funcionar em alguma configuração, o benefício
+//   é de graça — mas deixou de ser a defesa principal. A defesa principal
+//   agora é não pedir/não conceder o loopback (ver `systemAudio` abaixo), e
+//   `screenshare-diagnostics.ts` é quem vai dizer se esta flag chega a ser
+//   aplicada nesta máquina.
 // - `echoCancellation`/`noiseSuppression`/`autoGainControl: false` é o
 //   inverso de VOICE-16 de propósito: aquelas três foram desenhadas para voz
 //   de microfone. Aplicadas a áudio de sistema (música, jogo, vídeo) só
 //   degradam a fidelidade.
+const SYSTEM_AUDIO_CAPTURE_OPTIONS = {
+  restrictOwnAudio: true,
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false
+}
+
+// Virou função (era uma constante até a correção do eco) porque as duas
+// partes variáveis são decididas por compartilhamento, não pelo módulo:
+// `contentHint` vem da preferência de qualidade (Plano 08-05) e `audio` vem da
+// preferência de áudio de sistema.
 //
-// `contentHint` NÃO mora aqui: ele muda com a preferência de qualidade
-// (`QUALITY_PRESETS` logo abaixo, Plano 08-05) e por isso é montado por
-// chamada, em `startScreenShare()`. O que fica nesta constante é só o que
-// vale para todo compartilhamento, independente de qualidade.
-const SCREEN_SHARE_CAPTURE_OPTIONS: Omit<ScreenShareCaptureOptions, 'contentHint'> = {
-  audio: {
-    restrictOwnAudio: true,
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false
-  },
-  video: true
+// `audio: false` não é detalhe: é metade do E lógico que garante eco zero. Com
+// ele, `request.audioRequested` chega `false` ao handler do processo main, que
+// então concede `{ video }` sem loopback nenhum — as duas pontas dizendo a
+// mesma coisa, e a captura de dispositivo simplesmente não é aberta. Ver o
+// bloco de `ScreenShareChoice` em `src/main/screenshare-types.ts`.
+function screenShareCaptureOptions(
+  systemAudio: boolean,
+  contentHint: ScreenShareCaptureOptions['contentHint']
+): ScreenShareCaptureOptions {
+  return {
+    audio: systemAudio ? SYSTEM_AUDIO_CAPTURE_OPTIONS : false,
+    video: true,
+    contentHint
+  }
 }
 
 // SHARE-08 (Plano 08-05): os dois níveis de qualidade oferecidos ao usuário,
@@ -632,10 +655,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     return vadAnalysisTrackRef.current
   }, [])
 
-  // SHARE-01/03/04: publica tela + áudio de sistema. O `getDisplayMedia` que
-  // o SDK dispara por baixo é interceptado pelo handler do processo main
-  // (`src/main/screenshare.ts`), que abre o seletor de fontes (Plano 08-04) e
-  // concede a escolha do usuário com `audio: 'loopback'`.
+  // SHARE-01/03/04: publica a tela e, SE o usuário quiser, o áudio de
+  // sistema. O `getDisplayMedia` que o SDK dispara por baixo é interceptado
+  // pelo handler do processo main (`src/main/screenshare.ts`), que abre o
+  // seletor de fontes (Plano 08-04) e concede a escolha do usuário —
+  // concedendo `audio: 'loopback'` apenas quando os dois lados pediram
+  // (correção do Pitfall 1; ver `screenShareCaptureOptions` acima).
   //
   // SHARE-08 (Plano 08-05): a preferência de qualidade é lida AQUI, a cada
   // início — nunca capturada num estado de React no mount. É o que faz a
@@ -650,13 +675,23 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       console.warn('[screenshare] ignorando início: sala não conectada (%s)', room.state)
       return
     }
-    const { quality } = loadScreenSharePreferences()
+    const { quality, systemAudio } = loadScreenSharePreferences()
     const { preset, contentHint } = QUALITY_PRESETS[quality]
+
+    // Diagnóstico do Pitfall 1: impresso a cada início, sem o usuário fazer
+    // nada além de compartilhar. A linha 1/4 sai ANTES da captura porque não
+    // depende dela — e é ela que diz se `restrictOwnAudio` sequer é
+    // reconhecida por este Chromium. Procurar por "diagnóstico" no console.
+    logCaptureSupport(systemAudio)
+    // Envolve `getDisplayMedia` só pelo tempo desta captura, para ver o
+    // MediaStream cru (linhas 2/4 e 3/4) — o `livekit-client` fica com
+    // `getAudioTracks()[0]` e descarta o resto sem dizer nada.
+    const restoreGetDisplayMedia = instrumentGetDisplayMedia()
 
     try {
       await room.localParticipant.setScreenShareEnabled(
         true,
-        { ...SCREEN_SHARE_CAPTURE_OPTIONS, contentHint },
+        screenShareCaptureOptions(systemAudio, contentHint),
         // Terceiro argumento (`publishOptions`), ausente de propósito em
         // 08-02. `screenShareEncoding` é o campo SEPARADO de
         // `videoEncoding` (`08-RESEARCH.md §5`): escrever no segundo não
@@ -664,6 +699,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         // (publica, só que na qualidade default).
         { screenShareEncoding: preset.encoding }
       )
+
+      // Linha 4/4 + veredito: o que ficou DE FATO no ar. Só esta leitura
+      // distingue "constraint aplicada e insuficiente" de "constraint
+      // descartada em silêncio" — as duas produzem exatamente o mesmo eco.
+      const audioPublication = room.localParticipant.getTrackPublication(
+        Track.Source.ScreenShareAudio
+      )
+      logPublishedScreenShareAudio(audioPublication?.track?.mediaStreamTrack ?? null, systemAudio)
     } catch (err) {
       // Caminho ESPERADO, não excepcional: o usuário cancela, ou nenhuma
       // tela está disponível (`callback({})` no processo main faz o
@@ -671,6 +714,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // não tratada — `isSharing` continua `false` porque nada foi
       // publicado, e o botão volta sozinho ao estado inicial.
       console.error('[screenshare] falha ao iniciar o compartilhamento de tela', err)
+    } finally {
+      // `finally` e não depois do `await`: o caminho de cancelamento é o
+      // COMUM aqui, e deixar o wrapper instalado faria a próxima captura
+      // logar duas vezes, a seguinte três, e assim por diante.
+      restoreGetDisplayMedia()
     }
   }
 
