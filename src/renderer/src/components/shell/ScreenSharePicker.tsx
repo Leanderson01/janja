@@ -48,6 +48,16 @@ import {
 // são a mesma decisão, no mesmo clique. A preferência persiste em
 // `screenshare-preferences.ts` (estado de máquina), então quem sempre
 // compartilha com som marca uma vez e segue a vida.
+//
+// Fase 8.6 reescreveu o que esse controle PROMETE, porque o que ele faz
+// mudou. O áudio deixou de ser loopback de dispositivo (tudo que sai pela
+// saída de som, inclusive a voz dos outros participantes que este app está
+// tocando) e passou a ser loopback POR PROCESSO em modo EXCLUIR: o Windows
+// captura o computador inteiro MENOS a árvore de processos deste app. O
+// ganho é a voz dos outros ficando de fora; o preço é que continua indo tudo
+// o mais — Spotify, notificação, o vídeo da outra aba. Não é "o áudio da
+// janela que você escolheu", e quem tem música tocando precisa saber disso
+// ANTES de clicar, não depois de alguém comentar na call.
 // ------------------------------------------------------------------
 export function ScreenSharePicker(): React.JSX.Element {
   // `null` = nenhum pedido em andamento (diálogo fechado). Não é `[]`: lista
@@ -69,6 +79,12 @@ export function ScreenSharePicker(): React.JSX.Element {
   }, [])
 
   function toggleSystemAudio(): void {
+    // Guarda redundante com o `disabled` do botão, de propósito: a
+    // preferência é de MÁQUINA e sobrevive à sincronização de conta em outro
+    // computador. Numa máquina que não suporta áudio por processo, o toggle
+    // não pode APAGAR a escolha que a pessoa fez no computador que suporta —
+    // ela continua lá, intacta, esperando voltar.
+    if (audioUnavailable) return
     const next = saveScreenSharePreferences({ systemAudio: !systemAudio })
     setSystemAudio(next.systemAudio)
   }
@@ -80,7 +96,13 @@ export function ScreenSharePicker(): React.JSX.Element {
     // `systemAudio` viaja junto porque o processo main é quem CONCEDE o
     // loopback, e sem esse valor ele concederia sempre — que era exatamente o
     // defeito. Ver `ScreenShareChoice` em `src/main/screenshare-types.ts`.
-    window.screenshare.chooseSource({ sourceId, systemAudio })
+    //
+    // O E lógico com a capacidade da máquina é defesa em profundidade e o
+    // lado restritivo vence: numa máquina sem áudio por processo, pedir áudio
+    // só poderia ser atendido pelo caminho VELHO (loopback de dispositivo), e
+    // esse caminho é justamente o que devolve o eco de 2026-08-20. A
+    // preferência salva não é tocada — só o que sai neste pedido.
+    window.screenshare.chooseSource({ sourceId, systemAudio: systemAudio && !audioUnavailable })
     setRequest(null)
   }
 
@@ -100,11 +122,27 @@ export function ScreenSharePicker(): React.JSX.Element {
   const screens = sources?.filter((source) => source.isScreen) ?? []
   const windows = sources?.filter((source) => !source.isScreen) ?? []
 
-  // O usuário ligou o áudio agora, mas esta captura já foi aberta sem ele: a
-  // constraint de `getDisplayMedia()` é fixada antes de o diálogo existir e
-  // não dá para renegociar. Dizer isso é o mínimo — a alternativa é o som
-  // simplesmente não sair e ninguém entender por quê.
-  const audioOnlyNextTime = systemAudio && request?.audioAvailable === false
+  // ------------------------------------------------------------------
+  // `audioAvailable` MUDOU DE SIGNIFICADO na Fase 8.6 (mesmo nome, mesmo
+  // tipo). Era "o renderer chegou a PEDIR áudio nesta chamada de
+  // `getDisplayMedia()`" — e era por isso que existia aqui um aviso, agora
+  // removido, dizendo que ligar o toggle só valeria no próximo
+  // compartilhamento: a constraint da chamada em curso já estava fechada.
+  //
+  // Agora quer dizer "esta MÁQUINA suporta áudio por processo"
+  // (`isProcessAudioSupported()`, `src/main/screenshare-audio.ts`), e a
+  // captura de áudio começa DEPOIS que este diálogo fecha, relendo a
+  // preferência persistida. Ligar vale para ESTA transmissão — o aviso virou
+  // mentira e foi apagado, não reescrito.
+  //
+  // `audioUnavailableReason` é o irmão opcional do campo, e é lido de forma
+  // tolerante porque ele pode simplesmente não vir (versão anterior do main,
+  // falha que não soube se classificar): sem motivo, o texto genérico.
+  // ------------------------------------------------------------------
+  const audioUnavailable = request?.audioAvailable === false
+  const audioUnavailableText = audioUnavailable
+    ? describeAudioUnavailable(readAudioUnavailableReason(request))
+    : null
 
   return (
     <Dialog open={request !== null} onOpenChange={handleOpenChange}>
@@ -114,17 +152,16 @@ export function ScreenSharePicker(): React.JSX.Element {
           <DialogDescription>Escolha uma tela ou uma janela para transmitir.</DialogDescription>
         </DialogHeader>
 
-        {/* Pitfall 1: o áudio do sistema é uma ESCOLHA, e uma escolha
-            informada. O aviso embaixo não é disclaimer defensivo — é o defeito
-            que 4 pessoas viveram numa call em 2026-08-20, escrito em português
-            de gente. Enquanto o diagnóstico de `screenshare-diagnostics.ts`
-            não provar que o Chromium aplica `restrictOwnAudio`, esta é a
-            informação verdadeira, e ela precisa estar onde a decisão é
-            tomada. */}
+        {/* O áudio é uma ESCOLHA, e uma escolha informada. O texto embaixo
+            não é disclaimer defensivo: é o que a pessoa vai VIVER na call,
+            escrito antes de ela descobrir sozinha com o Spotify tocando. As
+            duas frases são verdadeiras ao mesmo tempo, e nenhuma delas pode
+            sumir — a primeira é o preço do modo EXCLUIR (vai o computador
+            inteiro), a segunda é o ganho (a voz dos outros não vai). */}
         <div className="border-border flex flex-col gap-2 rounded-md border p-3">
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-sm font-medium">
-              {systemAudio ? (
+              {systemAudio && !audioUnavailable ? (
                 <Volume2Icon className="size-4" />
               ) : (
                 <VolumeXIcon className="text-muted-foreground size-4" />
@@ -134,33 +171,39 @@ export function ScreenSharePicker(): React.JSX.Element {
             <Button
               type="button"
               size="sm"
-              variant={systemAudio ? 'default' : 'outline'}
-              aria-pressed={systemAudio}
+              variant={systemAudio && !audioUnavailable ? 'default' : 'outline'}
+              // Sem `aria-pressed` quando indisponível: o botão deixa de ser
+              // um interruptor com dois estados e vira um aviso. Dizer
+              // "não pressionado" seria descrever a preferência salva, que
+              // não é o que está acontecendo na tela.
+              aria-pressed={audioUnavailable ? undefined : systemAudio}
+              disabled={audioUnavailable}
+              aria-disabled={audioUnavailable}
+              aria-describedby={audioUnavailable ? AUDIO_UNAVAILABLE_TEXT_ID : undefined}
               onClick={toggleSystemAudio}
             >
-              {systemAudio ? 'Ligado' : 'Desligado'}
+              {audioUnavailable ? 'Indisponível' : systemAudio ? 'Ligado' : 'Desligado'}
             </Button>
           </div>
 
-          {systemAudio ? (
+          {audioUnavailable ? (
+            /* O motivo fica na tela porque a limitação é da MÁQUINA, e a
+               pessoa merece saber disso em vez de achar que o app quebrou ou
+               que ela clicou errado. */
+            <p id={AUDIO_UNAVAILABLE_TEXT_ID} className="text-xs font-medium text-amber-500">
+              {audioUnavailableText}
+            </p>
+          ) : systemAudio ? (
             <p className="text-muted-foreground text-xs">
-              O Windows captura tudo que sai pela saída de áudio — inclusive a voz das outras
-              pessoas da call, que o app está tocando aí. Com isso ligado, elas vão se ouvir de
-              volta. Fone de ouvido não resolve.
+              Vai junto tudo que o computador estiver tocando — o que você compartilha, mas também
+              música, vídeos de outras abas e sons de notificação. A voz das outras pessoas da call
+              fica de fora.
             </p>
           ) : (
             <p className="text-muted-foreground text-xs">
-              A tela vai sem som. É o padrão porque é o único jeito garantido de ninguém se ouvir de
-              volta.
+              A tela vai sem som. Ligar vale já para esta transmissão.
             </p>
           )}
-
-          {audioOnlyNextTime ? (
-            <p className="text-xs font-medium text-amber-500">
-              Esta transmissão já começou sem áudio. A escolha ficou salva e vale a partir do
-              próximo compartilhamento.
-            </p>
-          ) : null}
         </div>
 
         {/* Área rolável pelo ScrollArea do shadcn, como o resto do app (Fase
@@ -190,6 +233,45 @@ export function ScreenSharePicker(): React.JSX.Element {
       </DialogContent>
     </Dialog>
   )
+}
+
+// O id existe para o `aria-describedby` do botão desabilitado: um botão
+// `disabled` sai da ordem de foco, então o motivo precisa estar amarrado a
+// ele por relação explícita, não por proximidade visual.
+const AUDIO_UNAVAILABLE_TEXT_ID = 'screenshare-audio-unavailable-reason'
+
+const AUDIO_UNAVAILABLE_GENERIC =
+  'Não foi possível iniciar o áudio de compartilhamento nesta instalação.'
+
+// Os quatro motivos que `src/main/screenshare-audio.ts` sabe produzir, em
+// português de gente. `start-failed` cai no texto genérico de propósito: o
+// que o distingue é um HRESULT, que vai para o log e não para a tela — para
+// quem está com o diálogo aberto, "não deu para iniciar" é a informação
+// acionável, e o resto é ruído.
+const AUDIO_UNAVAILABLE_TEXTS: Record<ScreenShareAudioUnavailableReason, string> = {
+  'not-windows': 'Áudio de compartilhamento só funciona no Windows.',
+  'windows-too-old':
+    'Seu Windows não tem suporte a áudio por aplicativo. Ele existe a partir do Windows 11.',
+  'addon-unavailable': AUDIO_UNAVAILABLE_GENERIC,
+  'start-failed': AUDIO_UNAVAILABLE_GENERIC
+}
+
+/**
+ * Lê `audioUnavailableReason` sem depender de ele existir no tipo nem no
+ * payload. O campo é opcional no contrato e chega pelo IPC, ou seja, de fora:
+ * um valor desconhecido (main mais novo, main mais velho, payload adulterado)
+ * degrada para o texto genérico em vez de renderizar `undefined` na tela.
+ */
+function readAudioUnavailableReason(
+  request: ScreenSharePickRequest | null
+): ScreenShareAudioUnavailableReason | undefined {
+  const raw = (request as { audioUnavailableReason?: unknown } | null)?.audioUnavailableReason
+  return typeof raw === 'string' ? (raw as ScreenShareAudioUnavailableReason) : undefined
+}
+
+function describeAudioUnavailable(reason: ScreenShareAudioUnavailableReason | undefined): string {
+  if (reason === undefined) return AUDIO_UNAVAILABLE_GENERIC
+  return AUDIO_UNAVAILABLE_TEXTS[reason] ?? AUDIO_UNAVAILABLE_GENERIC
 }
 
 function SourceSection({
