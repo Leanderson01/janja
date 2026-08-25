@@ -157,6 +157,15 @@ critério de sucesso nº 2 do projeto inteiro. Confirmar antes de começar que o
 Electron instalado é **>= 43.4.0** (`node_modules`, não só o pin do
 `package.json`) — abaixo disso o `restrictOwnAudio` é ignorado em silêncio.
 
+> **Mudou depois que isto foi escrito (Fase 8.6).** O áudio do compartilhamento
+> não vem mais do `getDisplayMedia`, e a flag `restrictOwnAudio` não é mais usada
+> por caminho nenhum — a checagem de Electron >= 43.4.0 acima perdeu o objeto. Com
+> o toggle desligado (o padrão), o compartilhamento não publica faixa de áudio
+> nenhuma, então **o 2.1 não tem mais como falhar**: ele virou teste de vídeo. O
+> teste de eco que vale agora é o **item 1 da Parte 3**, com o toggle LIGADO. Com
+> as três pessoas reunidas, faça o item 1 da Parte 3 primeiro e depois volte para
+> cá.
+
 ### 2.1 — Eco (08-03 A) — o teste mais crítico da fase
 
 1. As 3 máquinas no mesmo canal, ouvindo-se normalmente, sem compartilhar nada.
@@ -371,6 +380,361 @@ um cartão de prévia. É a única evidência visual que vai existir no reposit�
 
 ---
 
+---
+
+# Parte 3 — Fase 8.6 (áudio do compartilhamento, por processo)
+
+Roteiro de `phases/08.6-audio-por-processo/08.6-06-checkpoint-windows-PLAN.md`.
+
+**O que mudou desde a Parte 1.** O `getDisplayMedia` desta fase é **só vídeo** —
+o app não pede mais `audio: 'loopback'` em caminho nenhum, e o processo main não
+concede mais em caminho nenhum. O som agora vem de uma captura WASAPI feita pelo
+próprio Windows em modo EXCLUIR: *capture tudo que este computador está tocando,
+MENOS o Hydra e os processos filhos dele*. Esse PCM atravessa o app até virar uma
+segunda faixa publicada na call, separada do vídeo.
+
+**A ordem aqui não é decoração.** O item 1 testa a única suposição que sustenta o
+desenho inteiro. Se ele falhar, os outros 20 itens estão medindo a coisa errada.
+Faça-o primeiro, mesmo que isso signifique convocar as três pessoas antes de
+fazer o bloco sozinho — e, se você for fazer a Sessão 2 da Parte 1 na mesma
+reunião, faça o item 1 daqui **antes** do 2.1 de lá.
+
+Além dele, dois itens decidem se a fase entregou o que promete: o item 2 (a
+promessa) e o item 3 (o preço). O item 3 é o único da lista inteira que pode
+corrigir **o texto da interface** em vez do código.
+
+**Vários defeitos desta fase falham SEM ERRO NENHUM** — mono em silêncio, worklet
+recusado pela política de segurança, faixa publicada transmitindo silêncio
+eterno, captura do Windows continuando ligada depois de "parar". Em cada item
+está escrito onde olhar para perceber, porque nenhum deles se anuncia sozinho.
+
+---
+
+## Sessão C.0 — Preparação (sozinho, ~30 min)
+
+### C.0.1 — Build e instalação (obrigatório: parte dos itens só existe no app instalado)
+
+```bash
+git pull
+npm install
+npm run build:win
+```
+
+O `build:win` já roda a verificação de empacotamento do áudio nativo
+(`verify:native-audio`) no meio da cadeia. **Se ele falhar, pare e copie a
+mensagem inteira** — ela nomeia exatamente qual das 6 asserções caiu, e nenhum
+item abaixo faz sentido com um pacote quebrado.
+
+Instale pelo `dist\hydra-1.0.0-setup.exe`. É instalação de um clique, sem
+escolher pasta; ela vai para `%LOCALAPPDATA%\Programs\Hydra` (se não estiver aí,
+procure por `Hydra.exe`).
+
+**Use o app INSTALADO, não o `npm run dev`.** Em dev o renderer é servido por
+`http://localhost` e o binário nativo é lido de `node_modules`; no app instalado
+ele é servido de `file://` e o binário sai de dentro de `app.asar.unpacked`. Os
+dois modos de falha mais silenciosos desta fase (itens 16 e 18) **só existem no
+app instalado** e passariam despercebidos em dev.
+
+### C.0.2 — O portão da máquina
+
+Rode `winver` e anote o número do build (a linha "Versão 2xHx (build do SO
+XXXXX)"). **O portão é 20348** — abaixo disso o Windows não tem captura por
+processo, e é o Windows 11 que o tem.
+
+- Build **>= 20348**: siga normalmente.
+- Build **< 20348**: nada da Parte 3 pode ser testado nesta máquina, exceto o
+  item 21 (que é justamente o teste de como o app se comporta aí). Vá direto para
+  ele, anote todo o resto como **"não testado"** — nunca como "passou" — e
+  reporte. Testar o resto vai precisar de outra máquina.
+
+### C.0.3 — Onde olhar (abra antes de começar, e deixe aberto)
+
+- **DevTools do renderer:** `Ctrl+Shift+I` no app, aba Console.
+- **Console do processo main** (é onde vive tudo que começa com
+   `[screenshare-audio]`). No app instalado, abra pelo PowerShell:
+
+   ```powershell
+   & "$env:LOCALAPPDATA\Programs\Hydra\Hydra.exe" --enable-logging
+   ```
+
+   Se mesmo assim nenhuma linha `[screenshare-audio]` aparecer no terminal,
+   repita **os itens que dependem do log do main** com `npm run dev`, onde esse
+   console cai no terminal do dev — e **anote em qual dos dois modos cada leitura
+   foi feita**. Uma diferença entre dev e instalado é informação, não ruído.
+
+**O que é sinal de que deu certo:**
+
+| Onde | Linha |
+|---|---|
+| main | `[screenshare-audio] captura iniciada em modo EXCLUIR (pid N)` |
+| renderer | `[screenshare] áudio por processo publicado (ScreenShareAudio, estéreo)` |
+| main, ao parar | `[screenshare-audio] captura encerrada: N chunks, M bytes` |
+
+**O que é ruído ESPERADO e não deve virar caça-fantasma:** um aviso
+`silence detected` do LiveKit logo depois de publicar. A faixa é publicada antes
+do primeiro pedaço de áudio chegar; é cosmético.
+
+**O que é sinal de defeito:** qualquer linha começando com `Refused to load the
+script` / `Content Security Policy` (item 18), e o aviso
+`[screenshare-audio] nenhum chunk em 15000ms` (item 20).
+
+---
+
+## Sessão C.1 — Três máquinas: a premissa (~20 min). **Antes de qualquer outro item.**
+
+1. **A voz das outras pessoas da call não pode entrar no que você compartilha.**
+
+   *Por que este é o primeiro:* o áudio desta fase é "capture tudo que este
+   computador toca, menos o Hydra e seus filhos", e isso só mata o eco se o
+   pedaço do Chromium que **toca a voz dos outros** for mesmo um processo filho
+   do Hydra. Ninguém achou documentação oficial dizendo que é. Se não for, a voz
+   dos outros volta para dentro do compartilhamento e a fase precisa de outro
+   desenho — então não vale gastar as três pessoas em mais nada antes disto.
+
+   1. As três máquinas no mesmo canal de voz, **sem compartilhar nada**,
+      confirmando que se ouvem normalmente. De fone, para o teste medir a captura
+      e não o microfone pegando o alto-falante.
+   2. Na máquina **A**: botão de compartilhar → no diálogo, **ligue o toggle
+      "Compartilhar áudio do sistema"** (ele vem desligado) → escolha uma janela.
+   3. A máquina **B** fala continuamente por ~30 segundos.
+   4. A máquina **C** (que não fala nem compartilha) escuta com atenção: a voz de
+      B tem que chegar **uma única vez**.
+   5. Inverta os papéis e repita em pelo menos **2 combinações diferentes** de
+      quem compartilha × quem fala.
+
+   *Como perceber que falhou:* o eco aqui raramente é um "eco de caverna". O que
+   C ouve é a voz de B chegando duas vezes, a segunda com atraso curto e timbre
+   mais abafado. Se ficar em dúvida, **use o discriminador**: em C, aplique
+   "Silenciar para mim" em **B**, e peça para B continuar falando. Se C **ainda**
+   ouvir B, o que está chegando é a voz de B viajando dentro da faixa da máquina
+   A — isso é o defeito, sem margem de interpretação.
+
+   *Se falhar:* **pare a lista aqui.** Anote a combinação exata (quem
+   compartilhava, quem falava, quem ouviu, com fone ou alto-falante) e reporte só
+   isso. Não é um item reprovado entre outros: é o desenho da fase caindo, e o
+   encaminhamento é replanejamento (o caminho nomeado pela pesquisa é o modo
+   INCLUIR por PID da janela, que é o que o Discord faz), não conserto.
+
+---
+
+## Sessão C.2 — Ainda com as três reunidas (~25 min)
+
+Só entre aqui depois que o item 1 passar limpo. Os itens 2 e 3 são o par que
+define o valor da fase: um é a promessa, o outro é o preço.
+
+2. **A promessa: o áudio chega, e chega com qualidade de música.** Com o
+   compartilhamento ativo (áudio ligado), toque um vídeo ou uma música na máquina
+   que compartilha. As outras duas confirmam que **ouvem** — e que soa como
+   música, não como rádio AM. A faixa vai a 128 kbps estéreo; se soar estreito e
+   chapado, isso é o item 7 falhando, não a fase.
+
+3. **O preço: com Spotify tocando em segundo plano, o outro lado ouve o
+   Spotify.** Deixe o Spotify (ou o YouTube em outra janela) tocando **fora** da
+   janela compartilhada e pergunte às outras máquinas o que elas ouvem.
+
+   - **Se ouvirem:** é o comportamento previsto do modo EXCLUIR, e é exatamente o
+     que o toggle promete na tela. Confirme que a frase do diálogo bate com o que
+     aconteceu: *"Vai junto tudo que o computador estiver tocando — o que você
+     compartilha, mas também música, vídeos de outras abas e sons de notificação.
+     A voz das outras pessoas da call fica de fora."*
+   - **Se NÃO ouvirem:** o texto da interface está **exagerando o preço** e
+     precisa encolher. Anote o que de fato foi e o que não foi junto (música de
+     outro app? som de notificação do Windows? outra aba do navegador?) — esse é
+     o único item da lista que corrige a UI em vez do código, e sem essa anotação
+     ninguém sabe qual metade da frase apagar.
+
+4. **Tela inteira se comporta igual a janela.** Repita os itens 1 e 2
+   compartilhando a **TELA INTEIRA**. Tem que haver áudio, pelo mesmo caminho,
+   sem diferença perceptível, e sem eco. É a razão principal de a fase ter
+   escolhido EXCLUIR em vez de INCLUIR: no caminho antigo, tela inteira e janela
+   se comportavam diferente.
+
+5. **Ligar o toggle vale para ESTA transmissão.** Comece a compartilhar com o
+   toggle **desligado** (as outras confirmam: vídeo sem som). Pare, compartilhe
+   de novo e ligue o toggle **dentro do diálogo**: o som tem que aparecer **nesta
+   transmissão**, não na próxima. O texto do estado desligado promete isso
+   ("Ligar vale já para esta transmissão") e antes desta fase era mentira.
+
+6. **Parar leva o áudio junto.** Com o áudio no ar, pare o compartilhamento pelo
+   botão. Nas outras máquinas, o vídeo **e** o som têm que sumir juntos, na hora.
+
+   *Como perceber que falhou:* som que continua chegando depois de o vídeo sumir
+   significa que a faixa de áudio não foi despublicada junto com a de vídeo —
+   defeito grave, e do tipo que ninguém repara se não estiver procurando.
+
+---
+
+## Sessão C.3 — Duas máquinas (~35 min)
+
+Daqui em diante basta você e mais uma pessoa.
+
+7. **Estéreo de verdade.** O jeito de falhar aqui é publicar **mono, em silêncio,
+   sem nenhum erro** — e o único lugar onde isso aparece é no SDP. **Antes** de
+   começar a compartilhar, cole isto no Console do DevTools da máquina que vai
+   compartilhar:
+
+   ```js
+   const _sld = RTCPeerConnection.prototype.setLocalDescription
+   RTCPeerConnection.prototype.setLocalDescription = function (d) {
+     const sdp = d?.sdp ?? ''
+     const fmtp = sdp.match(/a=fmtp:\d+ .*opus.*|a=fmtp:\d+ .*stereo.*/gi) ?? []
+     console.log(sdp.includes('stereo=1') ? '%cstereo=1 PRESENTE' : '%cSEM stereo=1',
+       sdp.includes('stereo=1') ? 'color:lime' : 'color:red', fmtp)
+     return _sld.apply(this, arguments)
+   }
+   ```
+
+   Agora compartilhe com áudio ligado. Com a faixa de compartilhamento publicada,
+   pelo menos uma linha `a=fmtp:` tem que trazer `stereo=1;sprop-stereo=1` (a do
+   microfone é mono e não conta — vão aparecer duas). Se não aparecer `stereo=1`
+   nenhum, **anote e reporte**: áudio de jogo e de música perde metade, e o
+   defeito está antes da publicação.
+
+8. **Latência e sincronia labial.** Com um vídeo com fala tocando na máquina que
+   compartilha, a outra confirma que o som acompanha a boca. O projeto espera
+   algo entre 60 e 100 ms somados — imperceptível. Se o som chegar visivelmente
+   atrasado, ou se houver "cliques" periódicos, anote qual dos dois (são defeitos
+   opostos: atraso é buffer cheio demais, clique é buffer raso demais).
+
+9. **Dez minutos seguidos, com música.** Uma transmissão contínua de **10+
+   minutos** com som o tempo todo. No fim: o áudio ainda está sincronizado com o
+   vídeo? Houve engasgo, clique, ou um atraso que foi **crescendo**?
+
+   *Uma honestidade sobre a medição:* o plano original mandava anotar os
+   contadores de underrun/overrun do worklet no início e no fim. Esses números
+   **existem no código mas ninguém os consome hoje** — a ponte de áudio aceita um
+   `onStats` opcional e nada o passa. Então **não há número para anotar**; o
+   instrumento disponível é o seu ouvido, e o sintoma de deriva é atraso que
+   aumenta minuto a minuto ou cliques que aparecem em intervalos regulares. Se
+   isso acontecer, reporte assim mesmo — a pendência que nasce é ligar o
+   `onStats` num log e repetir os 10 minutos. Não invente números.
+
+10. **Reconexão.** No meio de um compartilhamento com áudio, desligue o Wi-Fi da
+    máquina que compartilha por ~10 segundos e religue. Quando a call voltar, a
+    outra máquina tem que voltar a **ouvir**, não só a ver.
+
+    *Como perceber que falhou:* vídeo volta e som não volta — a faixa foi
+    republicada mas está transmitindo silêncio permanente, sem erro nenhum na
+    tela. Confirme com o log do main: se `captura iniciada em modo EXCLUIR` não
+    reaparecer, o áudio morreu na reconexão.
+
+---
+
+## Sessão C.4 — Sozinho (~35 min)
+
+11. **Parar de verdade para o Windows.** Compartilhe com áudio, deixe rodar ~60
+    segundos, pare pelo botão. No console do main tem que aparecer
+    `[screenshare-audio] captura encerrada: N chunks, M bytes`.
+
+    *O número serve de conferência:* o formato é 192 KB por segundo de áudio
+    **não silencioso**, então um minuto de música dá algo em torno de 11 MB e
+    milhares de chunks. Muito menos que isso com música tocando é sinal de que
+    quase nada estava sendo capturado (silêncio é descartado antes de virar
+    chunk, então um número baixo com o app calado é normal).
+
+12. **Três ciclos na mesma sessão.** Compartilhar → parar → compartilhar → parar
+    → compartilhar → parar, sem fechar o app. Os três têm que funcionar, com som
+    nos três. (É a não-regressão do SHARE-07.)
+
+13. **Sair do canal sem parar antes.** Compartilhando com áudio, clique em
+    desconectar direto. A captura tem que parar sozinha — linha
+    `captura encerrada` no main.
+
+14. **F5 no app.** Compartilhando com áudio, recarregue pelo DevTools
+    (`Ctrl+R`). A captura tem que parar sozinha.
+
+    *Por que este item existe:* sem isso, o WASAPI segue capturando contra uma
+    janela que não existe mais, e nada na tela indica isso. O único jeito de
+    perceber é a **ausência** da linha `captura encerrada` no main.
+
+15. **Fechar o app.** Compartilhando com áudio, feche a janela. No Gerenciador de
+    Tarefas, **nenhum processo `Hydra.exe` pode sobrar**. Confira também a aba
+    Detalhes, não só a de Aplicativos.
+
+16. **O binário nativo está no lugar certo, no app instalado.** Confirme que
+    existe:
+
+    ```
+    %LOCALAPPDATA%\Programs\Hydra\resources\app.asar.unpacked\node_modules\loopback-capture\build\Release\loopback_capture_addon.node
+    ```
+
+    Este arquivo **precisa** estar fora do `app.asar` — o Windows não consegue
+    carregar uma DLL de dentro de um arquivo empacotado. Se ele não estiver aí,
+    o sintoma no app é o toast "Não foi possível iniciar o áudio do
+    compartilhamento nesta máquina", com o vídeo indo normalmente.
+
+17. **A gordura de compilação ficou de fora.** Confirme que **NÃO** existe
+    `resources\app.asar.unpacked\node_modules\cmake-js` (nem `resources\cmake-js`)
+    dentro da pasta de instalação. São 39 pacotes de ferramenta de build que não
+    têm nada que fazer no instalador.
+
+18. **O worklet passa pela política de segurança no app instalado.** Este é o
+    item que existe por causa da lição nº 2 do HANDOFF, e o modo de falha é o
+    mais traiçoeiro da lista: **nenhum erro de aplicação, só ausência de som.**
+
+    No app **instalado** (não em dev), compartilhe com áudio ligado e olhe o
+    Console do renderer. Se aparecer qualquer linha do tipo `Refused to load the
+    script ... violates the following Content Security Policy directive:
+    script-src 'self'`, o item reprova. Junto dela você deve ver o toast "Não foi
+    possível preparar o áudio do compartilhamento. A tela vai sem som."
+
+    **Se reprovar, NÃO afrouxe a política de segurança** — o defeito é o caminho
+    do arquivo do worklet, não a política. Reporte a linha inteira.
+
+19. **O relatório do console.** Junte, literalmente (copiar e colar, não resumir):
+
+    - o `require('loopback-capture')` carregou? (se não, a mensagem do erro);
+    - o `start()` da captura lançou? Se lançou, **o HRESULT** — é o número que
+      distingue "Windows velho demais" de qualquer outra coisa, e ele só existe
+      no log do main, em nenhum outro lugar do mundo;
+    - a linha `captura iniciada em modo EXCLUIR (pid N)`;
+    - a linha `captura encerrada: N chunks, M bytes` de um compartilhamento de
+      duração conhecida;
+    - o número do build do `winver` (do C.0.2).
+
+20. **Um app que não entrega áudio.** Compartilhe com o **Microsoft Teams**
+    tocando som (é o caso conhecido: nem todo app aparece na captura por
+    processo). Se nenhum áudio chegar, o app **precisa avisar** em vez de ficar
+    mudo: depois de 15 segundos sem nenhum pedaço de áudio, tem que aparecer o
+    toast "Nenhum áudio chegou do compartilhamento. Alguns aplicativos não
+    permitem captura de áudio.", e no main a linha
+    `[screenshare-audio] nenhum chunk em 15000ms`.
+
+    Se o áudio do Teams chegar normalmente, ótimo — anote isso, é informação nova.
+
+21. **Degradação honesta numa máquina sem suporte.** Se houver acesso a uma
+    máquina com **Windows 10 (build < 20348)**: no diálogo de compartilhamento, o
+    toggle tem que aparecer **"Indisponível", desabilitado**, com o motivo escrito
+    ("Seu Windows não tem suporte a áudio por aplicativo. Ele existe a partir do
+    Windows 11.") — e o compartilhamento de **vídeo** tem que continuar
+    funcionando normalmente. Se não houver essa máquina, anote **"não testado"**.
+    Nunca "passou".
+
+---
+
+## Sessão C.5 — A decisão que fecha a fase: o default do toggle
+
+Hoje o "Compartilhar áudio do sistema" nasce **desligado**
+(`DEFAULT_SCREEN_SHARE_PREFERENCES` em
+`src/renderer/src/lib/screenshare-preferences.ts`), e o motivo disso era o eco. Se
+o item 1 passou, esse motivo deixou de existir — mas o item 3 pode ter criado um
+motivo novo: ligado por padrão significa mandar para a call tudo que a máquina
+estiver tocando, sem ninguém ter pedido.
+
+Só escolha depois de rodar os itens 1, 2 e 3. Inverter é uma linha, e hoje ela
+quebra um teste de propósito — é decisão deliberada, nunca efeito colateral.
+
+| Opção | O que significa | O custo |
+|---|---|---|
+| **manter** | Continua desligado; quem quer som liga uma vez e a preferência fica salva naquela máquina. | Muita gente vai compartilhar sem som sem descobrir que a opção existia. |
+| **inverter** | Nasce ligado em todo mundo. | Todo compartilhamento passa a mandar música e notificações junto. Numa máquina abaixo do build 20348, o toggle nasceria ligado **e** desabilitado — confuso. |
+| **inverter-com-limite** | Nasce ligado só onde a máquina suporta áudio por processo. | O default deixa de ser constante e passa a depender de uma consulta ao processo main — mais uma peça móvel num módulo hoje puro e síncrono. |
+
+**Reportar:** o veredito de cada item de 1 a 21 (inclusive os "não testado"), e a
+escolha: `manter`, `inverter` ou `inverter-com-limite`.
+
+---
+
 ## Depois da sessão
 
 Cada bloco aprovado destrava uma escrita no repositório — não deixar isso para
@@ -383,6 +747,8 @@ depois, é o que impede um checkpoint de ser refeito por esquecimento:
 | 2.1 + 2.2 | `phases/08-.../08-03-SUMMARY.md` com o resultado literal de A-D |
 | 2.3 | `phases/08-.../08-07-SUMMARY.md`, fechar a Fase 8 |
 | Sessão A + B | `phases/08.5-.../08.5-17-SUMMARY.md`, fechar a Fase 8.5 |
+| Parte 3, itens 1 e 2 | marcar **SHARE-03** e **SHARE-04** em `REQUIREMENTS.md` (só se os dois passarem) |
+| Parte 3 inteira + a decisão do default | `phases/08.6-audio-por-processo/08.6-06-SUMMARY.md` com o veredito literal dos 21 itens, fechar a Fase 8.6 |
 | 3.1 + 3.2 | `phases/09-.../09-03-SUMMARY.md`, fechar a Fase 9 |
 
 Depois disso, a decisão que ficou em aberto: se a rede aguentar bem nos testes,
