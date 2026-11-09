@@ -3,8 +3,8 @@ import { useQuery } from 'convex/react'
 
 import {
   EMPTY_HISTORY,
-  navBack,
-  navForward,
+  navBackWhere,
+  navForwardWhere,
   navPush,
   type NavEntry,
   type NavHistory
@@ -60,6 +60,7 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
   const [history, setHistory] = useState<NavHistory>(EMPTY_HISTORY)
 
   const servers = useQuery(api.servers.listMyServers)
+  const dmChannels = useQuery(api.dms.listMyDmChannels)
 
   // Servidor "efetivo": o que o usuário escolheu manualmente, SE ainda existir na lista
   // atual; senão o primeiro da lista; senão null (zero servidores). Nunca precisa de
@@ -171,12 +172,16 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     record({ view: 'home', serverId: null, channelId: null, dmChannelId: id })
   }
 
-  // Uma entrada some do histórico quando o servidor deixou de existir. O canal
-  // só dá para conferir no servidor selecionado (único cujos canais estão
-  // carregados); nos outros, canal que sumiu cai no primeiro de texto, pela
-  // derivação de `selectedChannelId`. Conversa direta não é conferida aqui.
+  // Entrada morta = servidor que saiu da lista ou conversa direta que deixou
+  // de existir. Canal que sumiu NÃO mata a entrada: se o servidor é o
+  // selecionado dá para conferir e a entrada morre; nos outros (canais não
+  // carregados) o canal morto cai no primeiro de texto, pela derivação de
+  // `selectedChannelId`. "Amigos" (Início sem conversa) está sempre viva.
   function isLive(e: NavEntry): boolean {
-    if (e.view === 'home') return true
+    if (e.view === 'home') {
+      if (e.dmChannelId === null) return true
+      return !!dmChannels && dmChannels.some((d) => d.dmChannelId === e.dmChannelId)
+    }
     if (!servers || !servers.some((s) => s._id === e.serverId)) return false
     if (e.channelId && e.serverId === selectedServerId && channels) {
       return channels.some((c) => c._id === e.channelId)
@@ -193,22 +198,15 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     if (e.channelId) applyChannel(e.channelId as Id<'channels'>)
   }
 
-  function step(move: typeof navBack): void {
-    let h = history
-    for (;;) {
-      const r = move(h)
-      if (!r) return
-      h = r.history
-      if (isLive(r.entry)) {
-        setHistory(h)
-        applyEntry(r.entry)
-        return
-      }
-    }
+  function step(move: typeof navBackWhere): void {
+    const r = move(history, isLive)
+    if (!r) return
+    setHistory(r.history)
+    applyEntry(r.entry)
   }
 
-  const goBack = (): void => step(navBack)
-  const goForward = (): void => step(navForward)
+  const goBack = (): void => step(navBackWhere)
+  const goForward = (): void => step(navForwardWhere)
 
   const value = useMemo<SelectionContextValue>(
     () => ({
@@ -225,8 +223,8 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
       goHome,
       selectedDmChannelId,
       setSelectedDmChannelId: selectDm,
-      canGoBack: history.index > 0,
-      canGoForward: history.index < history.entries.length - 1,
+      canGoBack: navBackWhere(history, isLive) !== null,
+      canGoForward: navForwardWhere(history, isLive) !== null,
       goBack,
       goForward
     }),
@@ -239,6 +237,7 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
       viewingStage,
       selectedDmChannelId,
       channels,
+      dmChannels,
       history
     ]
   )

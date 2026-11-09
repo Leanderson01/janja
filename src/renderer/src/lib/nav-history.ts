@@ -43,3 +43,31 @@ export function navForward(h: NavHistory): { history: NavHistory; entry: NavEntr
   const index = h.index + 1
   return { history: { entries: h.entries, index }, entry: h.entries[index] }
 }
+
+// Variantes que pulam entradas mortas (servidor/conversa que não existe mais):
+// devolvem a entrada viva mais próxima na direção, ou null se não sobrou nenhuma.
+function stepWhere(
+  h: NavHistory,
+  dir: -1 | 1,
+  isLive: (e: NavEntry) => boolean
+): { history: NavHistory; entry: NavEntry } | null {
+  for (let i = h.index + dir; i >= 0 && i < h.entries.length; i += dir) {
+    if (isLive(h.entries[i]))
+      return { history: { entries: h.entries, index: i }, entry: h.entries[i] }
+  }
+  return null
+}
+
+export function navBackWhere(
+  h: NavHistory,
+  isLive: (e: NavEntry) => boolean
+): { history: NavHistory; entry: NavEntry } | null {
+  return stepWhere(h, -1, isLive)
+}
+
+export function navForwardWhere(
+  h: NavHistory,
+  isLive: (e: NavEntry) => boolean
+): { history: NavHistory; entry: NavEntry } | null {
+  return stepWhere(h, 1, isLive)
+}
