@@ -219,7 +219,7 @@ export function ChannelSidebar(): React.JSX.Element {
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="px-2 pb-3">
+        <div className="px-2 pb-[calc(var(--user-area-height,0px)+16px)]">
           {/* channels === undefined enquanto a subscription não resolve — não é
               erro, é carregamento; mantemos a estrutura sem itens até chegar
               dado real. */}

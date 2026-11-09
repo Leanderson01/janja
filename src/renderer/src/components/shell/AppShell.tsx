@@ -4,11 +4,10 @@ import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
 import { ServerRail } from '@/components/shell/ServerRail'
 import { TitleBar } from '@/components/shell/TitleBar'
-import { VoiceControlBar, VoiceQuickControls } from '@/components/shell/VoiceControlBar'
+import { UserArea } from '@/components/shell/UserArea'
 import { DmConversationView } from '@/components/friends/DmConversationView'
 import { DmSidebar } from '@/components/friends/DmSidebar'
 import { FriendsPanel } from '@/components/friends/FriendsPanel'
-import { UserPanel } from '@/features/auth/UserPanel'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { clampChannelListWidth } from '@/lib/layout-preferences'
@@ -38,8 +37,8 @@ import { useEffect, useState } from 'react'
 // lista de membros na Home).
 //
 // O `view` escolhe só o miolo de cada região — o rodapé de voz e o painel do
-// usuário existem uma vez só, nas duas visões. Eles moram embaixo da lista de
-// canais, dentro da moldura, até a Tarefa 7 da rodada mudá-los de lugar.
+// usuário existem uma vez só, nas duas visões. Eles moram no `UserArea`, um cartão
+// flutuante sobre o rail e a lista de canais.
 function ShellBody(): React.JSX.Element {
   const { view, selectedDmChannelId } = useSelection()
   const { membersVisible, channelListWidth, setChannelListWidth, commitChannelListWidth } =
@@ -60,7 +59,7 @@ function ShellBody(): React.JSX.Element {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-sidebar text-foreground">
       <TitleBar />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* Rail: 72px, sem borda — quem separa é a moldura. */}
         <div className="w-[72px] flex-none">
           <ServerRail />
@@ -87,23 +86,6 @@ function ShellBody(): React.JSX.Element {
             />
             <div className="min-h-0 flex-1">
               {view === 'server' ? <ChannelSidebar /> : <DmSidebar />}
-            </div>
-
-            {/* Faixas 1 e 2 do rodapé (status da call + ações da call). Vive
-                aqui, e não dentro do `ChannelSidebar`, porque status de
-                chamada não é assunto de servidor: quem está numa call e vai
-                para a visão Início continua conectado, e precisa do
-                "Conectado a {canal}" e do botão de desconectar. Montado uma
-                vez só, nas duas visões. */}
-            <VoiceControlBar />
-
-            {/* Faixa 3: identidade à esquerda, microfone/fone/configurações à
-                direita. Controles do APARELHO, não da chamada: existem com ou
-                sem call ativa (o testador de microfone, VOICE-21, depende
-                disso). Fica aqui até a Tarefa 7 da rodada. */}
-            <div className="flex flex-none items-center gap-1 border-t border-sidebar-border px-2 py-1.5">
-              <UserPanel />
-              <VoiceQuickControls />
             </div>
           </div>
 
@@ -138,6 +120,10 @@ function ShellBody(): React.JSX.Element {
             </div>
           ) : null}
         </div>
+
+        {/* Cartão do usuário + voz conectada, flutuando sobre o rail e a lista
+            de canais. Escreve `--user-area-height` neste contêiner. */}
+        <UserArea channelColumnWidth={channelColumnWidth} />
       </div>
     </div>
   )

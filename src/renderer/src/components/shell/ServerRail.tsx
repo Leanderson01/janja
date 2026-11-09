@@ -156,7 +156,7 @@ export function ServerRail(): React.JSX.Element {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col items-center gap-2 py-3">
+      <div className="flex flex-col items-center gap-2 pt-3 pb-[calc(var(--user-area-height,0px)+16px)]">
         <HomeButton />
         <div className="h-px w-8 bg-sidebar-border" aria-hidden="true" />
         {/* servers === undefined enquanto a subscription inicial não resolve — não

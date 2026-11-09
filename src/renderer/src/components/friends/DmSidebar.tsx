@@ -26,7 +26,7 @@ export function DmSidebar(): React.JSX.Element {
   return (
     <div className="h-full flex flex-col">
       <ScrollArea className="flex-1 min-h-0">
-        <div className="py-3 px-2">
+        <div className="px-2 pt-3 pb-[calc(var(--user-area-height,0px)+16px)]">
           <button
             type="button"
             onClick={() => setSelectedDmChannelId(null)}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Copy, LogOut, UserPen } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/shell/UserAvatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,14 +15,43 @@ import { useQuery } from 'convex/react'
 import { EditProfileDialog } from '@/components/shell/EditProfileDialog'
 import { api } from '../../../../../convex/_generated/api'
 
-function initials(name: string): string {
-  return name
-    .split(/[\s@.]+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+/**
+ * Parte pura da identidade: avatar com bolinha, nome e a segunda linha que
+ * troca "Online" por "@usuário" no hover (o `group` é este botão/contêiner).
+ * Sem contexto nenhum, para ser testada. Nomes longos cortam com reticências
+ * e o nome inteiro vai no `title`.
+ */
+export function SelfIdentityView({
+  userId,
+  displayName,
+  username,
+  avatarUrl
+}: {
+  userId: string
+  displayName: string
+  username: string
+  avatarUrl?: string | null
+}): React.JSX.Element {
+  return (
+    <span className="group flex min-w-0 flex-1 items-center gap-2">
+      <UserAvatar
+        userId={userId}
+        avatarUrl={avatarUrl}
+        name={displayName}
+        size={32}
+        status="online"
+      />
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block truncate text-sm font-semibold text-strong" title={displayName}>
+          {displayName}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground">
+          <span className="group-hover:hidden">Online</span>
+          <span className="hidden group-hover:inline">@{username}</span>
+        </span>
+      </span>
+    </span>
+  )
 }
 
 /**
@@ -68,7 +97,6 @@ export function UserPanel(): React.JSX.Element | null {
   if (!user) return null
 
   const displayName = me?.displayName ?? user.firstName ?? user.email
-  const identifier = me ? `${me.username}#${me.tag}` : user.email
   const email = user.email
 
   async function handleCopyEmail(): Promise<void> {
@@ -91,25 +119,18 @@ export function UserPanel(): React.JSX.Element | null {
           <button
             type="button"
             aria-label={`Conta de ${displayName}`}
-            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-accent/50"
+            className="flex w-full items-center rounded-md p-1 text-left hover:bg-accent/50"
             onContextMenu={(event) => {
               event.preventDefault()
               setOpen(true)
             }}
           >
-            <Avatar size="sm">
-              {user.profilePictureUrl && (
-                <AvatarImage src={user.profilePictureUrl} alt={displayName} />
-              )}
-              <AvatarFallback>{initials(displayName)}</AvatarFallback>
-            </Avatar>
-
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className="truncate text-sm font-medium">{displayName}</div>
-              <div className="text-muted-foreground truncate text-xs" title={identifier}>
-                {identifier}
-              </div>
-            </div>
+            <SelfIdentityView
+              userId={me?._id ?? user.email}
+              displayName={displayName}
+              username={me?.username ?? user.email}
+              avatarUrl={me?.avatarUrl ?? user.profilePictureUrl}
+            />
           </button>
         </DropdownMenuTrigger>
 
