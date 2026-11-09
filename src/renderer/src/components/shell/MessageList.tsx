@@ -1,30 +1,32 @@
 import { useMutation, usePaginatedQuery } from 'convex/react'
-import { ArrowDown, File, FileX } from 'lucide-react'
+import { File, FileX, Hash } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import {
+  ChannelWelcome,
+  DaySeparator,
+  JumpToPresentBar,
+  UnreadDivider
+} from '@/components/shell/ChatChrome'
 import { LinkPreviewCard } from '@/components/shell/LinkPreviewCard'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
+import { MessageRowView, MessageText } from '@/components/shell/MessageRowView'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { useChatScroll } from '@/hooks/useChatScroll'
 import { formatBytes, isImage } from '@/lib/attachments'
+import { displayNameOf } from '@/lib/display-name'
+import { buildTimeline } from '@/lib/message-grouping'
 import { firstLinkOf } from '@/lib/message-links'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 
 const PAGE_SIZE = 30
-const TOP_THRESHOLD_PX = 150
-const BOTTOM_THRESHOLD_PX = 100
 // Folga acima do divisor de não lidas (05-07-PLAN.md) — deixa uma mensagem lida
 // espiando acima, para o usuário perceber que há contexto anterior.
 const DIVIDER_SCROLL_PADDING_PX = 96
 
-const timeFormatter = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' })
-
-function initialsFor(name: string): string {
-  return name.slice(0, 2).toUpperCase()
-}
+// Atualização do "agora" que alimenta Hoje/Ontem nos horários.
+const NOW_TICK_MS = 60_000
 
 // Tipo espelha o retorno de convex/messages.ts:listMessages (planos 05-01/05-02) — cada
 // item da página já vem enriquecido com o autor e `isMine`, computados no servidor. Se o
@@ -58,36 +60,6 @@ type EnrichedMessage = {
     displayName: string
     avatarUrl?: string
   } | null
-}
-
-// Divisor "novas mensagens" (CHAT-05) — linha horizontal com rótulo
-// centralizado em cor de destaque, imediatamente antes da mensagem marcada
-// como primeira não lida pela mutation openChannel.
-//
-// O tom é `--highlight`, não `--destructive`: neste app vermelho significa erro
-// e ação destrutiva (mute, desconectar, sair da conta, conexão perdida). Uma
-// mensagem não lida não é nenhuma dessas coisas. A regra do tom único da Fase
-// 8.5 (08.5-01-SUMMARY.md) autoriza o destaque em estado ativo, anel de foco e
-// marcador de não-lido — e é o mesmo tom do badge de não lidas da sidebar, para
-// os dois marcadores do mesmo conceito combinarem.
-//
-// `data-unread-divider="true"` é gancho de lógica de scroll (CHAT-14, usado no
-// useLayoutEffect abaixo), não é enfeite: não remover nem renomear.
-function UnreadDivider(): React.JSX.Element {
-  return (
-    <div
-      className="flex items-center gap-2 py-1"
-      role="separator"
-      aria-label="Novas mensagens"
-      data-unread-divider="true"
-    >
-      <Separator className="flex-1 bg-highlight" />
-      <span className="text-xs font-semibold text-highlight whitespace-nowrap">
-        NOVAS MENSAGENS
-      </span>
-      <Separator className="flex-1 bg-highlight" />
-    </div>
-  )
 }
 
 // Um anexo dentro da mensagem. Três caminhos, e o primeiro é o que existe por
@@ -163,45 +135,26 @@ function MessageAttachments({
   )
 }
 
-function MessageRow({ message }: { message: EnrichedMessage }): React.JSX.Element {
+function MessageContent({ message }: { message: EnrichedMessage }): React.JSX.Element {
   // CHAT-15 (Plano 08.5-16). `firstLinkOf` é pura, só olha a string e devolve
   // no máximo uma URL — chamar por mensagem renderizada é barato. Mensagem sem
   // link devolve `null` aqui e o componente de prévia NÃO É MONTADO: nenhuma
   // subscription é aberta, nenhuma chamada de servidor acontece. É esse detalhe
   // que torna a feature aceitável numa lista paginada de 30 em 30 mensagens.
   const link = firstLinkOf(message.content)
-  const displayName = message.isMine
-    ? 'Você'
-    : message.author
-      ? `${message.author.username}#${message.author.tag}`
-      : 'Usuário desconhecido'
-  const initials = message.isMine ? 'EU' : initialsFor(message.author?.username ?? '??')
 
   return (
-    <div className="flex items-start gap-3 px-4 py-1.5 hover:bg-accent/50">
-      <Avatar>
-        <AvatarFallback>{initials}</AvatarFallback>
-      </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-sm text-foreground">{displayName}</span>
-          <span className="text-xs text-muted-foreground">
-            {timeFormatter.format(new Date(message.createdAt))}
-          </span>
-        </div>
-        {/* Mensagem só com anexo tem `content` vazio — o caso normal de mandar
-            uma imagem. Sem esta guarda, um `<p>` vazio ficaria ocupando altura
-            entre o cabeçalho e a imagem. */}
-        {message.content.length > 0 && (
-          <p className="text-sm text-foreground break-words">{message.content}</p>
-        )}
-        {/* Ordem visual: texto → prévia do link → anexos. O anexo é conteúdo
-            que a pessoa mandou; a prévia é enfeite derivado do texto, e por
-            isso fica antes — para não separar a mensagem do que ela carrega. */}
-        {link ? <LinkPreviewCard url={link} /> : null}
-        <MessageAttachments attachments={message.attachments} />
-      </div>
-    </div>
+    <>
+      {/* Mensagem só com anexo tem `content` vazio — o caso normal de mandar
+          uma imagem. Sem esta guarda, uma linha de texto vazia ficaria ocupando
+          altura entre o cabeçalho e a imagem. */}
+      {message.content.length > 0 && <MessageText>{message.content}</MessageText>}
+      {/* Ordem visual: texto → prévia do link → anexos. O anexo é conteúdo
+          que a pessoa mandou; a prévia é enfeite derivado do texto, e por
+          isso fica antes — para não separar a mensagem do que ela carrega. */}
+      {link ? <LinkPreviewCard url={link} /> : null}
+      <MessageAttachments attachments={message.attachments} />
+    </>
   )
 }
 
@@ -221,7 +174,15 @@ function MessageRow({ message }: { message: EnrichedMessage }): React.JSX.Elemen
 // gatilho de `loadMore` é exclusivamente o evento de `scroll` nativo
 // (`scrollTop < TOP_THRESHOLD_PX`) — nunca uma reação a `results.length`
 // mudando, que reagiria também a mensagens novas chegando.
-export function MessageList({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
+export function MessageList({
+  channelId,
+  channelName,
+  nicknameByUserId
+}: {
+  channelId: Id<'channels'>
+  channelName?: string
+  nicknameByUserId: Map<string, string>
+}): React.JSX.Element {
   const { results, status, loadMore } = usePaginatedQuery(
     api.messages.listMessages,
     { channelId },
@@ -231,20 +192,20 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
 
   const containerRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const isAtBottomRef = useRef(true)
-  const scrollHeightBeforeLoadMoreRef = useRef<number | null>(null)
-  const previousNewestIdRef = useRef<Id<'messages'> | undefined>(undefined)
-  const previousOldestIdRef = useRef<Id<'messages'> | undefined>(undefined)
-  const hasScrolledToBottomOnceRef = useRef(false)
 
   // `undefined` = openChannel ainda não resolveu (posição inicial do scroll aguarda —
-  // ver useLayoutEffect abaixo); `null` = resolveu e não há não lida; `Id` = resolveu
+  // ver useChatScroll); `null` = resolveu e não há não lida; `Id` = resolveu
   // com uma primeira não lida. Distinguir "ainda não sei" de "sei que não há" é o que
   // evita decidir a posição inicial cedo demais (05-07-PLAN.md).
   const [dividerMessageId, setDividerMessageId] = useState<Id<'messages'> | null | undefined>(
     undefined
   )
-  const [newMessageCount, setNewMessageCount] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), NOW_TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
 
   // Snapshot único do divisor, capturado no mount deste canal — o chamador
   // (ConversationArea) remonta este componente por key={channel._id} ao trocar de
@@ -260,34 +221,6 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId])
 
-  // O ScrollArea da Radix não expõe o viewport real (overflow-y:auto) por prop —
-  // resolve via querySelector do data-slot, sem editar o primitivo compartilhado
-  // (05-RESEARCH.md §4).
-  useEffect(() => {
-    const viewport = containerRef.current?.querySelector<HTMLDivElement>(
-      '[data-slot="scroll-area-viewport"]'
-    )
-    if (!viewport) return
-    viewportRef.current = viewport
-
-    function handleScroll(): void {
-      const el = viewportRef.current
-      if (!el) return
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX
-      isAtBottomRef.current = atBottom
-      if (atBottom) setNewMessageCount(0)
-
-      if (el.scrollTop < TOP_THRESHOLD_PX && status === 'CanLoadMore') {
-        scrollHeightBeforeLoadMoreRef.current = el.scrollHeight
-        loadMore(PAGE_SIZE)
-      }
-    }
-
-    viewport.addEventListener('scroll', handleScroll)
-    return () => viewport.removeEventListener('scroll', handleScroll)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status])
-
   const messages = results as unknown as EnrichedMessage[]
   const newestId = messages[0]?._id
   const oldestId = messages[messages.length - 1]?._id
@@ -297,32 +230,27 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
   // fim de results (vira o INÍCIO da lista invertida) — ver 05-RESEARCH.md §3.
   const ordered = [...messages].reverse()
 
+  // O ScrollArea da Radix não expõe o viewport real (overflow-y:auto) por prop —
+  // resolve via querySelector do data-slot, sem editar o primitivo compartilhado
+  // (05-RESEARCH.md §4). Roda a cada render e ANTES dos efeitos do useChatScroll
+  // (ordem de declaração), porque o viewport só existe depois que "Carregando..." sai.
   useLayoutEffect(() => {
-    // Autossuficiente: não depende do outro efeito (abaixo, que só liga o listener de
-    // scroll) ter rodado antes para popular `viewportRef`. Aquele é `useEffect`
-    // (passivo, roda depois da pintura); este é `useLayoutEffect` (roda antes da
-    // pintura, logo após o commit do DOM) — na primeira vez que o container real
-    // monta (troca de "Carregando mensagens..." pro ScrollArea), este efeito roda
-    // ANTES do outro, então `viewportRef.current` ainda estaria vazio se só lêssemos
-    // o ref. Buscar direto aqui (com fallback pro ref já resolvido, pra não repetir o
-    // querySelector todo render) é o que corrige o defeito relatado pelo Leo: sem
-    // isso, o scroll nunca era setado no mount e ficava em 0 (topo), uma posição sem
-    // significado.
-    const viewport =
-      viewportRef.current ??
+    viewportRef.current =
       containerRef.current?.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]') ??
       null
-    if (!viewport) return
-    viewportRef.current = viewport
+  })
 
-    if (!hasScrolledToBottomOnceRef.current) {
-      if (messages.length === 0) return
-      // openChannel ainda não resolveu — não decide a posição inicial com dado
-      // incompleto. Se decidíssemos aqui (tratando "ainda não sei" como "não há
-      // divisor"), `hasScrolledToBottomOnceRef` viraria `true` e a correção certa,
-      // quando o divisor chegasse depois, nunca rodaria de novo.
-      if (dividerMessageId === undefined) return
-
+  const { isViewingOld, scrollToBottom } = useChatScroll({
+    viewportRef,
+    newestId,
+    oldestId,
+    canLoadMore: status === 'CanLoadMore',
+    loadMore: () => loadMore(PAGE_SIZE),
+    onReachBottom: () => {
+      openChannel({ channelId }).catch(() => {})
+    },
+    ready: dividerMessageId !== undefined,
+    initialScroll: (viewport) => {
       const dividerEl = containerRef.current?.querySelector<HTMLDivElement>(
         '[data-unread-divider="true"]'
       )
@@ -341,44 +269,15 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
         // de carregar páginas em cadeia atrás dela (limitação conhecida, 05-07-PLAN.md).
         viewport.scrollTop = viewport.scrollHeight
       }
-
-      hasScrolledToBottomOnceRef.current = true
-      previousNewestIdRef.current = newestId
-      previousOldestIdRef.current = oldestId
-      return
     }
+  })
 
-    if (
-      oldestId !== previousOldestIdRef.current &&
-      scrollHeightBeforeLoadMoreRef.current !== null
-    ) {
-      const delta = viewport.scrollHeight - scrollHeightBeforeLoadMoreRef.current
-      viewport.scrollTop += delta
-      scrollHeightBeforeLoadMoreRef.current = null
-    }
-
-    if (newestId !== previousNewestIdRef.current && previousNewestIdRef.current !== undefined) {
-      if (isAtBottomRef.current) {
-        viewport.scrollTop = viewport.scrollHeight
-        openChannel({ channelId }).catch(() => {})
-      } else {
-        setNewMessageCount((n) => n + 1)
-      }
-    }
-
-    previousNewestIdRef.current = newestId
-    previousOldestIdRef.current = oldestId
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newestId, oldestId, dividerMessageId])
-
-  function scrollToBottom(): void {
-    const viewport = viewportRef.current
-    if (!viewport) return
-    viewport.scrollTop = viewport.scrollHeight
-    setNewMessageCount(0)
-    isAtBottomRef.current = true
-    openChannel({ channelId }).catch(() => {})
-  }
+  const timeline = buildTimeline(ordered, {
+    getId: (m) => m._id,
+    getAuthorId: (m) => m.author?.userId ?? null,
+    getCreatedAt: (m) => m.createdAt,
+    unreadMessageId: dividerMessageId
+  })
 
   if (status === 'LoadingFirstPage') {
     return (
@@ -388,33 +287,48 @@ export function MessageList({ channelId }: { channelId: Id<'channels'> }): React
     )
   }
 
-  if (messages.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-        Nenhuma mensagem ainda
-      </div>
-    )
-  }
-
   return (
     <div ref={containerRef} className="relative h-full">
       <ScrollArea className="h-full">
-        <div className="flex flex-col py-2">
-          {ordered.map((message) => (
-            <div key={message._id}>
-              {message._id === dividerMessageId ? <UnreadDivider /> : null}
-              <MessageRow message={message} />
-            </div>
-          ))}
+        <div className="flex flex-col pb-4">
+          {status === 'Exhausted' && channelName ? (
+            <ChannelWelcome
+              title={`Boas-vindas a #${channelName}!`}
+              subtitle={`Este é o começo do canal #${channelName}.`}
+              icon={<Hash className="size-10" aria-hidden="true" />}
+            />
+          ) : null}
+          {timeline.map((item) => {
+            if (item.kind === 'day') return <DaySeparator key={item.key} label={item.label} />
+            if (item.kind === 'unread') return <UnreadDivider key={item.key} />
+            const { message } = item
+            const name = message.author
+              ? displayNameOf({
+                  nickname: nicknameByUserId.get(message.author.userId),
+                  displayName: message.author.displayName,
+                  username: message.author.username
+                })
+              : 'Usuário desconhecido'
+            return (
+              <MessageRowView
+                key={item.key}
+                authorId={message.author?.userId ?? null}
+                authorName={name}
+                avatarUrl={message.author?.avatarUrl}
+                createdAt={message.createdAt}
+                now={now}
+                isGroupStart={item.isGroupStart}
+              >
+                <MessageContent message={message} />
+              </MessageRowView>
+            )
+          })}
         </div>
       </ScrollArea>
 
-      {newMessageCount > 0 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-          <Button size="sm" variant="secondary" className="shadow-md" onClick={scrollToBottom}>
-            {newMessageCount === 1 ? '1 nova mensagem' : `${newMessageCount} novas mensagens`}
-            <ArrowDown className="size-3.5" aria-hidden="true" />
-          </Button>
+      {isViewingOld && (
+        <div className="absolute inset-x-4 bottom-0">
+          <JumpToPresentBar onJump={scrollToBottom} />
         </div>
       )}
     </div>

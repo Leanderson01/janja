@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from 'convex/react'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { CallStage, VoiceParticipantGrid } from '@/components/shell/CallStage'
@@ -31,6 +31,18 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
   const generateUploadUrl = useMutation(api.messages.generateUploadUrl)
   const setTyping = useMutation(api.typing.setTyping)
   const lastTypingCallRef = useRef(0)
+  const channel = useQuery(api.channels.getChannel, { channelId })
+  const members = useQuery(
+    api.members.listServerMembers,
+    channel ? { serverId: channel.serverId } : 'skip'
+  )
+  const nicknameByUserId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const member of members ?? []) {
+      if (member.nickname) map.set(member.userId, member.nickname)
+    }
+    return map
+  }, [members])
 
   // Falha de envio PRECISA aparecer. Antes era `.catch(() => {})`: quem perdia a
   // rede via a mensagem sumir do campo e nunca chegar na lista, sem nenhuma
@@ -121,7 +133,11 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
   return (
     <>
       <div className="flex-1 min-h-0 min-w-0">
-        <MessageList channelId={channelId} />
+        <MessageList
+          channelId={channelId}
+          channelName={channel?.name}
+          nicknameByUserId={nicknameByUserId}
+        />
       </div>
       <TypingIndicator channelId={channelId} />
       <MessageInput
