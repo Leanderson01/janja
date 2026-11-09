@@ -222,12 +222,19 @@ export function VoiceButtonsView({
   )
 }
 
-function DeviceChevron({ label }: { label: string }): React.JSX.Element {
+// Gatilho do `DeviceMenu`. O `DropdownMenuTrigger asChild` (Radix Slot) injeta
+// handlers, `aria-*`, `data-state` e a `ref` aqui: tudo precisa ir para o
+// `<button>`, senão o menu nunca abre. No React 19 `ref` é uma prop comum.
+export function DeviceChevron({
+  label,
+  ...props
+}: { label: string } & React.ComponentProps<'button'>): React.JSX.Element {
   return (
     <button
       type="button"
       aria-label={label}
       className="flex h-8 w-4 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-strong"
+      {...props}
     >
       <ChevronDown className="size-3" />
     </button>

@@ -144,7 +144,7 @@ export function ServerRail(): React.JSX.Element {
   const { servers, view, selectedServerId, setSelectedServerId, joinedVoiceChannelId } =
     useSelection()
   // Servidor da call atual (pode ser diferente do aberto). Mesmo `getChannel`
-  // do `VoiceControlBar`.
+  // do `VoiceConnectedSection`.
   const callServerId = useQuery(
     api.channels.getChannel,
     joinedVoiceChannelId ? { channelId: joinedVoiceChannelId } : 'skip'

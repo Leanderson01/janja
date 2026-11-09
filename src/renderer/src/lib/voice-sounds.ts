@@ -143,7 +143,7 @@ function playSelfJoinTone(): void {
  * caso "eu saí". Mesmo se alcançasse, a janela de graça de
  * `RECONNECT_GRACE_MS` (2s) ainda seguraria o som até um momento em que
  * este hook já teria desmontado (o componente que o monta,
- * `VoiceControlBar`, para de renderizar o botão de desconectar assim que
+ * `VoiceConnectedSection`, para de renderizar o botão de desconectar assim que
  * `hasIntention` vira falso, mas o hook em si continua montado — o
  * problema real é a ausência estrutural do snapshot, não o desmonte).
  *
@@ -196,7 +196,7 @@ function playUnmuteTone(): void {
  * microfone. Chamar SOMENTE no toggle manual (botão do rodapé) — nunca a
  * partir do VAD ou do push-to-talk, que ligam/desligam a track a cada
  * fala/tecla e tocariam este som em todo utterance, o que é inutilizável.
- * `VoiceControlBar.tsx` é o único chamador: é o único lugar cuja mudança
+ * `VoiceControlBar.tsx` (`VoiceConnectedSection`) é o único chamador: é o único lugar cuja mudança
  * de mute é de fato uma decisão manual do usuário.
  *
  * Deliberadamente NÃO chamado do caminho "ensurdecer implica mutar"
@@ -271,7 +271,7 @@ export function useVoiceJoinLeaveSounds(): void {
   }, [joinedVoiceChannelId])
 
   // Higiene ao desmontar (troca de servidor não desmonta este hook — ele
-  // vive dentro de `VoiceControlBar`, que é parte fixa do shell — mas cobre
+  // vive dentro de `VoiceConnectedSection`, que é parte fixa do shell — mas cobre
   // hot-reload/fechamento do app de forma defensiva).
   useEffect(() => {
     return () => {
