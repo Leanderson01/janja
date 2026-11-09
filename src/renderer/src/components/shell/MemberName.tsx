@@ -14,8 +14,7 @@ import { cn } from '@/lib/utils'
 // o "Não fazer" literal do `08.5-BRIEF.md` (decisão de 2026-08-18, opção "c").
 // O ponto de extensão é de UI e só de UI: uma prop de classe que não é
 // persistida em lugar nenhum e não tem semântica própria.
-// Nome humano na frente, `#tag` como desambiguador (duas "João Silva" existem;
-// a tag é o que as separa). O identificador exato — `username#tag`, que é o que
+// Só o nome humano: a `#tag` não aparece na tela (estilo Discord). O identificador exato — `username#tag`, que é o que
 // se digita para adicionar alguém — fica no `title` e no item "Copiar
 // identificador" do menu, porque ele é para copiar, não para ler.
 export function MemberName({
@@ -30,9 +29,11 @@ export function MemberName({
   className?: string
 }): React.JSX.Element {
   return (
-    <span className={cn('truncate text-sm', className)} title={`${username}#${tag}`}>
+    <span
+      className={cn('truncate text-base font-medium text-strong', className)}
+      title={`${username}#${tag}`}
+    >
       {displayName}
-      <span className="text-muted-foreground">#{tag}</span>
     </span>
   )
 }

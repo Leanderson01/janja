@@ -19,7 +19,7 @@ export function MemberSectionHeader({
   count: number
 }): React.JSX.Element {
   return (
-    <h3 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+    <h3 className="px-2 pb-1 pt-6 text-sm font-medium text-muted-foreground">
       {label} — {count}
     </h3>
   )

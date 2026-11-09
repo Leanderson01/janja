@@ -1,23 +1,27 @@
 import { useState } from 'react'
-import { MicOff, MonitorUp } from 'lucide-react'
+import { Crown, MonitorUp, Volume2 } from 'lucide-react'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
 import { toast } from 'sonner'
 
-import { Avatar, AvatarBadge, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { displayNameOf } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 import { readableConvexError } from '@/lib/convex-error'
 
 import { MemberName } from './MemberName'
+import { ParticipantAudioMenuItems } from './ParticipantAudioMenu'
+import { UserAvatar } from './UserAvatar'
+import type { ParticipantAudioPreference } from '@/lib/participant-volumes'
 import { MemberSectionHeader } from './MemberSectionHeader'
 
 import { api } from '../../../../../convex/_generated/api'
@@ -46,10 +50,11 @@ type VoiceParticipant = FunctionReturnType<typeof api.voice.voiceParticipantsByS
 // no MESMO canal ao qual o `Room` local está conectado
 // (`joinedVoiceChannelId`) — fora disso não há como saber quem fala agora,
 // dado 100% efêmero do LiveKit (ver `voiceStateFor` abaixo).
-type VoiceState = { speaking: boolean; muted: boolean; sharing: boolean }
+// `inVoice`: a pessoa está em algum canal de voz do servidor.
+type VoiceState = { speaking: boolean; muted: boolean; sharing: boolean; inVoice: boolean }
 
 function neutralVoiceState(): VoiceState {
-  return { speaking: false, muted: false, sharing: false }
+  return { speaking: false, muted: false, sharing: false, inVoice: false }
 }
 
 /** Resolve o `VoiceState` de um membro a partir da linha de `voiceStates`
@@ -69,58 +74,7 @@ function voiceStateFor(
   const speaking =
     participant.channelId === joinedVoiceChannelId && speakingUserIds.has(member.userId)
 
-  return { speaking, muted: participant.muted, sharing: participant.sharing }
-}
-
-function initialsFor(username: string): string {
-  return username.slice(0, 2).toUpperCase()
-}
-
-function MemberAvatar({
-  member,
-  voiceState
-}: {
-  member: ServerMember
-  voiceState: VoiceState
-}): React.JSX.Element {
-  // Um membro mutado nunca deveria estar "falando" ao mesmo tempo — se os
-  // dados tiverem essa combinação inconsistente, o ícone de mute tem
-  // prioridade visual e o anel de falando é omitido.
-  const showSpeakingRing = voiceState.speaking && !voiceState.muted
-
-  return (
-    <div className="relative shrink-0">
-      <Avatar className={cn(showSpeakingRing && 'ring-2 ring-success')}>
-        <AvatarFallback>{initialsFor(member.displayName)}</AvatarFallback>
-      </Avatar>
-      <AvatarBadge
-        className={cn(member.online ? 'bg-success' : 'bg-muted-foreground')}
-        aria-label={member.online ? 'online' : 'offline'}
-      />
-      {voiceState.muted ? (
-        <span
-          className="absolute -right-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-background text-foreground ring-1 ring-background"
-          aria-label="mutado"
-        >
-          <MicOff className="size-2.5" />
-        </span>
-      ) : null}
-      {/* SHARE-05: canto superior ESQUERDO, sozinho. Os outros dois cantos já
-          têm dono (mute em cima à direita, presença online embaixo à direita,
-          esta última vinda do `AvatarBadge` do design system) e empilhar dois
-          ícones no mesmo canto tornaria os dois ilegíveis num avatar de 32px.
-          `text-success` porque o estado é ativo/positivo, ao contrário do
-          mute — token semântico, nunca cor direta do Tailwind (08.5-01). */}
-      {voiceState.sharing ? (
-        <span
-          className="absolute -left-1 -top-1 z-10 flex size-3.5 items-center justify-center rounded-full bg-background text-success ring-1 ring-background"
-          aria-label="compartilhando a tela"
-        >
-          <MonitorUp className="size-2.5" />
-        </span>
-      ) : null}
-    </div>
-  )
+  return { speaking, muted: participant.muted, sharing: participant.sharing, inVoice: true }
 }
 
 /** Assinatura mínima da mutation `friends.sendFriendRequest`. A linha recebe a
@@ -133,11 +87,20 @@ export type SendFriendRequest = (args: { username: string; tag: string }) => Pro
 export function MemberRow({
   member,
   voiceState,
-  sendFriendRequest
+  isOwner = false,
+  sendFriendRequest,
+  audio
 }: {
   member: ServerMember
   voiceState: VoiceState
+  isOwner?: boolean
   sendFriendRequest: SendFriendRequest
+  /** Só vem quando a pessoa está na MESMA call em que você está. */
+  audio?: {
+    preference: ParticipantAudioPreference | undefined
+    onVolumeChange: (volume: number) => void
+    onToggleSilenced: () => void
+  }
 }): React.JSX.Element {
   // Menu CONTROLADO de propósito (padrão único de menu da fase, Plano
   // 08.5-02): `context-menu` do Radix não foi instalado, e um segundo
@@ -147,6 +110,8 @@ export function MemberRow({
   // do cursor.
   const [open, setOpen] = useState(false)
   const identifier = `${member.username}#${member.tag}`
+  const name = displayNameOf(member)
+  const showSpeakingRing = voiceState.speaking && !voiceState.muted
 
   async function handleCopyIdentifier(): Promise<void> {
     try {
@@ -176,18 +141,45 @@ export function MemberRow({
             (`--ring`, Plano 08.5-01) aparece sem CSS extra. */}
         <button
           type="button"
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent/50"
+          className={cn(
+            'flex h-11 w-full items-center gap-3 rounded-md px-2 text-left hover:bg-accent',
+            !member.online && 'opacity-30'
+          )}
           onContextMenu={(event) => {
             event.preventDefault()
             setOpen(true)
           }}
         >
-          <MemberAvatar member={member} voiceState={voiceState} />
-          <MemberName
-            displayName={member.displayName}
-            username={member.username}
-            tag={member.tag}
+          <UserAvatar
+            userId={member.userId}
+            avatarUrl={member.avatarUrl}
+            name={name}
+            size={32}
+            status={member.online ? 'online' : 'offline'}
+            className={cn(showSpeakingRing && 'rounded-full ring-2 ring-success')}
           />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 items-center gap-1">
+              <MemberName displayName={name} username={member.username} tag={member.tag} />
+              {isOwner ? (
+                <Crown
+                  className="size-3.5 shrink-0 fill-current text-warning"
+                  aria-label="Dono do servidor"
+                />
+              ) : null}
+            </span>
+            {voiceState.sharing ? (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <MonitorUp className="size-3 shrink-0 text-voice" aria-hidden="true" />
+                <span className="truncate">Compartilhando tela</span>
+              </span>
+            ) : voiceState.inVoice ? (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Volume2 className="size-3 shrink-0 text-voice" aria-hidden="true" />
+                <span className="truncate">Em voz</span>
+              </span>
+            ) : null}
+          </span>
         </button>
       </DropdownMenuTrigger>
       {/* SÓ ações que já existem no backend hoje. Fora, por decisão explícita:
@@ -208,6 +200,17 @@ export function MemberRow({
         <DropdownMenuItem onSelect={() => void handleSendFriendRequest()}>
           Adicionar amigo
         </DropdownMenuItem>
+        {audio ? (
+          <>
+            <DropdownMenuSeparator />
+            <ParticipantAudioMenuItems
+              username={member.username}
+              preference={audio.preference}
+              onVolumeChange={audio.onVolumeChange}
+              onToggleSilenced={audio.onToggleSilenced}
+            />
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -220,7 +223,7 @@ function MemberGroup({
   joinedVoiceChannelId,
   speakingUserIds,
   sendFriendRequest,
-  dimmed = false
+  ownerId
 }: {
   label: string
   members: ServerMember[]
@@ -228,32 +231,50 @@ function MemberGroup({
   joinedVoiceChannelId: Id<'channels'> | null
   speakingUserIds: Set<string>
   sendFriendRequest: SendFriendRequest
-  dimmed?: boolean
+  ownerId: Id<'users'> | undefined
 }): React.JSX.Element {
+  const { participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
   return (
-    <div className={dimmed ? 'opacity-60' : undefined}>
+    <div>
       <MemberSectionHeader label={label} count={members.length} />
       <div className="flex flex-col gap-0.5">
-        {members.map((member) => (
-          <MemberRow
-            key={member.userId}
-            member={member}
-            voiceState={voiceStateFor(
-              member,
-              voiceStateByUserId,
-              joinedVoiceChannelId,
-              speakingUserIds
-            )}
-            sendFriendRequest={sendFriendRequest}
-          />
-        ))}
+        {members.map((member) => {
+          // Volume por pessoa só vale para quem está na SUA call.
+          const inMyCall =
+            joinedVoiceChannelId !== null &&
+            voiceStateByUserId.get(member.userId)?.channelId === joinedVoiceChannelId
+          return (
+            <MemberRow
+              key={member.userId}
+              member={member}
+              voiceState={voiceStateFor(
+                member,
+                voiceStateByUserId,
+                joinedVoiceChannelId,
+                speakingUserIds
+              )}
+              isOwner={ownerId === member.userId}
+              sendFriendRequest={sendFriendRequest}
+              audio={
+                inMyCall
+                  ? {
+                      preference: participantVolumes[member.userId],
+                      onVolumeChange: (volume) => setParticipantVolume(member.userId, volume),
+                      onToggleSilenced: () => toggleParticipantSilenced(member.userId)
+                    }
+                  : undefined
+              }
+            />
+          )
+        })}
       </div>
     </div>
   )
 }
 
 export function MemberList(): React.JSX.Element {
-  const { selectedServerId, joinedVoiceChannelId } = useSelection()
+  const { selectedServerId, joinedVoiceChannelId, servers } = useSelection()
+  const ownerId = servers?.find((server) => server._id === selectedServerId)?.ownerId
   const { speakingUserIds } = useVoice()
   // Uma única assinatura de mutation para a lista inteira, repassada às linhas
   // (ver `SendFriendRequest` acima).
@@ -275,26 +296,27 @@ export function MemberList(): React.JSX.Element {
   return (
     <div className="h-full">
       <ScrollArea className="h-full">
-        <div className="flex flex-col gap-4 p-3">
+        <div className="flex flex-col">
           {onlineMembers.length > 0 ? (
             <MemberGroup
-              label="ONLINE"
+              label="Online"
               members={onlineMembers}
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
               speakingUserIds={speakingUserIds}
               sendFriendRequest={sendFriendRequest}
+              ownerId={ownerId}
             />
           ) : null}
           {offlineMembers.length > 0 ? (
             <MemberGroup
-              label="OFFLINE"
+              label="Offline"
               members={offlineMembers}
               voiceStateByUserId={voiceStateByUserId}
               joinedVoiceChannelId={joinedVoiceChannelId}
               speakingUserIds={speakingUserIds}
               sendFriendRequest={sendFriendRequest}
-              dimmed
+              ownerId={ownerId}
             />
           ) : null}
         </div>

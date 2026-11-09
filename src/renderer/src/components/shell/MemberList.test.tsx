@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MemberRow } from './MemberList'
+import { MemberSectionHeader } from './MemberSectionHeader'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 
 // Prova de que a linha da lista de membros é operável por TECLADO — a promessa
@@ -54,24 +55,45 @@ const membro = {
   online: true
 }
 
-const semVoz = { speaking: false, muted: false, sharing: false }
+const semVoz = { speaking: false, muted: false, sharing: false, inVoice: false }
+
+type Overrides = {
+  displayName?: string
+  online?: boolean
+  isOwner?: boolean
+  voiceState?: typeof semVoz
+  audio?: {
+    preference: undefined
+    onVolumeChange: (v: number) => void
+    onToggleSilenced: () => void
+  }
+}
 
 function renderRow(
+  overrides: Overrides = {},
   sendFriendRequest: (args: { username: string; tag: string }) => Promise<unknown> = () =>
     Promise.resolve(null)
-): HTMLElement {
-  render(<MemberRow member={membro} voiceState={semVoz} sendFriendRequest={sendFriendRequest} />)
-  // `/Ana/` e não `/ana/`: desde a correção de identidade (2026-08-19) a linha
-  // mostra o `displayName` — o nome humano — e não o `username`, que é o
-  // identificador que se digita para adicionar alguém e vive no `title` e no
-  // item "Copiar identificador".
-  return screen.getByRole('button', { name: /Ana/ })
+): { linha: HTMLElement; container: HTMLElement } {
+  const { container } = render(
+    <MemberRow
+      member={{
+        ...membro,
+        displayName: overrides.displayName ?? membro.displayName,
+        online: overrides.online ?? true
+      }}
+      voiceState={overrides.voiceState ?? semVoz}
+      isOwner={overrides.isOwner ?? false}
+      sendFriendRequest={sendFriendRequest}
+      audio={overrides.audio}
+    />
+  )
+  return { linha: screen.getByRole('button', { name: /Ana|Leo|Gordão/ }), container }
 }
 
 describe('MemberRow — teclado e menu do membro', () => {
   it('a linha do membro é alcançável por Tab', async () => {
     const user = userEvent.setup()
-    const linha = renderRow()
+    const { linha } = renderRow()
 
     expect(document.activeElement).not.toBe(linha)
 
@@ -84,7 +106,7 @@ describe('MemberRow — teclado e menu do membro', () => {
 
   it('Enter na linha abre o menu do membro', async () => {
     const user = userEvent.setup()
-    const linha = renderRow()
+    const { linha } = renderRow()
 
     expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
 
@@ -104,7 +126,7 @@ describe('MemberRow — teclado e menu do membro', () => {
 
   it('Escape fecha o menu e devolve o foco à linha', async () => {
     const user = userEvent.setup()
-    const linha = renderRow()
+    const { linha } = renderRow()
 
     await user.tab()
     await user.keyboard('{Enter}')
@@ -120,7 +142,7 @@ describe('MemberRow — teclado e menu do membro', () => {
   })
 
   it('botão direito na linha abre o MESMO menu', () => {
-    const linha = renderRow()
+    const { linha } = renderRow()
 
     fireEvent.contextMenu(linha)
 
@@ -135,7 +157,7 @@ describe('MemberRow — teclado e menu do membro', () => {
   it('"Adicionar amigo" chama a mutation com username e tag do membro', async () => {
     const user = userEvent.setup()
     const sendFriendRequest = vi.fn(() => Promise.resolve(null))
-    renderRow(sendFriendRequest)
+    renderRow({}, sendFriendRequest)
 
     await user.tab()
     await user.keyboard('{Enter}')
@@ -155,7 +177,7 @@ describe('MemberRow — teclado e menu do membro', () => {
         'Uncaught Error: Você não pode adicionar a si mesmo\n' +
         '    at handler (../convex/friends.ts:63:13)'
     )
-    renderRow(() => Promise.reject(erroDoConvex))
+    renderRow({}, () => Promise.reject(erroDoConvex))
 
     await user.tab()
     await user.keyboard('{Enter}')
@@ -163,5 +185,55 @@ describe('MemberRow — teclado e menu do membro', () => {
     await user.keyboard('{Enter}')
 
     expect(toast.error).toHaveBeenCalledWith('Você não pode adicionar a si mesmo')
+  })
+
+  it('nome sem #tag', () => {
+    renderRow({})
+    expect(screen.queryByText(/#\d{4}/)).toBeNull()
+  })
+
+  it('dono tem coroa', () => {
+    renderRow({ isOwner: true })
+    expect(screen.getByLabelText('Dono do servidor')).toBeTruthy()
+  })
+
+  it('quem está em call mostra Em voz', () => {
+    renderRow({ voiceState: { speaking: false, muted: false, sharing: false, inVoice: true } })
+    expect(screen.getByText('Em voz')).toBeTruthy()
+  })
+
+  it('compartilhando tela tem prioridade', () => {
+    renderRow({ voiceState: { speaking: false, muted: false, sharing: true, inVoice: true } })
+    expect(screen.getByText('Compartilhando tela')).toBeTruthy()
+    expect(screen.queryByText('Em voz')).toBeNull()
+  })
+
+  it('offline fica a 30%', () => {
+    const { container } = renderRow({ online: false })
+    expect(container.firstElementChild!.className).toContain('opacity-30')
+  })
+
+  it('clique direito em quem está na sua call mostra volume e silenciar', () => {
+    const { linha } = renderRow({
+      audio: { preference: undefined, onVolumeChange: vi.fn(), onToggleSilenced: vi.fn() }
+    })
+    fireEvent.contextMenu(linha)
+    expect(screen.getByRole('menuitem', { name: 'Silenciar para mim' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Copiar identificador' })).toBeTruthy()
+  })
+
+  it('nome longo corta com reticências e mantém o title', () => {
+    renderRow({ displayName: 'Gordão Guerreiro do Norte da Silva' })
+    const n = screen.getByText('Gordão Guerreiro do Norte da Silva')
+    expect(n.className).toContain('truncate')
+    expect(n.getAttribute('title')).toBe('ana#0001')
+  })
+})
+
+describe('MemberSectionHeader', () => {
+  it('cabeçalho de seção sem caixa alta', () => {
+    render(<MemberSectionHeader label="Online" count={3} />)
+    const h = screen.getByRole('heading', { name: 'Online — 3' })
+    expect(h.className).not.toContain('uppercase')
   })
 })

@@ -28,6 +28,7 @@ function MembersToggleButton(): React.JSX.Element {
           type="button"
           variant="ghost"
           size="icon-sm"
+          className={membersVisible ? 'text-strong' : 'text-icon'}
           aria-label={label}
           aria-pressed={membersVisible}
           onClick={toggleMembers}
@@ -87,12 +88,14 @@ export function ChannelHeader(): React.JSX.Element {
 
   return (
     <div className="flex-none h-12 flex items-center gap-2 px-4 border-b border-border">
-      <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <Icon className="size-6 shrink-0 text-muted-foreground" aria-hidden="true" />
       {/* `min-w-0` no item flex + `truncate`: sem os dois, um nome de canal
           longo empurra o botão de membros para fora da barra em vez de
           cortar o próprio texto (item flex tem `min-width: auto` por
           padrão, e `truncate` sozinho não vence isso). */}
-      <span className="min-w-0 flex-1 truncate font-semibold text-foreground">{channel.name}</span>
+      <span className="min-w-0 flex-1 truncate text-base font-semibold text-strong">
+        {channel.name}
+      </span>
       <MembersToggleButton />
     </div>
   )

@@ -90,6 +90,92 @@ export function ParticipantVolumeHint({
   return <span className={cn('text-xs text-muted-foreground', className)}>{percent}%</span>
 }
 
+// Só os itens (slider, aumentar/diminuir, silenciar para mim), sem o gatilho
+// nem o `DropdownMenuContent`: assim o mesmo conteúdo entra no menu de áudio
+// do palco e no menu de clique direito da lista de membros.
+export function ParticipantAudioMenuItems({
+  username,
+  preference,
+  onVolumeChange,
+  onToggleSilenced
+}: {
+  username: string
+  preference: ParticipantAudioPreference | undefined
+  onVolumeChange: (volume: number) => void
+  onToggleSilenced: () => void
+}): React.JSX.Element {
+  const silenced = preference?.silenced ?? false
+  const percent = toPercent(preference?.volume ?? DEFAULT_PARTICIPANT_VOLUME)
+
+  return (
+    <>
+      {/* O slider NÃO é um `DropdownMenuItem`: item de menu captura as setas
+            para a navegação do próprio menu e "selecionar" fecharia o menu a
+            cada arrasto. Fica numa área não-item, com `onKeyDown` parando a
+            propagação para que ArrowLeft/ArrowRight cheguem ao `Slider` em vez
+            de virarem navegação.
+
+            ISTO NÃO PÔDE SER VERIFICADO AQUI (WSL2, sem janela: nenhum pixel
+            foi renderizado nesta execução). Por isso o teclado NÃO depende
+            dele: os dois itens logo abaixo fazem a mesma coisa e são
+            acessíveis por construção. Se o slider se provar bom no checkpoint
+            humano, os itens podem sair; se ele se provar ruim, o slider sai e
+            os itens ficam. Os dois caminhos escrevem no mesmo lugar. */}
+      <div
+        className="px-2 py-1.5"
+        onKeyDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Volume</span>
+          <span>{percent}%</span>
+        </div>
+        <Slider
+          value={[percent]}
+          min={0}
+          max={MAX_VOLUME_PERCENT}
+          step={5}
+          aria-label={`Volume de ${username}`}
+          onValueChange={(values) => onVolumeChange((values[0] ?? 100) / 100)}
+        />
+      </div>
+
+      {/* `preventDefault` no `onSelect` mantém o menu aberto: ajustar volume
+            é uma ação repetida, e fechar a cada 10% obrigaria a reabrir o menu
+            para cada passo. */}
+      <DropdownMenuItem
+        disabled={percent >= MAX_VOLUME_PERCENT}
+        onSelect={(event) => {
+          event.preventDefault()
+          onVolumeChange(Math.min(MAX_VOLUME_PERCENT, percent + VOLUME_KEYBOARD_STEP) / 100)
+        }}
+      >
+        Aumentar volume
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={percent <= 0}
+        onSelect={(event) => {
+          event.preventDefault()
+          onVolumeChange(Math.max(0, percent - VOLUME_KEYBOARD_STEP) / 100)
+        }}
+      >
+        Diminuir volume
+      </DropdownMenuItem>
+
+      <DropdownMenuSeparator />
+
+      {/* "PARA MIM" é obrigatório no rótulo, e não é preciosismo: sem essas
+            duas palavras o usuário acredita que mutou a pessoa para a call
+            inteira. Isso seria MODERAÇÃO — coisa de cargo, que não existe
+            neste app e está explicitamente fora desta fase. O que este item faz
+            é reprodução local, e só. */}
+      <DropdownMenuItem onSelect={onToggleSilenced}>
+        {silenced ? 'Ouvir de novo' : 'Silenciar para mim'}
+      </DropdownMenuItem>
+    </>
+  )
+}
+
 // O gatilho + o conteúdo do menu. Mesmo padrão único de menu da fase (Plano
 // 08.5-02/08.5-04): um `DropdownMenu` controlado, aberto por clique/Enter no
 // `<button>` e pelo botão direito no mesmo elemento. Sem `context-menu` do
@@ -116,9 +202,6 @@ export function ParticipantAudioMenu({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
 
-  const silenced = preference?.silenced ?? false
-  const percent = toPercent(preference?.volume ?? DEFAULT_PARTICIPANT_VOLUME)
-
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -137,70 +220,12 @@ export function ParticipantAudioMenu({
       <DropdownMenuContent align="center" className="w-60">
         <DropdownMenuLabel className="truncate">{username}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-
-        {/* O slider NÃO é um `DropdownMenuItem`: item de menu captura as setas
-            para a navegação do próprio menu e "selecionar" fecharia o menu a
-            cada arrasto. Fica numa área não-item, com `onKeyDown` parando a
-            propagação para que ArrowLeft/ArrowRight cheguem ao `Slider` em vez
-            de virarem navegação.
-
-            ISTO NÃO PÔDE SER VERIFICADO AQUI (WSL2, sem janela: nenhum pixel
-            foi renderizado nesta execução). Por isso o teclado NÃO depende
-            dele: os dois itens logo abaixo fazem a mesma coisa e são
-            acessíveis por construção. Se o slider se provar bom no checkpoint
-            humano, os itens podem sair; se ele se provar ruim, o slider sai e
-            os itens ficam. Os dois caminhos escrevem no mesmo lugar. */}
-        <div
-          className="px-2 py-1.5"
-          onKeyDown={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Volume</span>
-            <span>{percent}%</span>
-          </div>
-          <Slider
-            value={[percent]}
-            min={0}
-            max={MAX_VOLUME_PERCENT}
-            step={5}
-            aria-label={`Volume de ${username}`}
-            onValueChange={(values) => onVolumeChange((values[0] ?? 100) / 100)}
-          />
-        </div>
-
-        {/* `preventDefault` no `onSelect` mantém o menu aberto: ajustar volume
-            é uma ação repetida, e fechar a cada 10% obrigaria a reabrir o menu
-            para cada passo. */}
-        <DropdownMenuItem
-          disabled={percent >= MAX_VOLUME_PERCENT}
-          onSelect={(event) => {
-            event.preventDefault()
-            onVolumeChange(Math.min(MAX_VOLUME_PERCENT, percent + VOLUME_KEYBOARD_STEP) / 100)
-          }}
-        >
-          Aumentar volume
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={percent <= 0}
-          onSelect={(event) => {
-            event.preventDefault()
-            onVolumeChange(Math.max(0, percent - VOLUME_KEYBOARD_STEP) / 100)
-          }}
-        >
-          Diminuir volume
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-
-        {/* "PARA MIM" é obrigatório no rótulo, e não é preciosismo: sem essas
-            duas palavras o usuário acredita que mutou a pessoa para a call
-            inteira. Isso seria MODERAÇÃO — coisa de cargo, que não existe
-            neste app e está explicitamente fora desta fase. O que este item faz
-            é reprodução local, e só. */}
-        <DropdownMenuItem onSelect={onToggleSilenced}>
-          {silenced ? 'Ouvir de novo' : 'Silenciar para mim'}
-        </DropdownMenuItem>
+        <ParticipantAudioMenuItems
+          username={username}
+          preference={preference}
+          onVolumeChange={onVolumeChange}
+          onToggleSilenced={onToggleSilenced}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )

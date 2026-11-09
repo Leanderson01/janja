@@ -126,7 +126,7 @@ function ShellBody(): React.JSX.Element {
 
               A visão Início não tem lista de membros (06-RESEARCH.md §7). */}
           {view === 'server' && membersVisible ? (
-            <div className="w-60 flex-none border-l border-border bg-background">
+            <div className="w-60 flex-none border-l border-border bg-background px-2 [--avatar-ring:var(--background)]">
               <MemberList />
             </div>
           ) : null}
