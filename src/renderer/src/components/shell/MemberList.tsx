@@ -191,8 +191,8 @@ export function MemberRow({
         <DropdownMenuItem onSelect={() => void handleCopyIdentifier()}>
           Copiar identificador
         </DropdownMenuItem>
-        {/* O item aparece para TODO mundo, inclusive para você mesmo e para
-            quem já é seu amigo: `listServerMembers` não devolve amizade nem
+        {/* Este item (e só ele) aparece para TODO mundo, inclusive para você
+            mesmo e para quem já é seu amigo: `listServerMembers` não devolve amizade nem
             identidade do chamador, e descobrir isso exigiria query nova. A
             mutation já responde "Você não pode adicionar a si mesmo" / "Vocês
             já são amigos" em português, e esse erro vira toast — o que é mais
@@ -216,6 +216,24 @@ export function MemberRow({
   )
 }
 
+/** Volume por pessoa só vale para OUTRA pessoa na SUA call (nunca você mesmo:
+ * não se ouve). `myUserId` é `room.localParticipant.identity` (= `users._id`). */
+export function isInMyCall({
+  memberUserId,
+  myUserId,
+  joinedVoiceChannelId,
+  memberChannelId
+}: {
+  memberUserId: string
+  myUserId: string | undefined
+  joinedVoiceChannelId: string | null
+  memberChannelId: string | undefined
+}): boolean {
+  if (joinedVoiceChannelId === null || memberChannelId === undefined) return false
+  if (memberUserId === myUserId) return false
+  return memberChannelId === joinedVoiceChannelId
+}
+
 function MemberGroup({
   label,
   members,
@@ -233,16 +251,19 @@ function MemberGroup({
   sendFriendRequest: SendFriendRequest
   ownerId: Id<'users'> | undefined
 }): React.JSX.Element {
-  const { participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
+  const { room, participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
   return (
     <div>
       <MemberSectionHeader label={label} count={members.length} />
       <div className="flex flex-col gap-0.5">
         {members.map((member) => {
           // Volume por pessoa só vale para quem está na SUA call.
-          const inMyCall =
-            joinedVoiceChannelId !== null &&
-            voiceStateByUserId.get(member.userId)?.channelId === joinedVoiceChannelId
+          const inMyCall = isInMyCall({
+            memberUserId: member.userId,
+            myUserId: room?.localParticipant.identity,
+            joinedVoiceChannelId,
+            memberChannelId: voiceStateByUserId.get(member.userId)?.channelId
+          })
           return (
             <MemberRow
               key={member.userId}

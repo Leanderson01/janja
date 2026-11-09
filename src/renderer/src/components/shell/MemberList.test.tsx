@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MemberRow } from './MemberList'
+import { MemberRow, isInMyCall } from './MemberList'
 import { MemberSectionHeader } from './MemberSectionHeader'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 
@@ -235,5 +235,26 @@ describe('MemberSectionHeader', () => {
     render(<MemberSectionHeader label="Online" count={3} />)
     const h = screen.getByRole('heading', { name: 'Online — 3' })
     expect(h.className).not.toContain('uppercase')
+  })
+})
+
+describe('isInMyCall', () => {
+  const base = {
+    memberUserId: 'u2',
+    myUserId: 'u1',
+    joinedVoiceChannelId: 'c1',
+    memberChannelId: 'c1'
+  }
+  it('você mesmo nunca', () => {
+    expect(isInMyCall({ ...base, memberUserId: 'u1' })).toBe(false)
+  })
+  it('outra pessoa no mesmo canal', () => {
+    expect(isInMyCall(base)).toBe(true)
+  })
+  it('outra pessoa em outro canal', () => {
+    expect(isInMyCall({ ...base, memberChannelId: 'c2' })).toBe(false)
+  })
+  it('sem estar em call', () => {
+    expect(isInMyCall({ ...base, joinedVoiceChannelId: null })).toBe(false)
   })
 })

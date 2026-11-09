@@ -14,9 +14,9 @@ import { cn } from '@/lib/utils'
 // o "Não fazer" literal do `08.5-BRIEF.md` (decisão de 2026-08-18, opção "c").
 // O ponto de extensão é de UI e só de UI: uma prop de classe que não é
 // persistida em lugar nenhum e não tem semântica própria.
-// Só o nome humano: a `#tag` não aparece na tela (estilo Discord). O identificador exato — `username#tag`, que é o que
-// se digita para adicionar alguém — fica no `title` e no item "Copiar
-// identificador" do menu, porque ele é para copiar, não para ler.
+// Só o nome humano: a `#tag` não aparece na tela (estilo Discord). O
+// identificador exato — `username#tag`, que é o que se digita para adicionar
+// alguém — fica no `title` e no item "Copiar identificador" do menu, porque ele é para copiar, não para ler.
 export function MemberName({
   displayName,
   username,
