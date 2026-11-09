@@ -69,4 +69,11 @@ describe('ServerRailIcon', () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: 'janja da galera' }))
     expect(screen.getByRole('menuitem', { name: 'Convidar pessoas' })).toBeTruthy()
   })
+  it('dentro do menu, o invólucro ocupa a largura toda do rail para a pílula ficar na borda', () => {
+    renderIconWithMenu()
+    const pill = screen.getByTestId('rail-pill')
+    const wrapper = pill.parentElement!.parentElement!
+    expect(wrapper.className).toContain('relative')
+    expect(wrapper.className).toContain('w-full')
+  })
 })

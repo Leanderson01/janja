@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Check,
@@ -263,12 +263,14 @@ export function ServerMenu({
   children?: ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       {children ? (
         <div
-          className="relative"
+          ref={wrapperRef}
+          className="relative w-full"
           onContextMenu={(event) => {
             event.preventDefault()
             setOpen(true)
@@ -302,7 +304,19 @@ export function ServerMenu({
           qualquer gerenciamento de permissão — não existe mutation para
           nenhum deles em `convex/`, e criá-las seria reescrever a autorização
           do backend. Menu não inventa capacidade. */}
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent
+        align="start"
+        className="w-56"
+        onCloseAutoFocus={(event) => {
+          // Com gatilho próprio o foco volta para o botão do filho, não para a
+          // âncora invisível.
+          const target = wrapperRef.current?.querySelector('button')
+          if (children && target) {
+            event.preventDefault()
+            target.focus()
+          }
+        }}
+      >
         <DropdownMenuItem onSelect={onInvite}>
           <UserPlus />
           Convidar pessoas
