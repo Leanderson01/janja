@@ -1,9 +1,18 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react'
 
 import {
   clampChannelListWidth,
   loadLayoutPreferences,
-  saveLayoutPreferences
+  saveLayoutPreferences,
+  type LayoutPreferences
 } from '@/lib/layout-preferences'
 
 // Estado de layout da JANELA (Plano 08.5-05): se a lista de membros está
@@ -33,6 +42,8 @@ export type LayoutContextValue = {
   toggleMembers: () => void
   channelListWidth: number
   setChannelListWidth: (px: number) => void
+  // Persiste a largura atual (chamado uma vez ao fim do arrasto ou da tecla).
+  commitChannelListWidth: () => void
 }
 
 const LayoutContext = createContext<LayoutContextValue | undefined>(undefined)
@@ -42,31 +53,49 @@ export function LayoutProvider({ children }: { children: ReactNode }): React.JSX
   // cada render, e sem `useEffect` de sincronização (o valor persistido é a
   // fonte inicial, o estado de React é a fonte a partir daí).
   const [preferences, setPreferences] = useState(loadLayoutPreferences)
+  // Espelho síncrono do estado: permite gravar no storage FORA de qualquer
+  // updater de `setState` (que o StrictMode pode executar duas vezes).
+  const latest = useRef(preferences)
   const { membersVisible, channelListWidth } = preferences
 
-  const toggleMembers = useCallback((): void => {
-    setPreferences((current) => {
-      const next = { ...current, membersVisible: !current.membersVisible }
-      saveLayoutPreferences(next)
-      return next
-    })
+  const update = useCallback((next: LayoutPreferences): void => {
+    latest.current = next
+    setPreferences(next)
   }, [])
 
+  const toggleMembers = useCallback((): void => {
+    const next = { ...latest.current, membersVisible: !latest.current.membersVisible }
+    update(next)
+    saveLayoutPreferences(next)
+  }, [update])
+
   // A largura sempre passa pelo clamp com a janela de AGORA: o chat nunca fica
-  // com menos de 400px, mesmo com os membros abertos.
-  const setChannelListWidth = useCallback((px: number): void => {
-    setPreferences((current) => {
+  // com menos de 400px, mesmo com os membros abertos. Só atualiza a memória:
+  // durante um arrasto isto roda a cada pointermove, e a gravação em
+  // `localStorage` fica para `commitChannelListWidth` (fim do arrasto / tecla).
+  const setChannelListWidth = useCallback(
+    (px: number): void => {
+      const current = latest.current
       const width = clampChannelListWidth(px, window.innerWidth, current.membersVisible)
-      if (width === current.channelListWidth) return current
-      const next = { ...current, channelListWidth: width }
-      saveLayoutPreferences(next)
-      return next
-    })
+      if (width === current.channelListWidth) return
+      update({ ...current, channelListWidth: width })
+    },
+    [update]
+  )
+
+  const commitChannelListWidth = useCallback((): void => {
+    saveLayoutPreferences(latest.current)
   }, [])
 
   const value = useMemo<LayoutContextValue>(
-    () => ({ membersVisible, toggleMembers, channelListWidth, setChannelListWidth }),
-    [membersVisible, toggleMembers, channelListWidth, setChannelListWidth]
+    () => ({
+      membersVisible,
+      toggleMembers,
+      channelListWidth,
+      setChannelListWidth,
+      commitChannelListWidth
+    }),
+    [membersVisible, toggleMembers, channelListWidth, setChannelListWidth, commitChannelListWidth]
   )
 
   return <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>

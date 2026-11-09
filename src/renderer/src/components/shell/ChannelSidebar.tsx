@@ -53,7 +53,7 @@ import type { Doc, Id } from '../../../../../convex/_generated/dataModel'
 // canal (CHAT-06, plano 05-04) alimentado por `getUnreadCounts` — só canais
 // de texto ganham badge, a query já filtra canal de voz. Lista de
 // participantes de voz aninhados sob o canal (Plano 07-04) vem de
-// `api.voice.voiceParticipantsByChannel` — dado real de `voiceStates`.
+// `api.voice.voiceParticipantsByServer` (uma assinatura para o servidor todo) — dado real de `voiceStates`.
 export function ChannelSidebar(): React.JSX.Element {
   const {
     servers,

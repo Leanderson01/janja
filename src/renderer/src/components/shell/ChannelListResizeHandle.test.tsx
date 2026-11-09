@@ -49,4 +49,27 @@ describe('ChannelListResizeHandle', () => {
     fireEvent.pointerMove(sep, { pointerId: 1, clientX: 200 })
     expect(onResize).toHaveBeenCalledTimes(1)
   })
+
+  it('onResizeEnd dispara uma vez só ao soltar, não a cada movimento', () => {
+    const onResize = vi.fn()
+    const onResizeEnd = vi.fn()
+    render(<ChannelListResizeHandle width={240} onResize={onResize} onResizeEnd={onResizeEnd} />)
+    const sep = screen.getByRole('separator')
+    fireEvent.pointerDown(sep, { pointerId: 1, clientX: 100 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 110 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 120 })
+    fireEvent.pointerMove(sep, { pointerId: 1, clientX: 130 })
+    expect(onResize).toHaveBeenCalledTimes(3)
+    expect(onResizeEnd).not.toHaveBeenCalled()
+    fireEvent.pointerUp(sep, { pointerId: 1, clientX: 130 })
+    expect(onResizeEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('a tecla de seta também confirma a largura', async () => {
+    const onResizeEnd = vi.fn()
+    render(<ChannelListResizeHandle width={240} onResize={vi.fn()} onResizeEnd={onResizeEnd} />)
+    screen.getByRole('separator').focus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(onResizeEnd).toHaveBeenCalledTimes(1)
+  })
 })

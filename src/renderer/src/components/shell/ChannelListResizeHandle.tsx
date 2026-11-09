@@ -10,10 +10,13 @@ const KEY_STEP = 8
  */
 export function ChannelListResizeHandle({
   width,
-  onResize
+  onResize,
+  onResizeEnd
 }: {
   width: number
   onResize: (px: number) => void
+  // Uma vez só: ao soltar o ponteiro, cancelar o arrasto ou após uma tecla.
+  onResizeEnd?: () => void
 }): React.JSX.Element {
   const drag = useRef<{ startX: number; startWidth: number } | null>(null)
 
@@ -36,21 +39,26 @@ export function ChannelListResizeHandle({
         onResize(drag.current.startWidth + event.clientX - drag.current.startX)
       }}
       onPointerUp={(event) => {
+        const wasDragging = drag.current !== null
         drag.current = null
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId)
         }
+        if (wasDragging) onResizeEnd?.()
       }}
       onPointerCancel={() => {
+        if (drag.current) onResizeEnd?.()
         drag.current = null
       }}
       onKeyDown={(event) => {
         if (event.key === 'ArrowRight') {
           event.preventDefault()
           onResize(width + KEY_STEP)
+          onResizeEnd?.()
         } else if (event.key === 'ArrowLeft') {
           event.preventDefault()
           onResize(width - KEY_STEP)
+          onResizeEnd?.()
         }
       }}
     />

@@ -42,7 +42,8 @@ import { useEffect, useState } from 'react'
 // canais, dentro da moldura, até a Tarefa 7 da rodada mudá-los de lugar.
 function ShellBody(): React.JSX.Element {
   const { view, selectedDmChannelId } = useSelection()
-  const { membersVisible, channelListWidth, setChannelListWidth } = useLayout()
+  const { membersVisible, channelListWidth, setChannelListWidth, commitChannelListWidth } =
+    useLayout()
 
   // A largura guardada pode ter sido escolhida numa janela maior (ou com os
   // membros fechados). Na hora de desenhar, passa de novo pelo clamp com a
@@ -79,7 +80,11 @@ function ShellBody(): React.JSX.Element {
             className="relative flex flex-none flex-col bg-sidebar"
             style={{ width: channelColumnWidth }}
           >
-            <ChannelListResizeHandle width={channelColumnWidth} onResize={setChannelListWidth} />
+            <ChannelListResizeHandle
+              width={channelColumnWidth}
+              onResize={setChannelListWidth}
+              onResizeEnd={commitChannelListWidth}
+            />
             <div className="min-h-0 flex-1">
               {view === 'server' ? <ChannelSidebar /> : <DmSidebar />}
             </div>
