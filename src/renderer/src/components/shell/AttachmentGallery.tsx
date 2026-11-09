@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { ImageLightbox } from '@/components/shell/ImageLightbox'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   formatBytes,
   isAudio,
@@ -89,16 +90,25 @@ function FileCard({ attachment }: { attachment: Available }): React.JSX.Element 
         </a>
         <span className="text-xs text-muted-foreground">{formatBytes(attachment.size)}</span>
       </div>
-      <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <a
-          href={attachment.url}
-          download={attachment.name}
-          aria-label={`Baixar ${attachment.name}`}
-          title="Baixar"
-        >
-          <Download aria-hidden="true" />
-        </a>
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button asChild variant="ghost" size="icon" className="shrink-0">
+            {/* `target="_blank"`: `download` é ignorado em URL de outra origem (o
+                storage do Convex), e sem alvo o clique navegaria a janela do app
+                para o arquivo. Em `_blank` o main roteia para `shell.openExternal`. */}
+            <a
+              href={attachment.url}
+              target="_blank"
+              rel="noreferrer"
+              download={attachment.name}
+              aria-label={`Baixar ${attachment.name}`}
+            >
+              <Download aria-hidden="true" />
+            </a>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Baixar</TooltipContent>
+      </Tooltip>
     </div>
   )
 }
