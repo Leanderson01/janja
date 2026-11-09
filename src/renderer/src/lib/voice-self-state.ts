@@ -13,6 +13,8 @@
 // - desensurdecer devolve o mic como estava antes de ensurdecer;
 // - clicar no mic ensurdecido desensurdece E desmuta (como no Discord).
 
+import type { VoiceMode } from './voice-preferences'
+
 export type VoiceSelfState = {
   muted: boolean
   deafened: boolean
@@ -113,4 +115,23 @@ export function resolveSavedDevice(
 ): string | null {
   if (!savedId) return null
   return available.some((device) => device.deviceId === savedId) ? savedId : null
+}
+
+/**
+ * O join publica o microfone já MUTADO? Sim sempre que ninguém deveria te
+ * ouvir no instante da entrada: mic mutado, fone ensurdecido, ou modo PTT com
+ * a tecla solta. Publicar aberto manda `muted:false` ao SFU, que repassa áudio
+ * real até o mute do cliente chegar — o "fecha logo depois" não basta.
+ *
+ * Modo VAD desmutado continua publicando aberto (o VAD fecha assim que o
+ * monitor sobe), como antes desta rodada.
+ */
+export function shouldPublishMicrophoneMuted(s: {
+  muted: boolean
+  deafened: boolean
+  mode: VoiceMode
+  pttKeyDown: boolean
+}): boolean {
+  if (s.muted || s.deafened) return true
+  return s.mode === 'ptt' && !s.pttKeyDown
 }

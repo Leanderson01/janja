@@ -37,6 +37,7 @@ import {
   loadVoiceSelfState,
   resolveSavedDevice,
   saveVoiceSelfState,
+  shouldPublishMicrophoneMuted,
   toggleDeafen,
   toggleMute,
   type VoiceSelfState
@@ -387,11 +388,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const [outputDeviceId, setOutputDeviceId] = useState<string | null>(null)
 
   // Tecla de PTT pressionada AGORA, segundo os eventos `onDown`/`onUp`. Lida
-  // por `applyVoicePreferencesAsync` para fechar o microfone em modo PTT sem
-  // cortar quem está de fato segurando a tecla. Zerada sempre que o modo
-  // salvo não é 'ptt' — mesmo motivo de `src/main/voice/ptt.ts` zerar o seu
-  // `isKeyCurrentlyDown` ao ligar/desligar a captura: com a captura
-  // desligada, o `keyup` nunca chega.
+  // pelo join (publicar mutado com a tecla solta) e por
+  // `applyVoicePreferencesAsync` (deixar o microfone no estado da tecla em
+  // modo PTT — `onDown` não repete enquanto ela segue pressionada). Zerada
+  // sempre que o modo salvo não é 'ptt' — mesmo motivo de
+  // `src/main/voice/ptt.ts` zerar o seu `isKeyCurrentlyDown` ao
+  // ligar/desligar a captura: com a captura desligada, o `keyup` nunca chega.
   const pttKeyDownRef = useRef(false)
 
   // VOICE-18: volume individual por participante, carregado do `localStorage`
@@ -622,18 +624,24 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     const generation = vadGenerationRef.current
 
     // modo 'ptt': não inicia o VAD — o Plano 07-06 assume o controle da
-    // track nesse modo. Mas o microfone FECHA aqui, salvo se a tecla está
-    // pressionada agora: até a rodada 1 do visual Discord este ramo só
-    // retornava, e quem entrava em modo PTT transmitia do join até o
-    // primeiro soltar de tecla (o join publica o microfone aberto). Fechar
-    // é sempre seguro — só a tecla (`onDown`) reabre.
+    // track nesse modo. Mas este ramo deixa o microfone no estado que a
+    // tecla pede AGORA: aberto só com a tecla pressionada e o mic
+    // desmutado, fechado em qualquer outro caso. Até a rodada 1 do visual
+    // Discord ele só retornava: quem entrava com a tecla solta transmitia
+    // até o primeiro soltar de tecla, e quem desmutava (ou entrava)
+    // segurando a tecla não era ouvido até apertar de novo — `onDown` não
+    // repete enquanto a tecla continua pressionada.
+    //
+    // A decisão e a chamada são síncronas uma com a outra, como no VAD e no
+    // `onDown`: um `onUp` ou um mute que chegue depois enfileira o seu
+    // `setMicrophoneEnabled(false)` atrás deste, no `muteLock` do SDK, e
+    // vence.
     if (prefs.mode !== 'vad') {
-      if (!pttKeyDownRef.current || manualMuteRef.current) {
-        try {
-          await room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
-        } catch (err) {
-          console.error('[voice] PTT: falha ao fechar o microfone fora da tecla', err)
-        }
+      const open = pttKeyDownRef.current && !manualMuteRef.current
+      try {
+        await room.localParticipant.setMicrophoneEnabled(open, AUDIO_CAPTURE_OPTIONS)
+      } catch (err) {
+        console.error('[voice] PTT: falha ao %s o microfone', open ? 'abrir' : 'fechar', err)
       }
       return
     }
@@ -808,8 +816,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // Publica o microfone no join. Aberto, é o caminho de sempre
   // (`setMicrophoneEnabled(true)`). MUTADO, a track é criada, mutada e SÓ
   // ENTÃO publicada: publicar aberto e mutar depois deixaria passar áudio
-  // real entre os dois passos, e a publicação já chega ao SFU (e aos outros)
-  // como mutada, sem piscar desmutada.
+  // real entre os dois passos (o `AddTrackRequest` sai com `muted:false` e o
+  // SFU repassa até o mute chegar), e a publicação já chega ao SFU (e aos
+  // outros) como mutada, sem piscar desmutada. Quem decide qual dos dois é
+  // `shouldPublishMicrophoneMuted` (mic mutado, ensurdecido, ou PTT com a
+  // tecla solta).
   //
   // `localParticipant.createTracks` e não o `createLocalAudioTrack` solto: é
   // a mesma fábrica que `setMicrophoneEnabled` usa por dentro, e a única que
@@ -913,8 +924,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // refeito pelo `ActiveDeviceChanged` que o SDK emite na hora, também. O VAD
   // passaria a ouvir o microfone abandonado (ou um morto, se ele foi
   // desplugado) e nunca reabriria. Por isso a troca é forçada aqui, com a
-  // track ainda mutada (`restart` mantém `enabled = false`, nada vaza), e o
-  // VAD é reinstalado sobre a track nova.
+  // track ainda mutada, e o VAD é reinstalado sobre a track nova.
+  //
+  // Proteção de UMA camada só, e é bom saber qual: dentro de `restart`, o
+  // SDK (`LocalTrack.setMediaStreamTrack`) faz `sender.replaceTrack` com a
+  // track recém-saída do `getUserMedia` ainda HABILITADA e só depois aplica
+  // `enabled = !isMuted`. Alguns milissegundos de áudio real podem sair do
+  // cliente nessa janela; quem os segura é o SFU, porque a publicação está
+  // mutada. Evitar isso exigiria trocar a track por uma adquirida aqui já
+  // desabilitada (`replaceTrack`), mas aí o `pendingDeviceChange` interno do
+  // SDK continuaria ligado e o próximo unmute readquiriria o microfone de
+  // novo — em VAD, cortando a primeira palavra depois de cada troca.
   async function applyDevice(kind: 'audioinput' | 'audiooutput', deviceId: string): Promise<void> {
     const switched = await room.switchActiveDevice(kind, deviceId, false)
     if (!switched) {
@@ -1438,7 +1458,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     const offPtt = pushToTalk.subscribe({
       onDown: () => {
         // Antes de qualquer guarda: o estado da tecla vale mesmo fora da
-        // call, para o join em modo PTT saber se deve fechar o microfone.
+        // call, para o join em modo PTT saber se publica o microfone mutado.
         pttKeyDownRef.current = true
         if (activeChannelRef.current === null) return
         if (loadVoicePreferences().mode !== 'ptt') return
@@ -1673,20 +1693,36 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             const joinSelf = selfStateRef.current
             const joinDeafened = joinSelf.deafened
             const joinMuted = joinSelf.muted || joinDeafened
+            // Os campos só vão quando são `true`: um backend Convex anterior a
+            // esta rodada rejeita argumento desconhecido, e assim só a entrada
+            // mutada/ensurdecida depende do deploy novo — e ela falha aqui,
+            // antes de qualquer publicação, sem vazar nada. Omitidos, a linha
+            // nova nasce desmutada, que é exatamente o que `serverSelfStateRef`
+            // registra abaixo.
             const { token, url } = await joinVoiceChannel({
               channelId: target,
-              muted: joinMuted,
-              deafened: joinDeafened
+              ...(joinMuted && { muted: true }),
+              ...(joinDeafened && { deafened: true })
             })
             serverSelfStateRef.current = { muted: joinMuted, deafened: joinDeafened }
             await room.connect(url, token)
             // VOICE-16: cancelamento de eco, supressão de ruído e ganho
             // automático nunca vêm ligados por padrão — precisam ser
             // setados explicitamente aqui, sempre (`publishMicrophone` passa
-            // `AUDIO_CAPTURE_OPTIONS` nos dois caminhos). O mute é relido
-            // AGORA, não o do início do join: quem mutou durante o connect
-            // já publica mutado.
-            await publishMicrophone(manualMuteRef.current)
+            // `AUDIO_CAPTURE_OPTIONS` nos dois caminhos). Mute, surdina, modo
+            // e tecla são relidos AGORA, não no início do join: quem mutou
+            // durante o connect já publica mutado. Em PTT com a tecla solta
+            // a publicação também sai mutada — `onDown` (ou o ramo de PTT de
+            // `applyVoicePreferencesAsync`, logo abaixo, para quem já está
+            // segurando) é quem abre.
+            await publishMicrophone(
+              shouldPublishMicrophoneMuted({
+                muted: manualMuteRef.current,
+                deafened: deafenedRef.current,
+                mode: loadVoicePreferences().mode,
+                pttKeyDown: pttKeyDownRef.current
+              })
+            )
             activeChannelRef.current = target
             // `manualMuteRef`/`deafenedRef` NÃO são mais zerados aqui: partem
             // do estado salvo e só `commitSelfState` os escreve. Um clique no
@@ -1703,8 +1739,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // Aplica a preferência de transmissão salva (VAD por padrão) à
             // track recém-publicada. Em modo VAD, a track existe mas
             // começa desabilitada — o VAD é quem liga/desliga a partir
-            // daqui (07-05-PLAN.md Task 2); em modo PTT ela fecha até a
-            // tecla. Com `await`: o join só termina com o estado de
+            // daqui (07-05-PLAN.md Task 2); em modo PTT ela fica no estado
+            // da tecla. Com `await`: o join só termina com o estado de
             // transmissão de fato aplicado, então um leave imediatamente
             // depois não corre contra um setup pela metade.
             await applyVoicePreferencesAsync()

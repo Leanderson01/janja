@@ -5,6 +5,7 @@ import {
   loadVoiceSelfState,
   resolveSavedDevice,
   saveVoiceSelfState,
+  shouldPublishMicrophoneMuted,
   toggleDeafen,
   toggleMute
 } from './voice-self-state'
@@ -135,4 +136,43 @@ describe('voice-self-state — dispositivo salvo', () => {
 
   it('nada salvo é padrão', () =>
     expect(resolveSavedDevice(null, [{ deviceId: 'mic-usb' }])).toBeNull())
+})
+
+// Decisão do join: publicar o microfone já mutado ou aberto. Publicar aberto
+// manda `muted:false` no AddTrackRequest, e o SFU repassa áudio até o mute do
+// cliente chegar — por isso todo caso em que ninguém deveria te ouvir publica
+// mutado.
+describe('voice-self-state — publicar o microfone mutado no join', () => {
+  const unmuted = { muted: false, deafened: false }
+
+  it('modo VAD desmutado publica aberto (o VAD fecha depois, como sempre)', () =>
+    expect(shouldPublishMicrophoneMuted({ ...unmuted, mode: 'vad', pttKeyDown: false })).toBe(
+      false
+    ))
+
+  it('modo VAD mutado publica mutado', () =>
+    expect(
+      shouldPublishMicrophoneMuted({ muted: true, deafened: false, mode: 'vad', pttKeyDown: false })
+    ).toBe(true))
+
+  it('ensurdecido publica mutado, mesmo com muted falso', () =>
+    expect(
+      shouldPublishMicrophoneMuted({ muted: false, deafened: true, mode: 'vad', pttKeyDown: false })
+    ).toBe(true))
+
+  it('modo PTT com a tecla solta publica mutado', () =>
+    expect(shouldPublishMicrophoneMuted({ ...unmuted, mode: 'ptt', pttKeyDown: false })).toBe(true))
+
+  it('modo PTT segurando a tecla publica aberto', () =>
+    expect(shouldPublishMicrophoneMuted({ ...unmuted, mode: 'ptt', pttKeyDown: true })).toBe(false))
+
+  it('modo PTT segurando a tecla mas mutado publica mutado', () =>
+    expect(
+      shouldPublishMicrophoneMuted({ muted: true, deafened: false, mode: 'ptt', pttKeyDown: true })
+    ).toBe(true))
+
+  it('modo PTT segurando a tecla mas ensurdecido publica mutado', () =>
+    expect(
+      shouldPublishMicrophoneMuted({ muted: true, deafened: true, mode: 'ptt', pttKeyDown: true })
+    ).toBe(true))
 })
