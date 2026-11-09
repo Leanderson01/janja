@@ -21,7 +21,9 @@ import {
   useVoiceParticipants,
   type VoiceParticipantView
 } from '@/components/shell/ParticipantStrip'
-import { CallControls, useIdle } from '@/components/shell/CallControls'
+import { CallControls } from '@/components/shell/CallControls'
+import { PortalContainerProvider } from '@/components/ui/portal-container'
+import { useIdle } from '@/hooks/use-idle'
 import { CallTimer } from '@/components/shell/CallTimer'
 import { ParticipantTile } from '@/components/shell/ParticipantTile'
 import { ScreenShareStage, ScreenSharePreviewNotice } from '@/components/shell/ScreenShareStage'
@@ -47,7 +49,7 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 //   `useEffect` de `attach`/`detach` da Fase 8 intocado (a prova por `diff`
 //   está no summary do plano).
 // - `ParticipantStrip.tsx` — a faixa horizontal de participantes E as regras
-//   comuns de participante de voz (`initialsFor`, `ConnectionQualityIcon`,
+//   comuns de participante de voz (`ConnectionQualityIcon`,
 //   `useVoiceParticipants`), que a grade abaixo importa em vez de duplicar.
 // - `ParticipantAudioMenu.tsx` — o menu de áudio por participante (VOICE-18),
 //   que saiu daqui depois do Plano 08.5-11 para poder existir também na faixa.
@@ -453,6 +455,7 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
   // Tela cheia no elemento do palco; a promessa pode ser rejeitada (gesto
   // ausente, política do sistema) e isso não é erro para o usuário.
   const stageRef = useRef<HTMLDivElement>(null)
+  const [stageElement, setStageElement] = useState<HTMLElement | null>(null)
   const { idle, bind } = useIdle(3000)
 
   function handleFullscreen(): void {
@@ -466,67 +469,72 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
   }
 
   return (
-    <div
-      ref={stageRef}
-      onMouseMove={bind.onMouseMove}
-      className="relative flex-1 min-h-0 flex flex-col bg-stage text-stage-foreground"
-    >
-      {/* O `hidden` vai no INVÓLUCRO, não na barra: `hidden` e `flex` são o
+    <PortalContainerProvider value={stageElement}>
+      <div
+        ref={(node) => {
+          stageRef.current = node
+          setStageElement(node)
+        }}
+        onMouseMove={bind.onMouseMove}
+        className="relative flex-1 min-h-0 flex flex-col bg-stage text-stage-foreground"
+      >
+        {/* O `hidden` vai no INVÓLUCRO, não na barra: `hidden` e `flex` são o
           mesmo tipo de utilitário (display) e qual vence depende da ordem no CSS
           gerado, não da ordem no atributo. */}
-      <div className={cn('flex-none', isExpanded && 'hidden')}>
-        <StageBar
-          channelId={channelId}
-          layout={layout}
-          shareCount={shareCount}
-          onLayoutChange={setLayout}
-        />
-      </div>
-
-      <div className="flex-1 min-h-0 flex flex-col">
-        {/* REGIÃO DE VÍDEO — posição fixa na árvore, tamanho pela classe. */}
-        <div
-          className={cn(
-            'relative',
-            layout === 'tiles' && 'order-2 flex-none px-8 pb-8',
-            layout === 'tiles' && shareCount > 0 && 'hidden',
-            layout === 'share' && 'order-1 flex-1 min-h-0 p-4',
-            isExpanded && 'order-1 flex-1 min-h-0'
-          )}
-        >
-          <ScreenShareStage channelId={channelId} />
-          {isExpanded ? (
-            <div className="absolute right-3 top-3 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1">
-              <ShareLayoutControls
-                layout={layout}
-                shareCount={shareCount}
-                onLayoutChange={setLayout}
-              />
-            </div>
-          ) : null}
+        <div className={cn('flex-none', isExpanded && 'hidden')}>
+          <StageBar
+            channelId={channelId}
+            layout={layout}
+            shareCount={shareCount}
+            onLayoutChange={setLayout}
+          />
         </div>
 
-        <div
-          className={cn(
-            'order-1 flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto px-8 pb-24 pt-8',
-            layout !== 'tiles' && 'hidden'
-          )}
-        >
-          <VoiceParticipantGrid channelId={channelId} />
-        </div>
+        <div className="flex-1 min-h-0 flex flex-col">
+          {/* REGIÃO DE VÍDEO — posição fixa na árvore, tamanho pela classe. */}
+          <div
+            className={cn(
+              'relative',
+              layout === 'tiles' && 'order-2 flex-none px-8 pb-8',
+              layout === 'tiles' && shareCount > 0 && 'hidden',
+              layout === 'share' && 'order-1 flex-1 min-h-0 p-4',
+              isExpanded && 'order-1 flex-1 min-h-0'
+            )}
+          >
+            <ScreenShareStage channelId={channelId} />
+            {isExpanded ? (
+              <div className="absolute right-3 top-3 flex items-center gap-1 rounded-md border border-border bg-background/90 p-1">
+                <ShareLayoutControls
+                  layout={layout}
+                  shareCount={shareCount}
+                  onLayoutChange={setLayout}
+                />
+              </div>
+            ) : null}
+          </div>
 
-        {/* A faixa: altura fixa, `flex-none`, e some com `hidden` nos outros dois
+          <div
+            className={cn(
+              'order-1 flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto px-8 pb-24 pt-8',
+              layout !== 'tiles' && 'hidden'
+            )}
+          >
+            <VoiceParticipantGrid channelId={channelId} />
+          </div>
+
+          {/* A faixa: altura fixa, `flex-none`, e some com `hidden` nos outros dois
             layouts. */}
-        <div
-          className={cn(
-            'order-3 flex-none h-20 border-t border-border px-4',
-            layout !== 'share' && 'hidden'
-          )}
-        >
-          <ParticipantStrip channelId={channelId} />
+          <div
+            className={cn(
+              'order-3 flex-none h-20 border-t border-border px-4',
+              layout !== 'share' && 'hidden'
+            )}
+          >
+            <ParticipantStrip channelId={channelId} />
+          </div>
         </div>
+        <CallControls channelId={channelId} visible={!idle} onFullscreen={handleFullscreen} />
       </div>
-      <CallControls visible={!idle} onFullscreen={handleFullscreen} />
-    </div>
+    </PortalContainerProvider>
   )
 }

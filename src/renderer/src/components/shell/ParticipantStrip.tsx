@@ -207,7 +207,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
               {participant.displayName}
             </span>
             {/* `showSilenced` aqui é `true`, ao contrário da grade: nos avatares
-                de 36px da faixa o canto superior esquerdo já é do badge de
+                de 32px da faixa o canto superior esquerdo já é do badge de
                 "compartilhando", e empilhar dois badges nele seria ilegível.
                 O sinal vai inline, ao lado do nome — e ele PRECISA existir,
                 porque é justamente nesta faixa (layout de compartilhamento) que

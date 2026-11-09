@@ -1,37 +1,13 @@
 import { Headphones, HeadphoneOff, Maximize, Mic, MicOff, MonitorUp, PhoneOff } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { DeviceMenu } from '@/components/shell/DeviceMenu'
 import { DeviceChevron } from '@/components/shell/VoiceControlBar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { shouldShowCallControls } from '@/lib/call-grid'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
-
-/** Fica `idle` depois de `ms` sem o mouse mexer; `bind.onMouseMove` zera a contagem. */
-export function useIdle(ms: number): { idle: boolean; bind: { onMouseMove(): void } } {
-  const [idle, setIdle] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const arm = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => setIdle(true), ms)
-  }, [ms])
-
-  useEffect(() => {
-    arm()
-    return () => {
-      if (timer.current) clearTimeout(timer.current)
-    }
-  }, [arm])
-
-  const onMouseMove = useCallback(() => {
-    setIdle(false)
-    arm()
-  }, [arm])
-
-  return { idle, bind: { onMouseMove } }
-}
 
 const BUTTON =
   'inline-flex h-11 min-w-[52px] items-center justify-center rounded-xl bg-panel text-strong outline-none transition-colors hover:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-5'
@@ -159,13 +135,15 @@ export function CallControlsView({
 // Ligada ao contexto: mic/fone/compartilhar vêm de `useVoice()`, sair é
 // `setJoinedVoiceChannelId(null)` (o mesmo do botão Desconectar do cartão).
 export function CallControls({
+  channelId,
   visible,
   onFullscreen
 }: {
+  channelId: string
   visible: boolean
   onFullscreen(): void
-}): React.JSX.Element {
-  const { setJoinedVoiceChannelId } = useSelection()
+}): React.JSX.Element | null {
+  const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
   const {
     connectionState,
     muted,
@@ -177,11 +155,13 @@ export function CallControls({
     stopScreenShare
   } = useVoice()
 
+  if (!shouldShowCallControls({ channelId, joinedVoiceChannelId })) return null
+
   return (
     <CallControlsView
       visible={visible}
       isSharing={isSharing}
-      canShare={connectionState === 'connected'}
+      canShare={connectionState === 'connected'} // conectado AQUI: o gate acima garante o canal
       muted={muted}
       deafened={deafened}
       onToggleShare={() => void (isSharing ? stopScreenShare() : startScreenShare())}

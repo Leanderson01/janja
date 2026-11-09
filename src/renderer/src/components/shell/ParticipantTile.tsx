@@ -34,7 +34,9 @@ export function ParticipantTile({
       data-speaking={speaking}
       onContextMenu={onContextMenu}
       className={cn(
-        'relative grid aspect-video place-items-center overflow-hidden rounded-lg',
+        // Largura limitada pela altura da janela (descontando barra e controles) para
+        // que 1 ou 2 blocos 16:9 caibam no palco sem rolagem.
+        'relative grid aspect-video w-full max-w-[calc((100dvh-15rem)*16/9)] place-items-center justify-self-center overflow-hidden rounded-lg',
         AVATAR_TILE_BG[avatarColorIndex(userId)],
         speaking && 'outline outline-2 -outline-offset-2 outline-success'
       )}

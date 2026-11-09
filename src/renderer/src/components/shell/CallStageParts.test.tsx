@@ -8,7 +8,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AVATAR_TILE_BG, avatarColorIndex } from '@/lib/avatar-color'
 
-import { CallControlsView, useIdle } from './CallControls'
+import { PortalContainerProvider } from '@/components/ui/portal-container'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { useIdle } from '@/hooks/use-idle'
+
+import { shouldShowCallControls } from '@/lib/call-grid'
+
+import { CallControlsView } from './CallControls'
 import { ParticipantTile } from './ParticipantTile'
 
 afterEach(() => {
@@ -99,5 +110,39 @@ describe('useIdle', () => {
     expect(result.current.idle).toBe(true)
     act(() => result.current.bind.onMouseMove())
     expect(result.current.idle).toBe(false)
+  })
+})
+
+describe('barra de controles', () => {
+  it('compartilhar desabilitado fica desabilitado', () => {
+    renderControls({ canShare: false })
+    expect(
+      (screen.getByRole('button', { name: 'Compartilhar tela' }) as HTMLButtonElement).disabled
+    ).toBe(true)
+  })
+  it('só aparece no canal em que estou conectado', () => {
+    expect(shouldShowCallControls({ channelId: 'a', joinedVoiceChannelId: 'a' })).toBe(true)
+    expect(shouldShowCallControls({ channelId: 'a', joinedVoiceChannelId: 'b' })).toBe(false)
+    expect(shouldShowCallControls({ channelId: 'a', joinedVoiceChannelId: null })).toBe(false)
+  })
+})
+
+describe('PortalContainerProvider', () => {
+  it('menu monta dentro do elemento fornecido (tela cheia)', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    render(
+      <PortalContainerProvider value={container}>
+        <DropdownMenu>
+          <DropdownMenuTrigger>abrir</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>item</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </PortalContainerProvider>
+    )
+    await userEvent.click(screen.getByText('abrir'))
+    expect(container.contains(await screen.findByText('item'))).toBe(true)
+    container.remove()
   })
 })
