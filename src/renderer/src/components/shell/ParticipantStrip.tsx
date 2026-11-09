@@ -6,7 +6,8 @@ import {
   ParticipantAudioMenu,
   ParticipantVolumeHint
 } from '@/components/shell/ParticipantAudioMenu'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/shell/UserAvatar'
+import { displayNameOf } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -66,6 +67,7 @@ export type VoiceParticipantView = {
    * digita para adicionar alguém. */
   displayName: string
   username: string
+  avatarUrl: string | null | undefined
   muted: boolean
   sharing: boolean
   isSpeaking: boolean
@@ -92,8 +94,9 @@ export function useVoiceParticipants(
 
   return participants.map((participant) => ({
     userId: participant.userId,
-    displayName: participant.displayName,
+    displayName: displayNameOf(participant),
     username: participant.username,
+    avatarUrl: participant.avatarUrl,
     muted: participant.muted,
     sharing: participant.sharing,
     // Combina as duas condições explicitamente — nunca assume que
@@ -167,17 +170,16 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
         const tile = (
           <>
             <div className="relative">
-              <Avatar
+              <UserAvatar
+                userId={participant.userId}
+                avatarUrl={participant.avatarUrl}
+                name={participant.displayName}
+                size={32}
                 className={cn(
-                  'size-9',
-                  participant.isSpeaking && 'ring-2 ring-success',
+                  participant.isSpeaking && 'rounded-full ring-2 ring-success',
                   silenced && 'opacity-60'
                 )}
-              >
-                <AvatarFallback className="text-xs">
-                  {initialsFor(participant.displayName)}
-                </AvatarFallback>
-              </Avatar>
+              />
               {participant.muted ? (
                 <span
                   className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-stage"
@@ -198,7 +200,10 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
                 </span>
               ) : null}
             </div>
-            <span className="max-w-28 truncate text-xs text-foreground">
+            <span
+              className="max-w-28 truncate text-xs text-foreground"
+              title={participant.displayName}
+            >
               {participant.displayName}
             </span>
             {/* `showSilenced` aqui é `true`, ao contrário da grade: nos avatares
@@ -216,7 +221,7 @@ export function ParticipantStrip({ channelId }: { channelId: Id<'channels'> }): 
           <div key={participant.userId} role="listitem" className="shrink-0">
             {canControl ? (
               <ParticipantAudioMenu
-                username={participant.username}
+                username={participant.displayName}
                 preference={preference}
                 onVolumeChange={(volume) => setParticipantVolume(participant.userId, volume)}
                 onToggleSilenced={() => toggleParticipantSilenced(participant.userId)}

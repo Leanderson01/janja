@@ -3,14 +3,13 @@ import {
   Eye,
   EyeOff,
   Maximize2,
-  MicOff,
   Minimize2,
   Users,
   Volume2,
   VolumeX,
   type LucideIcon
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   ParticipantAudioMenu,
@@ -19,14 +18,17 @@ import {
 import {
   ConnectionQualityIcon,
   ParticipantStrip,
-  initialsFor,
   useVoiceParticipants,
   type VoiceParticipantView
 } from '@/components/shell/ParticipantStrip'
+import { CallControls, useIdle } from '@/components/shell/CallControls'
+import { CallTimer } from '@/components/shell/CallTimer'
+import { ParticipantTile } from '@/components/shell/ParticipantTile'
 import { ScreenShareStage, ScreenSharePreviewNotice } from '@/components/shell/ScreenShareStage'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { gridColumns } from '@/lib/call-grid'
+import { callStartedAt } from '@/lib/call-timer'
 import { type ParticipantAudioPreference } from '@/lib/participant-volumes'
 import { cn } from '@/lib/utils'
 import { useLayout } from '@/state/layout-context'
@@ -53,20 +55,17 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // A importação vai só numa direção (`CallStage` → os arquivos novos), de
 // propósito: qualquer um deles importando de volta daqui criaria ciclo.
 
-// Ladrilho da grade do palco. Quando o participante é OUTRA pessoa no canal ao
-// qual eu estou de fato conectado, ele vira gatilho do menu de áudio individual
-// — que desde a correção do desvio 2 do Plano 08.5-11 mora em
-// `ParticipantAudioMenu.tsx`, compartilhado com a `ParticipantStrip`. O motivo
-// está lá: ESTA grade fica `hidden` no layout de compartilhamento, e o menu não
-// podia sumir junto com ela.
+// Bloco da grade do palco. Quando o participante é OUTRA pessoa no canal ao
+// qual eu estou de fato conectado, o bloco vira gatilho do menu de áudio
+// individual (`ParticipantAudioMenu.tsx`, compartilhado com a `ParticipantStrip`:
+// ESTA grade fica `hidden` no layout de compartilhamento, e o menu não podia
+// sumir junto com ela). Clique direito ou clique abrem o menu.
 //
 // Sem menu em dois casos, os dois deliberados:
 // - EU MESMO: não me ouço, então volume da minha própria voz aqui não existe.
 // - Canal apenas VISUALIZADO (prévia, não conectado): não há track tocando
 //   para ajustar, e o menu prometeria um efeito que não aconteceria.
-// Nesses casos o ladrilho volta a ser exatamente o `<div>` que era antes deste
-// plano — nenhuma semântica de botão para quem não tem ação.
-function ParticipantTile({
+function GridTile({
   participant,
   preference,
   onVolumeChange,
@@ -80,65 +79,40 @@ function ParticipantTile({
   const silenced = preference?.silenced ?? false
   const hasMenu = onVolumeChange !== null && onToggleSilenced !== null
 
+  // Silenciado para mim precisa APARECER: sem isso o usuário conclui que a
+  // pessoa sumiu da call. Opacidade no avatar + ícone, cor sozinha não basta.
   const tile = (
-    <>
-      <div className="relative">
-        {/* Silenciado para mim precisa APARECER: sem isso o usuário esquece
-            que silenciou alguém e conclui que a pessoa sumiu da call ou que o
-            microfone dela quebrou. Opacidade + ícone, os dois — cor sozinha
-            não é sinal acessível. */}
-        <Avatar
-          className={cn(
-            'size-20',
-            participant.isSpeaking && 'ring-4 ring-success',
-            silenced && 'opacity-60'
-          )}
-        >
-          <AvatarFallback className="text-lg">
-            {initialsFor(participant.displayName)}
-          </AvatarFallback>
-        </Avatar>
-        {participant.muted ? (
-          <span className="absolute bottom-0 right-0 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground ring-2 ring-background">
-            <MicOff className="size-3.5" aria-hidden="true" />
-          </span>
-        ) : null}
-        {silenced ? (
-          // Canto superior ESQUERDO, a mesma vaga livre que a faixa usa para
-          // "compartilhando" — o canto inferior direito é do mute (que é da
-          // PESSOA) e os dois não podem se sobrepor, porque significam coisas
-          // diferentes: um é o microfone dela, o outro é a minha decisão.
-          <span
-            className="absolute -left-0.5 -top-0.5 flex size-6 items-center justify-center rounded-full bg-muted text-muted-foreground ring-2 ring-background"
-            aria-label="Silenciado para mim"
-          >
-            <VolumeX className="size-3.5" aria-hidden="true" />
-          </span>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-sm text-foreground">{participant.displayName}</span>
-        {/* Mesmo argumento do ícone acima, para o caso menos óbvio: um volume
-            baixado e esquecido é indistinguível de "essa pessoa fala baixo".
-            `showSilenced` fica em `false` porque aqui o silenciado já tem badge
-            no avatar — dizer a mesma coisa duas vezes vira ruído. */}
-        <ParticipantVolumeHint preference={preference} />
-        <ConnectionQualityIcon quality={participant.quality} />
-      </div>
-    </>
+    <ParticipantTile
+      userId={participant.userId}
+      name={participant.displayName}
+      avatarUrl={participant.avatarUrl}
+      muted={participant.muted}
+      speaking={participant.isSpeaking}
+      dimmed={silenced}
+      extras={
+        <>
+          {silenced ? (
+            <VolumeX
+              className="size-3.5 shrink-0 text-muted-foreground"
+              aria-label="Silenciado para mim"
+            />
+          ) : null}
+          <ParticipantVolumeHint preference={preference} />
+          <ConnectionQualityIcon quality={participant.quality} />
+        </>
+      }
+    />
   )
 
-  if (!hasMenu) {
-    return <div className="flex flex-col items-center gap-2">{tile}</div>
-  }
+  if (!hasMenu) return tile
 
   return (
     <ParticipantAudioMenu
-      username={participant.username}
+      username={participant.displayName}
       preference={preference}
       onVolumeChange={onVolumeChange}
       onToggleSilenced={onToggleSilenced}
-      triggerClassName="flex flex-col items-center gap-2 rounded-md p-1"
+      triggerClassName="block w-full rounded-lg text-left"
     >
       {tile}
     </ParticipantAudioMenu>
@@ -188,7 +162,12 @@ export function VoiceParticipantGrid({
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-center gap-6">
+      <div
+        className="grid w-full content-center gap-2 p-4"
+        style={{
+          gridTemplateColumns: `repeat(${gridColumns(participants.length)}, minmax(0, 1fr))`
+        }}
+      >
         {participants.map((participant) => {
           // `room.localParticipant.identity` é o `users._id` do Convex — a
           // MESMA chave de `voiceParticipantsByChannel`, de `speakingUserIds` e
@@ -198,7 +177,7 @@ export function VoiceParticipantGrid({
           const canControl = isConnectedHere && !isSelf
 
           return (
-            <ParticipantTile
+            <GridTile
               key={participant.userId}
               participant={participant}
               preference={participantVolumes[participant.userId]}
@@ -363,17 +342,15 @@ function StageBar({
 }): React.JSX.Element {
   const channel = useQuery(api.channels.getChannel, { channelId })
   const participants = useQuery(api.voice.voiceParticipantsByChannel, { channelId })
-  const count = participants?.length ?? 0
+  const startedAt = participants ? callStartedAt(participants) : null
 
   return (
     <div className="flex-none h-12 flex items-center gap-3 px-4 border-b border-border">
-      <Volume2 className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
+      <Volume2 className="size-5 shrink-0 text-icon" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate font-semibold text-strong" title={channel?.name}>
         {channel?.name ?? '...'}
       </span>
-      <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
-        {count === 1 ? '1 participante' : `${count} participantes`}
-      </span>
+      {startedAt !== null ? <CallTimer since={startedAt} /> : null}
       <div className="flex shrink-0 items-center gap-1">
         <ShareLayoutControls
           layout={layout}
@@ -473,8 +450,27 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
 
   const isExpanded = layout === 'share-expanded'
 
+  // Tela cheia no elemento do palco; a promessa pode ser rejeitada (gesto
+  // ausente, política do sistema) e isso não é erro para o usuário.
+  const stageRef = useRef<HTMLDivElement>(null)
+  const { idle, bind } = useIdle(3000)
+
+  function handleFullscreen(): void {
+    const element = stageRef.current
+    if (!element) return
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+    } else {
+      void element.requestFullscreen().catch(() => {})
+    }
+  }
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-stage text-stage-foreground">
+    <div
+      ref={stageRef}
+      onMouseMove={bind.onMouseMove}
+      className="relative flex-1 min-h-0 flex flex-col bg-stage text-stage-foreground"
+    >
       {/* O `hidden` vai no INVÓLUCRO, não na barra: `hidden` e `flex` são o
           mesmo tipo de utilitário (display) e qual vence depende da ordem no CSS
           gerado, não da ordem no atributo. */}
@@ -512,7 +508,7 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
 
         <div
           className={cn(
-            'order-1 flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto p-8',
+            'order-1 flex-1 min-h-0 flex flex-col items-center gap-4 overflow-y-auto px-8 pb-24 pt-8',
             layout !== 'tiles' && 'hidden'
           )}
         >
@@ -530,6 +526,7 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
           <ParticipantStrip channelId={channelId} />
         </div>
       </div>
+      <CallControls visible={!idle} onFullscreen={handleFullscreen} />
     </div>
   )
 }

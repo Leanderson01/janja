@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react'
 import { MonitorUp } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
+import { displayNameOf } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice, type ScreenShareTrack } from '@/state/voice-context'
@@ -146,7 +147,10 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
     isConnectedHere ? { channelId } : 'skip'
   )
   const usernameByIdentity = new Map(
-    (participants ?? []).map((participant) => [String(participant.userId), participant.username])
+    (participants ?? []).map((participant) => [
+      String(participant.userId),
+      displayNameOf(participant)
+    ])
   )
 
   const tracks = isConnectedHere ? screenShareTracks : []
