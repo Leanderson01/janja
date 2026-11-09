@@ -2,6 +2,7 @@ import { ChannelSidebar } from '@/components/shell/ChannelSidebar'
 import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
 import { ServerRail } from '@/components/shell/ServerRail'
+import { TitleBar } from '@/components/shell/TitleBar'
 import { VoiceControlBar, VoiceQuickControls } from '@/components/shell/VoiceControlBar'
 import { DmConversationView } from '@/components/friends/DmConversationView'
 import { DmSidebar } from '@/components/friends/DmSidebar'
@@ -14,10 +15,14 @@ import { SelectionProvider, useSelection } from '@/state/selection-context'
 import { VoiceProvider } from '@/state/voice-context'
 import { screenShare } from '@platform/screenshare'
 
-// Layout de 4 regiões da Fase 3 (RESEARCH.md §3): rail e sidebar fixos à
-// esquerda, área de conversa elástica no centro, lista de membros fixa à
-// direita. `overflow-hidden` no container raiz garante que a janela nunca
-// gera scroll própria — só regiões internas rolam.
+// Layout da Fase 3 (RESEARCH.md §3), reestruturado na rodada 1 da UI do
+// Discord: a raiz é uma coluna — a barra de título (`TitleBar`, 32px) em cima e,
+// embaixo, uma linha com o rail de servidores e a MOLDURA (`data-content-frame`).
+// A moldura tem canto superior esquerdo arredondado e agrupa a lista de canais,
+// o chat e a lista de membros; o rail e a barra de título ficam no fundo
+// `bg-sidebar`, e é o canto da moldura que recorta esse fundo.
+// `overflow-hidden` na raiz garante que a janela nunca gera scroll própria —
+// só regiões internas rolam.
 //
 // Fase 6 acrescenta um segundo branch (`view === 'home'`, extraído para
 // `ShellBody` porque precisa de `useSelection()`, que só existe dentro de
@@ -29,125 +34,87 @@ import { screenShare } from '@platform/screenshare'
 // (decisão registrada em 06-RESEARCH.md §7: Discord real também não mostra
 // lista de membros na Home).
 //
-// A correção pós-Windows agrupou rail e coluna de canais numa REGIÃO só (o
-// canto esquerdo), com a faixa do usuário atravessando os dois por baixo. Por
-// isso o `view` deixou de escolher entre duas árvores inteiras e passa a
-// escolher só o miolo de cada região — o rodapé de voz e o painel do usuário
-// existem uma vez só, nas duas visões.
+// O `view` escolhe só o miolo de cada região — o rodapé de voz e o painel do
+// usuário existem uma vez só, nas duas visões. Eles moram embaixo da lista de
+// canais, dentro da moldura, até a Tarefa 7 da rodada mudá-los de lugar.
 function ShellBody(): React.JSX.Element {
   const { view, selectedDmChannelId } = useSelection()
   const { membersVisible } = useLayout()
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground">
-      {/* CANTO INFERIOR ESQUERDO INTEIRO (correção pedida pelo Leo após o
-          primeiro uso em Windows). Até aqui o rail de servidores era uma
-          coluna de altura total e o painel do usuário morava espremido dentro
-          da coluna de canais. Agora o rail e a coluna de canais são as DUAS
-          colunas de uma mesma região, e o painel do usuário é a faixa que
-          passa por baixo das duas — mesma disposição do Discord, e o que ele
-          pediu com "a parte de configuração do usuário pode ficar um index
-          acima da barra lateral onde ficam os servidores".
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-sidebar text-foreground">
+      <TitleBar />
 
-          Nenhum z-index é necessário para isso: a faixa não fica POR CIMA do
-          rail, ela é irmã dele na mesma coluna flex. O resultado na tela é o
-          mesmo (a faixa atravessa o canto), sem sobreposição para acertar.
+      <div className="flex min-h-0 flex-1">
+        {/* Rail: 72px, sem borda — quem separa é a moldura. */}
+        <div className="w-[72px] flex-none">
+          <ServerRail />
+        </div>
 
-          Largura total 344px = 72 (rail) + 272 (canais). Nenhuma borda entra
-          nessa conta: a linha que separa esta região da área principal é o
-          `border-l` da coluna do centro, e por isso ela corre ao lado da faixa
-          do usuário também, não só ao lado da lista de canais. */}
-      <div className="flex-none w-[344px] flex flex-col bg-sidebar">
-        <div className="flex-1 min-h-0 flex">
-          <div className="flex-none w-[72px] border-r border-sidebar-border">
-            <ServerRail />
-          </div>
-
-          {/* 272px, não os 240px originais da Fase 3 ("está tudo muito
-              apertado"). A conta que justifica: o rodapé de voz carregava
-              cinco botões `size-8` mais gap e padding, ~216px dos 240px da
-              coluna, sobrando ~24px para o texto de status (medido no
-              08.5-09-SUMMARY). A largura sozinha não resolveria isso — quem
-              resolve é o empilhamento em faixas do `VoiceControlBar` —, mas
-              32px a mais é o que faz nome de canal, de servidor e de usuário
-              pararem de truncar cedo demais.
-
-              Continua FIXA: a decisão da Fase 3 (sem arrastar borda) não foi
-              reaberta, só o número mudou. O rail segue 72px e a lista de
-              membros segue 240px.
-
-              `ChannelSidebar` e `DmSidebar` são o MESMO lugar do shell, então
-              trocam entre si dentro desta coluna em vez de cada uma trazer a
-              própria moldura. */}
-          <div className="flex-1 min-w-0 flex flex-col bg-secondary">
-            <div className="flex-1 min-h-0">
+        {/* Moldura: a borda de cima e da esquerda e o canto de 10px é o que dá
+            o desenho do Discord. `overflow-hidden` recorta os filhos no canto. */}
+        <div
+          data-content-frame
+          className="flex min-w-0 flex-1 overflow-hidden rounded-tl-[10px] border-t border-l border-sidebar-border"
+        >
+          {/* Coluna de canais: 240px FIXOS por enquanto (a Tarefa 5 da rodada a
+              torna redimensionável). `ChannelSidebar` e `DmSidebar` são o MESMO
+              lugar do shell, então trocam entre si aqui dentro. */}
+          <div className="flex w-60 flex-none flex-col bg-sidebar">
+            <div className="min-h-0 flex-1">
               {view === 'server' ? <ChannelSidebar /> : <DmSidebar />}
             </div>
 
-            {/* Faixas 1 e 2 do rodapé (status da call + ações da call). Subiu
-                de dentro do `ChannelSidebar` para cá porque status de chamada
-                não é assunto de servidor: quem está numa call e vai para a
-                visão Início continuava conectado, mas perdia da vista o
-                "Conectado a {canal}" e o botão de desconectar. Montado uma vez
-                só, nas duas visões. */}
+            {/* Faixas 1 e 2 do rodapé (status da call + ações da call). Vive
+                aqui, e não dentro do `ChannelSidebar`, porque status de
+                chamada não é assunto de servidor: quem está numa call e vai
+                para a visão Início continua conectado, e precisa do
+                "Conectado a {canal}" e do botão de desconectar. Montado uma
+                vez só, nas duas visões. */}
             <VoiceControlBar />
+
+            {/* Faixa 3: identidade à esquerda, microfone/fone/configurações à
+                direita. Controles do APARELHO, não da chamada: existem com ou
+                sem call ativa (o testador de microfone, VOICE-21, depende
+                disso). Fica aqui até a Tarefa 7 da rodada. */}
+            <div className="flex flex-none items-center gap-1 border-t border-sidebar-border px-2 py-1.5">
+              <UserPanel />
+              <VoiceQuickControls />
+            </div>
           </div>
-        </div>
 
-        {/* Faixa 3: identidade à esquerda, microfone/fone/configurações à
-            direita — a mesma linha do Discord. Atravessa o rail e a coluna de
-            canais (os 344px inteiros), que é exatamente o espaço que faltava:
-            o painel do usuário disputava 240px com cinco botões do rodapé de
-            voz e perdia.
+          {/* Área principal: elástica, `min-w-0` para poder encolher abaixo do
+              conteúdo. */}
+          <div className="flex min-w-0 flex-1 flex-col bg-background">
+            {view === 'server' ? (
+              <ConversationArea />
+            ) : selectedDmChannelId === null ? (
+              <FriendsPanel />
+            ) : (
+              <DmConversationView dmChannelId={selectedDmChannelId} />
+            )}
+          </div>
 
-            Os três botões são controles do APARELHO, não da chamada: existem
-            com ou sem call ativa (o testador de microfone, VOICE-21, depende
-            disso), enquanto as faixas 1 e 2 — status e ações da call — só
-            aparecem conectado, na coluna de canais.
+          {/* Janela estreita (Plano 08.5-05): a lista de membros é a válvula de
+              escape da área principal. As colunas fixas somam 552px (rail 72 +
+              canais 240 + membros 240) e a janela mínima é 900x600
+              (`src/main/index.ts`) — esconder a lista devolve 240px para a
+              conversa. A coluna central já é `flex-1 min-w-0`, então absorve o
+              espaço sozinha.
 
-            `border-sidebar-border` (não `border-border`) porque a faixa está
-            sobre `--sidebar`. */}
-        <div className="flex-none flex items-center gap-1 border-t border-sidebar-border px-2 py-1.5">
-          <UserPanel />
-          <VoiceQuickControls />
+              Desmontada de verdade, nunca escondida por `hidden`/`w-0`:
+              `MemberList` mantém duas subscriptions do Convex
+              (`listServerMembers` e `voiceParticipantsByServer`) e esconder por
+              CSS as manteria vivas sem ninguém olhando.
+
+              A visão Início não tem lista de membros (06-RESEARCH.md §7). */}
+          {view === 'server' && membersVisible ? (
+            <div className="w-60 flex-none border-l border-border bg-background">
+              <MemberList />
+            </div>
+          ) : null}
         </div>
       </div>
-
-      {/* Área principal: elástica, `min-w-0` para poder encolher abaixo do
-          conteúdo. O `border-l` mora aqui (e não como `border-r` da coluna de
-          canais) para a linha correr de cima a baixo, ao lado da faixa do
-          usuário inclusive. */}
-      <div className="flex-1 min-w-0 flex flex-col bg-background border-l border-border">
-        {view === 'server' ? (
-          <ConversationArea />
-        ) : selectedDmChannelId === null ? (
-          <FriendsPanel />
-        ) : (
-          <DmConversationView dmChannelId={selectedDmChannelId} />
-        )}
-      </div>
-
-      {/* Janela estreita (Plano 08.5-05): a lista de membros é a válvula de
-          escape da área principal. As colunas fixas somam 584px (rail 72 +
-          canais 272 + membros 240) e a janela mínima é 900x600
-          (`src/main/index.ts`) — esconder a lista devolve 240px para a
-          conversa (316px -> 556px na janela mínima). As larguras continuam
-          fixas (decisão da F3, não reaberta); o que muda é a coluna existir ou
-          não. A coluna central já é `flex-1 min-w-0`, então absorve o espaço
-          sozinha.
-
-          Desmontada de verdade, nunca escondida por `hidden`/`w-0`:
-          `MemberList` mantém duas subscriptions do Convex
-          (`listServerMembers` e `voiceParticipantsByServer`) e esconder por CSS
-          as manteria vivas sem ninguém olhando.
-
-          A visão Início não tem lista de membros (06-RESEARCH.md §7) — daí a
-          condição por `view` também. */}
-      {view === 'server' && membersVisible ? (
-        <div className="flex-none w-60 bg-secondary border-l border-border">
-          <MemberList />
-        </div>
-      ) : null}
     </div>
   )
 }

@@ -21,5 +21,7 @@ export const capabilities: PlatformCapabilities = {
   screenShareAudio: 'browser-surface',
   // Sem processo main: sem bandeja, sem deep link, sem atualização automática
   // (a web já é sempre a última versão — e isso é vantagem, vale dizer na tela).
-  desktopIntegration: false
+  desktopIntegration: false,
+  // A janela é do navegador: não há botões para a barra de título reservar.
+  nativeWindowControls: false
 }

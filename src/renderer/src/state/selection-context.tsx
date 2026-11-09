@@ -1,6 +1,14 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from 'convex/react'
 
+import {
+  EMPTY_HISTORY,
+  navBack,
+  navForward,
+  navPush,
+  type NavEntry,
+  type NavHistory
+} from '@/lib/nav-history'
 import { api } from '../../../../convex/_generated/api'
 import type { Doc, Id } from '../../../../convex/_generated/dataModel'
 
@@ -32,6 +40,12 @@ export type SelectionContextValue = {
   goHome: () => void
   selectedDmChannelId: Id<'dmChannels'> | null
   setSelectedDmChannelId: (id: Id<'dmChannels'> | null) => void
+  // Histórico de navegação (Voltar/Avançar da barra de título). Só gestos de
+  // navegação entram nele; entrar/sair de call e alternar o palco não.
+  canGoBack: boolean
+  canGoForward: boolean
+  goBack: () => void
+  goForward: () => void
 }
 
 const SelectionContext = createContext<SelectionContextValue | undefined>(undefined)
@@ -42,7 +56,8 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
   const [manualChannelId, setManualChannelId] = useState<Id<'channels'> | null>(null)
   const [joinedVoiceChannelId, setJoinedVoiceChannelIdState] = useState<Id<'channels'> | null>(null)
   const [viewingStage, setViewingStage] = useState(false)
-  const [selectedDmChannelId, setSelectedDmChannelId] = useState<Id<'dmChannels'> | null>(null)
+  const [selectedDmChannelId, setSelectedDmChannelIdState] = useState<Id<'dmChannels'> | null>(null)
+  const [history, setHistory] = useState<NavHistory>(EMPTY_HISTORY)
 
   const servers = useQuery(api.servers.listMyServers)
 
@@ -70,7 +85,7 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
   // Selecionar qualquer servidor sai do modo Início — mesmo padrão de efeito
   // colateral único já usado para `setSelectedServerId`/`setManualChannelId`
   // acima, não dois setters que o chamador precisa lembrar de coordenar.
-  function selectServer(id: Id<'servers'>): void {
+  function applyServer(id: Id<'servers'>): void {
     setManualServerIdState(id)
     setManualChannelId(null) // força reseleção do 1º canal de texto do novo servidor
     setView('server')
@@ -79,6 +94,29 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     // noutro servidor não veria a tela mudar — o palco continuaria na frente do
     // canal recém-selecionado (Plano 08.5-03).
     setViewingStage(false)
+  }
+
+  // Empilha a entrada resultante de um gesto. Na primeira navegação o histórico
+  // ainda está vazio, então o estado de ANTES do gesto entra primeiro — senão
+  // não haveria para onde voltar.
+  function record(entry: NavEntry): void {
+    setHistory((h) => {
+      const base =
+        h.entries.length === 0 && servers !== undefined
+          ? navPush(h, {
+              view,
+              serverId: view === 'server' ? selectedServerId : null,
+              channelId: view === 'server' ? selectedChannelId : null,
+              dmChannelId: view === 'home' ? selectedDmChannelId : null
+            })
+          : h
+      return navPush(base, entry)
+    })
+  }
+
+  function selectServer(id: Id<'servers'>): void {
+    applyServer(id)
+    record({ view: 'server', serverId: id, channelId: null, dmChannelId: null })
   }
 
   // As três transições de `viewingStage` (Plano 08.5-03) vivem AQUI, dentro do
@@ -102,9 +140,14 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
     setViewingStage(id !== null)
   }
 
-  function selectChannel(id: Id<'channels'>): void {
+  function applyChannel(id: Id<'channels'>): void {
     setManualChannelId(id)
     setViewingStage(false)
+  }
+
+  function selectChannel(id: Id<'channels'>): void {
+    applyChannel(id)
+    record({ view: 'server', serverId: selectedServerId, channelId: id, dmChannelId: null })
   }
 
   function showStage(): void {
@@ -113,10 +156,59 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
 
   // Entrar no Início sempre volta pro painel de amigos, nunca deixa uma DM
   // "grudada" de uma visita anterior.
-  function goHome(): void {
+  function applyHome(dmId: Id<'dmChannels'> | null): void {
     setView('home')
-    setSelectedDmChannelId(null)
+    setSelectedDmChannelIdState(dmId)
   }
+
+  function goHome(): void {
+    applyHome(null)
+    record({ view: 'home', serverId: null, channelId: null, dmChannelId: null })
+  }
+
+  function selectDm(id: Id<'dmChannels'> | null): void {
+    setSelectedDmChannelIdState(id)
+    record({ view: 'home', serverId: null, channelId: null, dmChannelId: id })
+  }
+
+  // Uma entrada some do histórico quando o servidor deixou de existir. O canal
+  // só dá para conferir no servidor selecionado (único cujos canais estão
+  // carregados); nos outros, canal que sumiu cai no primeiro de texto, pela
+  // derivação de `selectedChannelId`. Conversa direta não é conferida aqui.
+  function isLive(e: NavEntry): boolean {
+    if (e.view === 'home') return true
+    if (!servers || !servers.some((s) => s._id === e.serverId)) return false
+    if (e.channelId && e.serverId === selectedServerId && channels) {
+      return channels.some((c) => c._id === e.channelId)
+    }
+    return true
+  }
+
+  function applyEntry(e: NavEntry): void {
+    if (e.view === 'home') {
+      applyHome(e.dmChannelId as Id<'dmChannels'> | null)
+      return
+    }
+    applyServer(e.serverId as Id<'servers'>)
+    if (e.channelId) applyChannel(e.channelId as Id<'channels'>)
+  }
+
+  function step(move: typeof navBack): void {
+    let h = history
+    for (;;) {
+      const r = move(h)
+      if (!r) return
+      h = r.history
+      if (isLive(r.entry)) {
+        setHistory(h)
+        applyEntry(r.entry)
+        return
+      }
+    }
+  }
+
+  const goBack = (): void => step(navBack)
+  const goForward = (): void => step(navForward)
 
   const value = useMemo<SelectionContextValue>(
     () => ({
@@ -132,7 +224,11 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
       showStage,
       goHome,
       selectedDmChannelId,
-      setSelectedDmChannelId
+      setSelectedDmChannelId: selectDm,
+      canGoBack: history.index > 0,
+      canGoForward: history.index < history.entries.length - 1,
+      goBack,
+      goForward
     }),
     [
       view,
@@ -141,7 +237,9 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
       selectedChannelId,
       joinedVoiceChannelId,
       viewingStage,
-      selectedDmChannelId
+      selectedDmChannelId,
+      channels,
+      history
     ]
   )
 

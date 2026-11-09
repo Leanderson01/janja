@@ -20,5 +20,8 @@ export const capabilities: PlatformCapabilities = {
   // WASAPI por processo, excluindo a árvore do próprio app (Fase 8.6).
   screenShareAudio: 'process-exclude',
   // Instância única, deep link `janja://`, bandeja, atualização automática.
-  desktopIntegration: true
+  desktopIntegration: true,
+  // `titleBarOverlay` (src/main/index.ts): o SO desenha minimizar/maximizar/
+  // fechar sobre a barra de título; a barra reserva o espaço deles.
+  nativeWindowControls: true
 }

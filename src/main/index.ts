@@ -22,6 +22,14 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#121214',
     autoHideMenuBar: true,
+    // Barra de título própria (Discord): fora do macOS o SO desenha só os
+    // botões da janela, sobre a barra do renderer (`TitleBar`, 32px).
+    ...(process.platform !== 'darwin'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: { color: '#121214', symbolColor: '#dbdee1', height: 32 }
+        }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

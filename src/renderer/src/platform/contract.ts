@@ -67,6 +67,8 @@ export type PlatformCapabilities = {
   screenShareAudio: 'process-exclude' | 'browser-surface' | 'none'
   /** Instância única, deep link, bandeja, atualização automática. Web: false. */
   desktopIntegration: boolean
+  /** O SO desenha os botões da janela sobre a barra de título (Windows/Linux). Web: false. */
+  nativeWindowControls: boolean
 }
 
 /**
