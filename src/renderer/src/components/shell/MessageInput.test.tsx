@@ -3,7 +3,7 @@ import '@/test/jsdom-setup'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createRef, type ComponentProps } from 'react'
+import { StrictMode, createRef, type ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -169,5 +169,39 @@ describe('MessageInput — caixa do Discord', () => {
     renderInput({ onSendWithAttachments: vi.fn() })
     const notCancelled = fireEvent.paste(campo(), { clipboardData: { files: [] } })
     expect(notCancelled).toBe(true)
+  })
+
+  it('remover a miniatura revoga a URL', () => {
+    renderInput({ onSendWithAttachments: vi.fn() })
+    fireEvent.paste(campo(), {
+      clipboardData: { files: [new File(['x'], 'image.png', { type: 'image/png' })] }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Remover image.png' }))
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x')
+  })
+
+  it('no StrictMode a miniatura aponta para uma URL não revogada', () => {
+    let n = 0
+    const revoked = new Set<string>()
+    vi.mocked(URL.createObjectURL).mockImplementation(() => `blob:${++n}`)
+    vi.mocked(URL.revokeObjectURL).mockImplementation((u) => void revoked.add(u))
+    const ref = createRef<MessageInputHandle>()
+    render(
+      <StrictMode>
+        <TooltipProvider>
+          <MessageInput
+            placeholder="Conversar em #geral"
+            onSend={vi.fn()}
+            onSendWithAttachments={vi.fn()}
+            ref={ref}
+          />
+        </TooltipProvider>
+      </StrictMode>
+    )
+    act(() => ref.current!.addFiles([new File(['x'], 'p.png', { type: 'image/png' })]))
+    const src = document.querySelector('img')!.getAttribute('src')!
+    expect(src).toMatch(/^blob:/)
+    expect(revoked.has(src)).toBe(false)
+    expect(revoked.size).toBe(n - 1)
   })
 })

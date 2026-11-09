@@ -183,13 +183,13 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
       </div>
       <MessageInput
         ref={inputRef}
-        placeholder={`Conversar em #${channel?.name ?? ''}`}
+        placeholder={channel ? `Conversar em #${channel.name}` : 'Conversar'}
         onSend={handleSend}
         onTyping={handleTyping}
         onSendWithAttachments={handleSendWithAttachments}
       />
       <TypingIndicator channelId={channelId} />
-      <FileDropOverlay channelName={channel?.name ?? ''} active={dragging} />
+      <FileDropOverlay channelName={channel?.name} active={dragging} />
     </div>
   )
 }

@@ -2,7 +2,6 @@ import { FileText, PlusCircle, Trash2 } from 'lucide-react'
 import {
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -90,7 +89,12 @@ export function MessageInput({
   // (DM) não faz nada.
   useImperativeHandle(ref, () => ({
     addFiles(files: File[]) {
-      if (canAttach && files.length > 0) addValidated(files)
+      if (!canAttach || files.length === 0) return
+      if (isSending) {
+        toast.error('Aguarde o envio terminar para anexar mais arquivos.')
+        return
+      }
+      addValidated(files)
     }
   }))
 
@@ -250,13 +254,19 @@ function SelectedFile({
   onRemove(): void
 }): React.JSX.Element {
   const isImage = file.type.startsWith('image/')
-  // Uma URL por arquivo, revogada ao remover ou desmontar.
-  const previewUrl = useMemo(() => (isImage ? URL.createObjectURL(file) : null), [file, isImage])
+  // Uma URL por arquivo, criada e revogada no MESMO efeito: no StrictMode
+  // (mount → cleanup → mount) cada montagem ganha a sua URL e a anterior é
+  // revogada, sem deixar <img> apontando para um blob morto.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   useEffect(() => {
+    if (!isImage) return
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      URL.revokeObjectURL(url)
+      setPreviewUrl(null)
     }
-  }, [previewUrl])
+  }, [file, isImage])
 
   return (
     <div className="relative flex w-40 flex-col gap-1 rounded-md bg-secondary p-2">
