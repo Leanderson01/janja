@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { firstLinkOf } from './message-links'
+import { firstLinkOf, linksOf } from './message-links'
 
 // Função pura: sem DOM e sem rede, por isso roda no `edge-runtime` padrão do
 // vitest, sem o docblock de jsdom.
@@ -99,8 +99,23 @@ describe('firstLinkOf', () => {
   })
 
   it('acha link depois de quebra de linha', () => {
-    expect(firstLinkOf('primeira linha\nhttps://exemplo.com/post')).toBe(
-      'https://exemplo.com/post'
-    )
+    expect(firstLinkOf('primeira linha\nhttps://exemplo.com/post')).toBe('https://exemplo.com/post')
   })
+})
+
+describe('linksOf', () => {
+  it('acha até 5 links', () =>
+    expect(
+      linksOf(Array.from({ length: 6 }, (_, i) => `https://a.com/${i}`).join(' '))
+    ).toHaveLength(5))
+  it('tira repetidos e mantém a ordem', () =>
+    expect(linksOf('https://b.com https://a.com https://b.com')).toEqual([
+      'https://b.com',
+      'https://a.com'
+    ]))
+  it('corta pontuação do fim', () =>
+    expect(linksOf('olha https://a.com/x).')).toEqual(['https://a.com/x']))
+  it('respeita o máximo pedido', () =>
+    expect(linksOf('https://a.com https://b.com', 1)).toEqual(['https://a.com']))
+  it('firstLinkOf continua igual', () => expect(firstLinkOf('nada')).toBeNull())
 })

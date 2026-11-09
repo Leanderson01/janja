@@ -1,5 +1,5 @@
 import { useMutation, usePaginatedQuery } from 'convex/react'
-import { File, FileX, Hash } from 'lucide-react'
+import { Hash } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
@@ -8,14 +8,15 @@ import {
   JumpToPresentBar,
   UnreadDivider
 } from '@/components/shell/ChatChrome'
+import { AttachmentGallery } from '@/components/shell/AttachmentGallery'
 import { LinkPreviewCard } from '@/components/shell/LinkPreviewCard'
 import { MessageRowView, MessageText } from '@/components/shell/MessageRowView'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChatScroll } from '@/hooks/useChatScroll'
-import { formatBytes, isImage } from '@/lib/attachments'
+import type { MessageAttachment } from '@/lib/attachments'
 import { displayNameOf } from '@/lib/display-name'
 import { buildTimeline } from '@/lib/message-grouping'
-import { firstLinkOf } from '@/lib/message-links'
+import { linksOf } from '@/lib/message-links'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -33,19 +34,6 @@ const NOW_TICK_MS = 60_000
 // typecheck reclamar de incompatibilidade depois de qualquer ajuste no backend, corrigir
 // ESTE tipo para bater com o retorno real, nunca o contrário.
 
-// CHAT-10 (Plano 08.5-14). `url` é `string | null` porque `listMessages` chama
-// `storage.getUrl`, que devolve `null` quando o arquivo sumiu do storage — e
-// isso NÃO é erro, é o estado normal de leitura de um anexo apagado
-// (08.5-13-SUMMARY.md). `contentType` é opcional porque o storage pode não ter
-// recebido `Content-Type` no upload.
-type MessageAttachment = {
-  storageId: Id<'_storage'>
-  name: string
-  size: number
-  contentType?: string
-  url: string | null
-}
-
 type EnrichedMessage = {
   _id: Id<'messages'>
   channelId: Id<'channels'>
@@ -62,86 +50,13 @@ type EnrichedMessage = {
   } | null
 }
 
-// Um anexo dentro da mensagem. Três caminhos, e o primeiro é o que existe por
-// decisão explícita do CONTEXT.md desta fase:
-//
-// 1. `url === null` — o arquivo sumiu do storage. Bloco discreto com o nome e
-//    "Arquivo indisponível". NUNCA `<img src={null}>` nem link morto: os dois
-//    dariam ícone de imagem quebrada ou uma aba em branco, e o usuário ficaria
-//    achando que o app está com defeito em vez de entender que o arquivo não
-//    existe mais. Este caso não é raridade de teste — é o que todo mundo vai
-//    ver no dia em que a cota do storage for limpa.
-// 2. Imagem — embutida, dentro de um link para abrir em tamanho real.
-// 3. Qualquer outra coisa (inclusive SVG, de propósito — ver `isImage`) —
-//    cartão com ícone, nome e tamanho.
-function AttachmentItem({ attachment }: { attachment: MessageAttachment }): React.JSX.Element {
-  if (attachment.url === null) {
-    return (
-      <div className="flex w-fit max-w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-muted-foreground">
-        <FileX className="size-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 truncate text-sm">{attachment.name}</span>
-        <span className="shrink-0 text-xs">Arquivo indisponível</span>
-      </div>
-    )
-  }
-
-  // `target="_blank"` + `rel="noreferrer"`: o `setWindowOpenHandler` do
-  // processo main (src/main/index.ts) já manda link externo para
-  // `shell.openExternal`, então o arquivo abre no navegador do sistema e não
-  // numa janela do Electron. Não é preciso mexer no main por causa disto.
-  if (isImage(attachment.contentType)) {
-    return (
-      <a href={attachment.url} target="_blank" rel="noreferrer" className="block w-fit">
-        <img
-          src={attachment.url}
-          alt={attachment.name}
-          loading="lazy"
-          className="max-h-80 max-w-full rounded-md"
-        />
-      </a>
-    )
-  }
-
-  return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noreferrer"
-      className="flex w-fit max-w-full items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 hover:bg-accent/50"
-    >
-      <File className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground">{attachment.name}</span>
-      <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(attachment.size)}</span>
-    </a>
-  )
-}
-
-// Vários anexos empilham. Não existe galeria/grade, de propósito: o limite é 5
-// por mensagem, e uma grade só acrescentaria layout para resolver um problema
-// que não aparece nesse volume.
-function MessageAttachments({
-  attachments
-}: {
-  attachments: MessageAttachment[]
-}): React.JSX.Element | null {
-  if (attachments.length === 0) return null
-
-  return (
-    <div className="mt-1 flex flex-col gap-2">
-      {attachments.map((attachment, index) => (
-        <AttachmentItem key={`${attachment.storageId}-${index}`} attachment={attachment} />
-      ))}
-    </div>
-  )
-}
-
 function MessageContent({ message }: { message: EnrichedMessage }): React.JSX.Element {
-  // CHAT-15 (Plano 08.5-16). `firstLinkOf` é pura, só olha a string e devolve
-  // no máximo uma URL — chamar por mensagem renderizada é barato. Mensagem sem
+  // CHAT-15 (Plano 08.5-16). `linksOf` é pura, só olha a string e devolve
+  // até 5 URLs — chamar por mensagem renderizada é barato. Mensagem sem
   // link devolve `null` aqui e o componente de prévia NÃO É MONTADO: nenhuma
   // subscription é aberta, nenhuma chamada de servidor acontece. É esse detalhe
   // que torna a feature aceitável numa lista paginada de 30 em 30 mensagens.
-  const link = firstLinkOf(message.content)
+  const links = linksOf(message.content)
 
   return (
     <>
@@ -152,8 +67,10 @@ function MessageContent({ message }: { message: EnrichedMessage }): React.JSX.El
       {/* Ordem visual: texto → prévia do link → anexos. O anexo é conteúdo
           que a pessoa mandou; a prévia é enfeite derivado do texto, e por
           isso fica antes — para não separar a mensagem do que ela carrega. */}
-      {link ? <LinkPreviewCard url={link} /> : null}
-      <MessageAttachments attachments={message.attachments} />
+      {links.map((link) => (
+        <LinkPreviewCard key={link} url={link} />
+      ))}
+      <AttachmentGallery attachments={message.attachments} />
     </>
   )
 }

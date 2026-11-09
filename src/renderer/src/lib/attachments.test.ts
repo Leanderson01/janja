@@ -4,7 +4,10 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   formatBytes,
+  isAudio,
   isImage,
+  isVideo,
+  mosaicColumns,
   validateFiles
 } from './attachments'
 
@@ -140,4 +143,14 @@ describe('isImage', () => {
     expect(isImage(undefined)).toBe(false)
     expect(isImage('')).toBe(false)
   })
+})
+
+describe('isVideo / isAudio / mosaicColumns', () => {
+  it('vídeo e áudio', () => {
+    expect(isVideo('video/mp4')).toBe(true)
+    expect(isAudio('audio/ogg')).toBe(true)
+    expect(isVideo('image/png')).toBe(false)
+    expect(isVideo(undefined)).toBe(false)
+  })
+  it('mosaico', () => expect([1, 2, 3, 4, 5].map(mosaicColumns)).toEqual([1, 2, 3, 2, 3]))
 })

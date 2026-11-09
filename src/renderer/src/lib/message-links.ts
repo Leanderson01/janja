@@ -48,20 +48,14 @@ function trimUnbalancedClosers(url: string): string {
   return out
 }
 
-/**
- * Devolve a PRIMEIRA URL http/https do texto, ou `null` se não houver nenhuma.
- *
- * Só a primeira, por decisão: uma prévia por mensagem. Uma mensagem com cinco
- * links viraria cinco requisições de servidor e um muro de cartões que empurra
- * o resto da conversa para fora da tela.
- */
-export function firstLinkOf(content: string): string | null {
-  if (content.length === 0) return null
+/** Máximo padrão de links por mensagem. O backend não tem teto por mensagem
+ *  (cada link é uma busca de servidor), então este limite do cliente é a única
+ *  guarda contra um muro de cartões. */
+const DEFAULT_MAX_LINKS = 5
 
-  const match = LINK_RE.exec(content)
-  if (!match) return null
-
-  let url = match[2]
+/** Normaliza o texto casado: poda pontuação/fechamentos e valida. `null` = não é link. */
+function normalizeLink(raw: string): string | null {
+  let url = raw
   url = url.replace(TRAILING_PUNCTUATION, '')
   url = trimUnbalancedClosers(url)
   // A poda de pontuação pode reexpor pontuação: "https://x.com/a)." vira
@@ -84,4 +78,29 @@ export function firstLinkOf(content: string): string | null {
   if (parsed.hostname.length === 0) return null
 
   return url
+}
+
+/**
+ * Devolve até `max` URLs http/https do texto, sem repetidos, na ordem em que
+ * aparecem. Texto sem link devolve `[]`.
+ */
+export function linksOf(content: string, max: number = DEFAULT_MAX_LINKS): string[] {
+  if (content.length === 0 || max <= 0) return []
+
+  // Cópia global só aqui: `LINK_RE` não pode ser global (guarda estado em
+  // `lastIndex`) porque outros usos dependem de busca sem estado.
+  const re = new RegExp(LINK_RE.source, 'gi')
+  const found: string[] = []
+  for (const match of content.matchAll(re)) {
+    const url = normalizeLink(match[2])
+    if (url === null || found.includes(url)) continue
+    found.push(url)
+    if (found.length >= max) break
+  }
+  return found
+}
+
+/** Primeira URL http/https do texto, ou `null`. */
+export function firstLinkOf(content: string): string | null {
+  return linksOf(content, 1)[0] ?? null
 }

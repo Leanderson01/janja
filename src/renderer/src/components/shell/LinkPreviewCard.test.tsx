@@ -164,4 +164,25 @@ describe('LinkPreviewCard', () => {
     // O resto do cartão continua de pé.
     expect(screen.getByText('Título do site')).toBeTruthy()
   })
+
+  it('prévia do X tem a barra azul', () => {
+    mocks.useQuery.mockReturnValue(
+      okPreview({ url: 'https://x.com/a/1', title: 'Post', siteName: 'X' })
+    )
+    const { container } = render(<LinkPreviewCard url="https://x.com/a/1" />)
+    expect(container.querySelector('[data-accent="x"]')!.className).toContain('border-embed-x')
+  })
+
+  it('prévia do YouTube tem a barra vermelha e as outras usam o destaque', () => {
+    mocks.useQuery.mockReturnValue(okPreview())
+    const yt = render(<LinkPreviewCard url="https://youtu.be/abc123" />)
+    expect(yt.container.querySelector('[data-accent="youtube"]')!.className).toContain(
+      'border-embed-youtube'
+    )
+    yt.unmount()
+    const other = render(<LinkPreviewCard url="https://a.exemplo/10" />)
+    expect(other.container.querySelector('[data-accent="default"]')!.className).toContain(
+      'border-primary'
+    )
+  })
 })

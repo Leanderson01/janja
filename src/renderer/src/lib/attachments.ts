@@ -5,6 +5,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENTS_PER_MESSAGE
 } from '../../../../convex/lib/attachmentLimits'
+import type { Id } from '../../../../convex/_generated/dataModel'
 
 // CHAT-10 — as regras de anexo do LADO DO CLIENTE, isoladas em funções puras
 // (sem DOM, sem rede) para serem testáveis no ambiente `edge-runtime` padrão.
@@ -120,4 +121,37 @@ export function isImage(contentType: string | undefined): boolean {
   const mime = contentType.split(';')[0].trim().toLowerCase()
   if (mime === 'image/svg+xml') return false
   return mime.startsWith('image/')
+}
+
+function mimeOf(contentType: string | undefined): string {
+  return contentType ? contentType.split(';')[0].trim().toLowerCase() : ''
+}
+
+/** O anexo toca como vídeo no chat? */
+export function isVideo(contentType: string | undefined): boolean {
+  return mimeOf(contentType).startsWith('video/')
+}
+
+/** O anexo toca como áudio no chat? */
+export function isAudio(contentType: string | undefined): boolean {
+  return mimeOf(contentType).startsWith('audio/')
+}
+
+/** Colunas do mosaico de imagens: 1 → 1, 2 → 2, 3 → 3, 4 → 2, 5 → 3. */
+export function mosaicColumns(imageCount: number): 1 | 2 | 3 {
+  if (imageCount <= 1) return 1
+  if (imageCount === 2 || imageCount === 4) return 2
+  return 3
+}
+
+// CHAT-10 (Plano 08.5-14). `url` é `string | null` porque `listMessages` chama
+// `storage.getUrl`, que devolve `null` quando o arquivo sumiu do storage — e
+// isso NÃO é erro, é o estado normal de leitura de um anexo apagado. `contentType`
+// é opcional porque o storage pode não ter recebido `Content-Type` no upload.
+export type MessageAttachment = {
+  storageId: Id<'_storage'>
+  name: string
+  size: number
+  contentType?: string
+  url: string | null
 }

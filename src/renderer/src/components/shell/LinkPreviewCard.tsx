@@ -1,7 +1,8 @@
 import { useAction, useQuery } from 'convex/react'
 import { useEffect, useRef, useState } from 'react'
 
-import { Card } from '@/components/ui/card'
+import { linkAccent } from '@/lib/link-accent'
+import { cn } from '@/lib/utils'
 
 import { api } from '../../../../../convex/_generated/api'
 
@@ -87,23 +88,30 @@ export function LinkPreviewCard({ url }: { url: string }): React.JSX.Element | n
 
   const showImage = preview.imageUrl !== undefined && !imageFailed
 
+  const accent = linkAccent(url)
+
   return (
-    <Card className="mt-1 w-fit max-w-md gap-0 border-border py-0 shadow-none">
+    // Barra lateral colorida estilo Discord: azul do X, vermelho do YouTube,
+    // destaque do app para o resto. Cor sempre por token.
+    <div
+      data-accent={accent}
+      className={cn(
+        'mt-1 w-fit max-w-[432px] rounded border-l-4 bg-card p-3',
+        accent === 'x' && 'border-embed-x',
+        accent === 'youtube' && 'border-embed-youtube',
+        accent === 'default' && 'border-primary'
+      )}
+    >
       {/* `target="_blank"` + `rel="noreferrer"`: o `setWindowOpenHandler` do
           processo main manda link externo para `shell.openExternal`, então o
           site abre no navegador padrão e não numa janela do Electron. */}
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        className="flex flex-col gap-1 rounded-xl px-3 py-2 hover:bg-accent/50"
-      >
+      <a href={url} target="_blank" rel="noreferrer" className="flex flex-col gap-1">
         {preview.siteName !== undefined && preview.siteName.length > 0 ? (
           <span className="text-xs text-muted-foreground">{preview.siteName}</span>
         ) : null}
-        <span className="line-clamp-2 font-medium text-foreground">{title}</span>
+        <span className="line-clamp-2 font-semibold text-link hover:underline">{title}</span>
         {preview.description !== undefined && preview.description.length > 0 ? (
-          <span className="line-clamp-3 text-sm text-muted-foreground">{preview.description}</span>
+          <span className="line-clamp-3 text-sm text-foreground">{preview.description}</span>
         ) : null}
         {showImage ? (
           // `alt=""` de propósito: a imagem é decorativa: o título logo acima já
@@ -118,10 +126,10 @@ export function LinkPreviewCard({ url }: { url: string }): React.JSX.Element | n
             alt=""
             loading="lazy"
             onError={() => setImageFailed(true)}
-            className="mt-1 max-h-40 w-full rounded-md object-cover"
+            className="mt-1 max-h-72 w-full rounded object-cover"
           />
         ) : null}
       </a>
-    </Card>
+    </div>
   )
 }
