@@ -3,24 +3,22 @@ import { useMutation, useQuery } from 'convex/react'
 import {
   Check,
   ChevronDown,
-  ChevronRight,
   Copy,
   Hash,
+  HeadphoneOff,
   LogIn,
   Maximize2,
   MicOff,
-  MonitorUp,
-  MoreVertical,
   Plus,
   UserPlus,
   Volume2
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { CallTimer } from '@/components/shell/CallTimer'
 import { CreateChannelDialog } from '@/components/shell/CreateChannelDialog'
 import { InviteDialog } from '@/components/shell/InviteDialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
+import { UserAvatar } from '@/components/shell/UserAvatar'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
@@ -30,7 +28,9 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { callStartedAt } from '@/lib/call-timer'
+import { displayNameOf } from '@/lib/display-name'
 import { loadSidebarPreferences, saveSidebarPreferences } from '@/lib/sidebar-preferences'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
@@ -38,10 +38,6 @@ import { useVoice } from '@/state/voice-context'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Doc, Id } from '../../../../../convex/_generated/dataModel'
-
-function initialsFor(username: string): string {
-  return username.slice(0, 2).toUpperCase()
-}
 
 // Sidebar de canais (Plano 03-02) — a partir do plano 04-06 lê canais reais
 // via `api.channels.listChannels` em vez de `mock-data.ts`.
@@ -52,7 +48,7 @@ function initialsFor(username: string): string {
 // e o rodapé de voz precisava continuar visível na visão Início, onde esta
 // sidebar nem é montada. Esta lista virou só a lista.
 //
-// Agrupamento fixo em duas seções (TEXTO/VOZ) — o modelo real de canal desta
+// Agrupamento fixo em duas seções (Canais de texto / Canais de voz) — o modelo real de canal desta
 // fase não tem `category` (era um campo só do mock). Badge de não lidas por
 // canal (CHAT-06, plano 05-04) alimentado por `getUnreadCounts` — só canais
 // de texto ganham badge, a query já filtra canal de voz. Lista de
@@ -100,6 +96,20 @@ export function ChannelSidebar(): React.JSX.Element {
     selectedServerId ? { serverId: selectedServerId } : 'skip'
   )
   const unreadByChannel = new Map((unreadCounts ?? []).map((u) => [u.channelId, u.unreadCount]))
+
+  // Uma assinatura só para o servidor inteiro (em vez de uma por canal de voz):
+  // alimenta as linhas de voz e decide quais canais de voz ficam fixados quando
+  // a seção está recolhida.
+  const voiceParticipants = useQuery(
+    api.voice.voiceParticipantsByServer,
+    selectedServerId ? { serverId: selectedServerId } : 'skip'
+  )
+  const participantsByChannel = new Map<Id<'channels'>, NonNullable<typeof voiceParticipants>>()
+  for (const participant of voiceParticipants ?? []) {
+    const list = participantsByChannel.get(participant.channelId) ?? []
+    list.push(participant)
+    participantsByChannel.set(participant.channelId, list)
+  }
 
   // Uma única assinatura de mutation para a sidebar inteira, repassada às
   // linhas de canal de texto (ver `MarkChannelAsRead` abaixo). `useMutation`
@@ -152,57 +162,86 @@ export function ChannelSidebar(): React.JSX.Element {
   const textChannels = channels?.filter((channel) => channel.type === 'text') ?? []
   const voiceChannels = channels?.filter((channel) => channel.type === 'voice') ?? []
 
+  const renderTextRow = (channel: Doc<'channels'>): React.JSX.Element => (
+    <TextChannelRow
+      key={channel._id}
+      channel={channel}
+      isSelected={channel._id === selectedChannelId}
+      unreadCount={unreadByChannel.get(channel._id) ?? 0}
+      onClick={() => handleTextChannelClick(channel)}
+      markAsRead={markChannelAsRead}
+      onInvite={() => setInviteOpen(true)}
+    />
+  )
+
+  const renderVoiceRow = (channel: Doc<'channels'>): React.JSX.Element => (
+    <VoiceChannelRow
+      key={channel._id}
+      channel={channel}
+      participants={participantsByChannel.get(channel._id) ?? []}
+      isSelected={channel._id === selectedChannelId}
+      isJoined={channel._id === joinedVoiceChannelId}
+      onClick={() => handleVoiceChannelClick(channel)}
+    />
+  )
+
+  // Com a seção recolhida continuam visíveis: o canal de texto aberto e os
+  // canais de voz com gente (ou o aberto/conectado).
+  const pinnedText = textChannels.filter((channel) => channel._id === selectedChannelId)
+  const pinnedVoice = voiceChannels.filter(
+    (channel) =>
+      (participantsByChannel.get(channel._id)?.length ?? 0) > 0 ||
+      channel._id === selectedChannelId ||
+      channel._id === joinedVoiceChannelId
+  )
+
   return (
     <div className="h-full flex flex-col">
-      <div className="h-12 flex-none flex items-center px-3 border-b border-border">
+      <div className="flex h-12 flex-none items-center gap-1 border-b border-sidebar-border px-4">
         <ServerMenu
           serverName={selectedServer?.name ?? ''}
           onInvite={() => setInviteOpen(true)}
           onCreateChannel={() => setCreateChannelOpen(true)}
         />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="Convidar pessoas"
+              onClick={() => setInviteOpen(true)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-strong"
+            >
+              <UserPlus className="size-5" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Convidar pessoas</TooltipContent>
+        </Tooltip>
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="py-3">
+        <div className="px-2 pb-3">
           {/* channels === undefined enquanto a subscription não resolve — não é
               erro, é carregamento; mantemos a estrutura sem itens até chegar
               dado real. */}
           {textChannels.length > 0 && (
             <ChannelSection
-              label="TEXTO"
+              label="Canais de texto"
               open={!sidebarPreferences.textCollapsed}
               onOpenChange={(open) => setSectionOpen('text', open)}
+              pinned={pinnedText.map(renderTextRow)}
             >
-              {textChannels.map((channel) => (
-                <TextChannelRow
-                  key={channel._id}
-                  channel={channel}
-                  isSelected={channel._id === selectedChannelId}
-                  unreadCount={unreadByChannel.get(channel._id) ?? 0}
-                  onClick={() => handleTextChannelClick(channel)}
-                  markAsRead={markChannelAsRead}
-                />
-              ))}
+              {textChannels.map(renderTextRow)}
             </ChannelSection>
           )}
 
-          {textChannels.length > 0 && voiceChannels.length > 0 && <Separator className="my-2" />}
-
           {voiceChannels.length > 0 && (
             <ChannelSection
-              label="VOZ"
+              label="Canais de voz"
               open={!sidebarPreferences.voiceCollapsed}
               onOpenChange={(open) => setSectionOpen('voice', open)}
+              pinned={pinnedVoice.map(renderVoiceRow)}
             >
-              {voiceChannels.map((channel) => (
-                <VoiceChannelRow
-                  key={channel._id}
-                  channel={channel}
-                  isSelected={channel._id === selectedChannelId}
-                  isJoined={channel._id === joinedVoiceChannelId}
-                  onClick={() => handleVoiceChannelClick(channel)}
-                />
-              ))}
+              {voiceChannels.map(renderVoiceRow)}
             </ChannelSection>
           )}
         </div>
@@ -290,7 +329,7 @@ export function ServerMenu({
               event.preventDefault()
               setOpen(true)
             }}
-            className="flex min-w-0 flex-1 items-center gap-1 rounded-md text-left font-semibold text-foreground transition-colors hover:text-muted-foreground"
+            className="flex h-full min-w-0 flex-1 items-center gap-1 rounded-md text-left text-base font-bold text-strong transition-colors hover:text-muted-foreground"
           >
             <span className="min-w-0 flex-1 truncate">{serverName}</span>
             {/* `aria-haspopup` e `aria-expanded` são do Radix; o chevron é só
@@ -343,63 +382,38 @@ export function ServerMenu({
 // `<button>` nativo, então Tab chega nele e Enter/Espaço alternam a seção de
 // graça.
 //
-// Caso de borda conhecido e aceito: com a seção VOZ recolhida, os
-// participantes aninhados sob cada canal somem junto — é o conteúdo da seção.
-// Quem está CONECTADO não fica sem referência visual porque a
-// `VoiceControlBar` do rodapé continua mostrando "Conectado a {canal}"; é ela
-// que cobre esse caso, e por isso não existe estado especial aqui.
-// Marcador de canal SELECIONADO (Plano 08.5-08). Mesmo vocabulário visual do
-// indicador de servidor ativo do `ServerRail`: barra vertical fina, colada na
-// borda esquerda, arredondada só do lado de fora, em `bg-highlight`.
-//
-// Por que ele existe, já que a linha selecionada tem `bg-accent`: num tema
-// monocromático `bg-accent` é "um cinza a mais" e some ao lado do `hover`.
-// Pela regra do tom único da fase (08.5-01), o destaque só aparece em estado
-// ativo/selecionado, anel de foco e marcador de não-lido — este é o primeiro
-// caso. O marcador COMPLEMENTA o `bg-accent`, não o substitui.
-//
-// Renderizado sempre (não condicionalmente) e escondido por opacidade, como
-// no rail: assim a transição existe nos dois sentidos em vez de o nó aparecer
-// e sumir do DOM. A 16px de altura, centralizado, ele nunca encosta no
-// `rounded-md` de 6px da própria linha.
-function SelectedMarker({ isSelected }: { isSelected: boolean }): React.JSX.Element {
-  return (
-    <span
-      className={cn(
-        'absolute left-0 top-1/2 w-[3px] -translate-y-1/2 rounded-r-full bg-highlight transition-all',
-        isSelected ? 'h-4 opacity-100' : 'h-1 opacity-0'
-      )}
-      aria-hidden="true"
-    />
-  )
-}
-
-function ChannelSection({
+// `pinned` são as linhas que continuam visíveis com a seção recolhida (canal
+// aberto, canais de voz com gente) — como no Discord, recolher não esconde onde
+// você está nem quem está falando. Com a seção aberta o conteúdo completo já as
+// inclui, então `pinned` só é desenhado recolhido (nada aparece duas vezes).
+export function ChannelSection({
   label,
   open,
   onOpenChange,
+  pinned,
   children
 }: {
   label: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  children: React.ReactNode
+  pinned?: ReactNode
+  children: ReactNode
 }): React.JSX.Element {
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
-      <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded-md px-3 pb-1 text-xs font-semibold uppercase text-muted-foreground transition-colors hover:text-foreground">
-        {/* Um ícone só, girado por CSS, em vez de alternar
-            ChevronRight/ChevronDown no JSX: assim a transição de 90° é
-            animável e não há troca de nó no DOM a cada clique. */}
-        <ChevronRight
-          className="size-3 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-90"
+      <CollapsibleTrigger className="group flex w-full items-center gap-1 rounded-md px-2 pb-1 pt-4 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <span className="truncate">{label}</span>
+        {/* Um ícone só, girado por CSS: a transição é animável e não há troca
+            de nó no DOM a cada clique. */}
+        <ChevronDown
+          className="size-3 shrink-0 transition-transform duration-200 group-data-[state=closed]:-rotate-90"
           aria-hidden="true"
         />
-        <span className="truncate">{label}</span>
       </CollapsibleTrigger>
       <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
-        <div className="flex flex-col gap-0.5 px-2">{children}</div>
+        <div className="flex flex-col gap-0.5">{children}</div>
       </CollapsibleContent>
+      {open ? null : <div className="flex flex-col gap-0.5">{pinned}</div>}
     </Collapsible>
   )
 }
@@ -410,74 +424,63 @@ function ChannelSection({
 // teste, sem `ConvexProvider`.
 export type MarkChannelAsRead = (args: { channelId: Id<'channels'> }) => Promise<unknown>
 
-// Gatilho + casca do menu de canal (Plano 08.5-12), compartilhado pelas linhas
-// de texto e de voz — só os itens mudam.
-//
-// Por que um botão irmão e não a linha inteira como gatilho, ao contrário do
-// menu do membro (Plano 08.5-04): aqui a linha JÁ TEM ação primária (selecionar
-// o canal, entrar na call). Se ela virasse o gatilho do menu, o clique esquerdo
-// deixaria de navegar. E `<button>` dentro de `<button>` é HTML inválido — o
-// aviso que o Plano 08.5-08 deixou registrado —, então a linha passou a ser um
-// `<div>` com dois botões irmãos: o da ação primária e este.
-//
-// `opacity-0 group-hover:opacity-100` é o comportamento de mouse esperado. O
-// `focus-visible:opacity-100` é o que impede o clássico "parece funcionar, não
-// funciona no teclado": sem ele o botão RECEBE o foco por Tab e continua
-// invisível, e quem navega por teclado fica sem saber onde está. O
-// `data-[state=open]` mantém o botão visível enquanto o menu dele está aberto,
-// inclusive quando foi o botão direito que o abriu e o ponteiro está longe.
-//
-// O espaço do botão é reservado sempre (ele não sai do fluxo), então a linha
-// não muda de largura no hover e o nome do canal não "pula".
+// Menu do botão direito de uma linha de canal. Mesmo padrão do `ServerMenu`:
+// `DropdownMenu` CONTROLADO, aberto pelo `onContextMenu` da linha, com uma
+// âncora invisível para posicionar o menu. O `⋮` visível saiu na rodada 1 da UI
+// do Discord — o clique direito é o gesto, como no app de referência.
 function ChannelRowMenu({
-  channelName,
   open,
   onOpenChange,
+  focusRef,
   children
 }: {
-  channelName: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  children: React.ReactNode
+  // Botão principal da linha: recebe o foco de volta quando o menu fecha.
+  focusRef: React.RefObject<HTMLButtonElement | null>
+  children: ReactNode
 }): React.JSX.Element {
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Opções do canal ${channelName}`}
-          className="flex size-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-        >
-          <MoreVertical className="size-4" aria-hidden="true" />
-        </button>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0" />
       </DropdownMenuTrigger>
-      {/* `align="end"`: o gatilho fica colado na borda direita de uma coluna de
-          240px, então ancorar pelo começo jogaria o menu de 224px para fora da
-          janela. */}
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent
+        align="start"
+        className="w-56"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          focusRef.current?.focus()
+        }}
+      >
         {children}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-// Exportada para o teste de teclado (`ChannelSidebar.test.tsx`): a
-// `ChannelSidebar` inteira depende de três `useQuery` do Convex, do
-// `useSelection` e do `useVoice`; esta linha não depende de nenhum contexto.
+// Exportada para o teste: a `ChannelSidebar` inteira depende de `useQuery`, do
+// `useSelection` e do `useVoice`; esta linha não depende de nenhum contexto
+// (o `Tooltip` do botão de convite só precisa de um `TooltipProvider`).
 export function TextChannelRow({
   channel,
   isSelected,
   unreadCount,
   onClick,
-  markAsRead
+  markAsRead,
+  onInvite
 }: {
   channel: Doc<'channels'>
   isSelected: boolean
   unreadCount: number
   onClick: () => void
   markAsRead: MarkChannelAsRead
+  onInvite: () => void
 }): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  // Não lido NÃO mostra número: o Discord só acende o nome e a pílula.
+  const unread = unreadCount > 0
 
   async function handleMarkAsRead(): Promise<void> {
     try {
@@ -489,112 +492,185 @@ export function TextChannelRow({
   }
 
   return (
-    // Era um `<button>` até o Plano 08.5-12. Virou `<div>` com dois botões
-    // irmãos porque o menu precisa de gatilho próprio e menu aninhado dentro de
-    // `<button>` é HTML inválido. O estado visual (fundo, cor, hover) subiu
-    // para este container para que o botão do menu fique SOBRE o mesmo fundo da
-    // linha; o `relative` continua aqui por causa do `SelectedMarker`, que é
-    // `absolute left-0`.
     <div
       className={cn(
-        'group relative flex items-center rounded-md pr-1 transition-colors',
+        'group relative flex h-8 items-center gap-1.5 rounded-md px-2 transition-colors',
         isSelected
-          ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+          ? 'bg-secondary text-strong'
+          : cn(
+              'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              unread ? 'text-strong' : 'text-muted-foreground'
+            )
       )}
       onContextMenu={(event) => {
         event.preventDefault()
         setMenuOpen(true)
       }}
     >
-      <SelectedMarker isSelected={isSelected} />
+      {unread && !isSelected ? (
+        <span
+          aria-hidden="true"
+          className="absolute -left-2 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r bg-strong"
+        />
+      ) : null}
       <button
+        ref={buttonRef}
         type="button"
         onClick={onClick}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
-      >
-        <Hash className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
-        {/* CHAT-06: "marcador de não-lido" é um dos três usos autorizados do
-            `--highlight` (Plano 08.5-01). O `variant="secondary"` anterior era
-            cinza sobre fundo cinza — o número existia, mas não chamava. */}
-        {unreadCount > 0 && (
-          <Badge className="shrink-0 bg-highlight text-highlight-foreground">{unreadCount}</Badge>
+        data-unread={unread ? 'true' : undefined}
+        className={cn(
+          'flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-base',
+          unread ? 'font-semibold' : 'font-medium'
         )}
+      >
+        <Hash className="size-5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate" title={channel.name}>
+          {channel.name}
+        </span>
       </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Criar convite"
+            onClick={onInvite}
+            className={cn(
+              'flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-opacity hover:text-strong focus-visible:opacity-100 group-hover:opacity-100',
+              isSelected ? 'opacity-100' : 'opacity-0'
+            )}
+          >
+            <UserPlus className="size-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">Criar convite</TooltipContent>
+      </Tooltip>
       {/* Só ações com backend hoje. Apagar canal, renomear canal e silenciar
           canal ficam de fora: não existe mutation para nenhuma delas em
           `convex/`. */}
-      <ChannelRowMenu channelName={channel.name} open={menuOpen} onOpenChange={setMenuOpen}>
+      <ChannelRowMenu open={menuOpen} onOpenChange={setMenuOpen} focusRef={buttonRef}>
         <DropdownMenuItem onSelect={() => void handleMarkAsRead()}>
           <Check />
           Marcar como lido
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void copyToClipboard(channel.name, 'Nome do canal copiado')}
-        >
+        <DropdownMenuItem onSelect={() => void copyToClipboard(channel.name, 'Nome copiado')}>
           <Copy />
-          Copiar nome do canal
+          Copiar nome
         </DropdownMenuItem>
       </ChannelRowMenu>
     </div>
   )
 }
 
+type VoiceParticipant = {
+  userId: string
+  displayName: string
+  username: string
+  avatarUrl?: string | null
+  muted: boolean
+  deafened: boolean
+  sharing: boolean
+}
+
+// Participante de voz aninhado sob o canal. Exportado para teste (não precisa de
+// contexto nenhum; `speaking` entra por prop).
+export function VoiceParticipantRow({
+  participant,
+  speaking
+}: {
+  participant: VoiceParticipant
+  speaking: boolean
+}): React.JSX.Element {
+  const name = displayNameOf({
+    displayName: participant.displayName,
+    username: participant.username
+  })
+
+  return (
+    <div className="flex h-[30px] items-center gap-2 pl-7 pr-2 text-muted-foreground">
+      {/* VOICE-08: `--success` é significado (alguém está falando), não
+          destaque. */}
+      <UserAvatar
+        userId={participant.userId}
+        avatarUrl={participant.avatarUrl}
+        name={name}
+        size={24}
+        className={cn(
+          'rounded-full',
+          speaking && 'ring-2 ring-success ring-offset-2 ring-offset-sidebar'
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium" title={name}>
+        {name}
+      </span>
+      {/* SHARE-05: `sharing` não depende de `isJoined` — o ponto do indicador é
+          justamente ser visto por quem ainda não entrou no canal. */}
+      {participant.sharing ? (
+        <span className="shrink-0 rounded bg-destructive px-1.5 text-[10px] font-bold text-primary-foreground">
+          AO VIVO
+        </span>
+      ) : null}
+      {participant.deafened ? (
+        <HeadphoneOff className="size-4 shrink-0" aria-label="Ensurdecido" />
+      ) : participant.muted ? (
+        <MicOff className="size-4 shrink-0" aria-label="Mutado" />
+      ) : null}
+    </div>
+  )
+}
+
 function VoiceChannelRow({
   channel,
+  participants,
   isSelected,
   isJoined,
   onClick
 }: {
   channel: Doc<'channels'>
+  participants: (VoiceParticipant & { joinedAt: number })[]
   isSelected: boolean
   isJoined: boolean
   onClick: () => void
 }): React.JSX.Element {
-  // `undefined` enquanto a subscription não resolve — tratado como "sem
-  // participantes ainda" (mesma convenção de `channels`/`unreadCounts`
-  // acima), não como erro.
-  const participants = useQuery(api.voice.voiceParticipantsByChannel, { channelId: channel._id })
   const { speakingUserIds } = useVoice()
   const [menuOpen, setMenuOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const startedAt = callStartedAt(participants)
 
   return (
     <div className="flex flex-col gap-0.5">
-      {/* Mesma reestruturação da linha de texto (Plano 08.5-12): container
-          `relative` com dois botões irmãos. Os participantes aninhados
-          continuam fora dele, um nível acima. */}
       <div
         className={cn(
-          'group relative flex items-center rounded-md pr-1 transition-colors',
+          'group relative flex h-8 items-center gap-1.5 rounded-md px-2 transition-colors',
           isSelected
-            ? 'bg-accent text-accent-foreground'
-            : isJoined
-              ? 'text-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+            ? 'bg-secondary text-strong'
+            : cn(
+                'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                isJoined ? 'text-strong' : 'text-muted-foreground'
+              )
         )}
         onContextMenu={(event) => {
           event.preventDefault()
           setMenuOpen(true)
         }}
       >
-        <SelectedMarker isSelected={isSelected} />
         <button
+          ref={buttonRef}
           type="button"
           onClick={onClick}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-base font-medium"
         >
-          <Volume2 className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+          <Volume2 className="size-5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate" title={channel.name}>
+            {channel.name}
+          </span>
         </button>
+        {/* Cronômetro só no canal em que você está, e só com gente nele. */}
+        {isJoined && startedAt !== null ? <CallTimer since={startedAt} /> : null}
         {/* O item chama o MESMO `onClick` da linha — nenhuma lógica de junção
-            duplicada aqui. Por isso ele é rotulado pelo que o handler REALMENTE
-            faz em cada estado: no canal em que você já está, o gesto é voltar
-            ao palco (contrato do Plano 08.5-03), não sair. Um item "Sair do
-            canal" ligado a este handler mentiria; e ligá-lo a uma desconexão
-            de verdade duplicaria o botão Desconectar da `VoiceControlBar`, que
-            desde o Plano 08.5-03 é o ÚNICO lugar que encerra a chamada. */}
-        <ChannelRowMenu channelName={channel.name} open={menuOpen} onOpenChange={setMenuOpen}>
+            duplicada. No canal em que você já está o gesto é voltar ao palco
+            (contrato do Plano 08.5-03), não sair: sair é só o botão Desconectar
+            da `VoiceControlBar`. */}
+        <ChannelRowMenu open={menuOpen} onOpenChange={setMenuOpen} focusRef={buttonRef}>
           {isJoined ? (
             <DropdownMenuItem onSelect={onClick}>
               <Maximize2 />
@@ -603,56 +679,26 @@ function VoiceChannelRow({
           ) : (
             <DropdownMenuItem onSelect={onClick}>
               <LogIn />
-              Entrar no canal
+              Entrar
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onSelect={() => void copyToClipboard(channel.name, 'Nome do canal copiado')}
-          >
+          <DropdownMenuItem onSelect={() => void copyToClipboard(channel.name, 'Nome copiado')}>
             <Copy />
-            Copiar nome do canal
+            Copiar nome
           </DropdownMenuItem>
         </ChannelRowMenu>
       </div>
 
-      {participants && participants.length > 0 ? (
-        <div className="flex flex-col gap-0.5 pl-7">
-          {participants.map((participant) => {
-            // VOICE-08: anel de fala só é significativo dentro do canal ao
-            // qual o próprio usuário está conectado — `speakingUserIds` é
-            // dado do `Room` local, não existe para quem só está sendo
-            // exibido na sidebar sem conexão real a esse canal.
-            const isSpeaking = isJoined && speakingUserIds.has(participant.userId)
-            return (
-              <div
-                key={participant.userId}
-                className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground"
-              >
-                {/* VOICE-08: `--success` é significado (alguém está falando), não
-                    destaque — não conta contra a regra do tom único. */}
-                <Avatar size="sm" className={cn(isSpeaking && 'ring-2 ring-success')}>
-                  <AvatarFallback>{initialsFor(participant.displayName)}</AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 flex-1 truncate">{participant.displayName}</span>
-                {/* SHARE-05 (Plano 08-06): `sharing` já vem na mesma linha de
-                    `voiceStates` que esta query devolve desde 07-04 — nenhuma
-                    query nova. E, ao contrário do anel de fala acima, ele NÃO
-                    depende de `isJoined`: o ponto do indicador é justamente
-                    ser visto por quem ainda não entrou no canal. */}
-                {participant.sharing ? (
-                  <MonitorUp
-                    className="size-3 shrink-0 text-success"
-                    aria-label="compartilhando a tela"
-                  />
-                ) : null}
-                {participant.muted ? (
-                  <MicOff className="size-3 shrink-0" aria-label="mutado" />
-                ) : null}
-              </div>
-            )
-          })}
-        </div>
-      ) : null}
+      {participants.map((participant) => (
+        // VOICE-08: anel de fala só é significativo dentro do canal ao qual o
+        // próprio usuário está conectado — `speakingUserIds` é dado do `Room`
+        // local.
+        <VoiceParticipantRow
+          key={participant.userId}
+          participant={participant}
+          speaking={isJoined && speakingUserIds.has(participant.userId)}
+        />
+      ))}
     </div>
   )
 }

@@ -288,7 +288,9 @@ async function enrichVoiceStates(ctx: QueryCtx, rows: Doc<'voiceStates'>[]) {
         username: user.username,
         tag: user.tag,
         displayName: user.displayName,
-        avatarUrl: user.avatarUrl
+        avatarUrl: user.avatarUrl,
+        // Entrada na call: base do cronômetro de `ChannelSidebar`.
+        joinedAt: row._creationTime
       }
     })
   )

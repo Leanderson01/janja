@@ -1057,10 +1057,7 @@ describe('POST /livekit/webhook — track_unpublished (compartilhamento de tela)
     return { t, anaId, channelId }
   }
 
-  async function postSigned(
-    t: ReturnType<typeof convexTest>,
-    rawBody: string
-  ): Promise<Response> {
+  async function postSigned(t: ReturnType<typeof convexTest>, rawBody: string): Promise<Response> {
     const authHeader = await signWebhookAuthHeader(
       rawBody,
       LIVEKIT_ENV.LIVEKIT_API_KEY,
@@ -1230,6 +1227,29 @@ describe('voice.voiceParticipantsByChannel', () => {
     const carla = result.find((p: { userId: Id<'users'> }) => p.userId === carlaId)
     expect(carla).toMatchObject({ username: 'carla', tag: '0003', muted: true })
     expect(carla).not.toHaveProperty('workosId')
+  })
+
+  test('devolve joinedAt igual ao _creationTime da linha de voz', async () => {
+    const t = convexTest(schema, modules)
+    const anaWorkosId = 'workos_ana'
+    const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+    const { channelId } = await insertServerWithChannel(t, anaId)
+    await t.run((ctx) =>
+      ctx.db.insert('voiceStates', {
+        channelId,
+        userId: anaId,
+        muted: false,
+        deafened: false,
+        sharing: false
+      })
+    )
+    const row = await t.run((ctx) => ctx.db.query('voiceStates').first())
+
+    const asAna = t.withIdentity({ subject: anaWorkosId })
+    const result = await asAna.query(anyApi.voice.voiceParticipantsByChannel, { channelId })
+
+    expect(result[0].joinedAt).toBe(row!._creationTime)
+    expect(typeof result[0].joinedAt).toBe('number')
   })
 })
 

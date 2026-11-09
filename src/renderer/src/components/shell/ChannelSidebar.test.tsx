@@ -5,7 +5,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ServerMenu, TextChannelRow } from './ChannelSidebar'
+import { TooltipProvider } from '@/components/ui/tooltip'
+
+import { ChannelSection, ServerMenu, TextChannelRow, VoiceParticipantRow } from './ChannelSidebar'
 import type { Doc, Id } from '../../../../../convex/_generated/dataModel'
 
 // Prova de que os menus da sidebar (Plano 08.5-12) são operáveis por TECLADO.
@@ -60,126 +62,170 @@ const canalDeTexto: Doc<'channels'> = {
   position: 0
 }
 
-function renderTextRow(
-  markAsRead: (args: { channelId: Id<'channels'> }) => Promise<unknown> = () =>
-    Promise.resolve(null),
-  onClick: () => void = () => {}
-): { linha: HTMLElement; gatilhoDoMenu: HTMLElement } {
+function renderRow(
+  props: {
+    isSelected?: boolean
+    unreadCount?: number
+    onInvite?: () => void
+    markAsRead?: (args: { channelId: Id<'channels'> }) => Promise<unknown>
+  } = {}
+): void {
   render(
-    <TextChannelRow
-      channel={canalDeTexto}
-      isSelected={false}
-      unreadCount={0}
-      onClick={onClick}
-      markAsRead={markAsRead}
-    />
+    <TooltipProvider>
+      <TextChannelRow
+        channel={canalDeTexto}
+        isSelected={props.isSelected ?? false}
+        unreadCount={props.unreadCount ?? 0}
+        onClick={() => {}}
+        markAsRead={props.markAsRead ?? (() => Promise.resolve(null))}
+        onInvite={props.onInvite ?? (() => {})}
+      />
+    </TooltipProvider>
   )
-  return {
-    linha: screen.getByRole('button', { name: 'geral' }),
-    gatilhoDoMenu: screen.getByRole('button', { name: 'Opções do canal geral' })
-  }
 }
 
-describe('TextChannelRow — teclado e menu do canal', () => {
-  it('Tab alcança a linha e, num segundo Tab, o gatilho do menu', async () => {
-    const user = userEvent.setup()
-    const { linha, gatilhoDoMenu } = renderTextRow()
+function renderVoiceRow(
+  overrides: Partial<{
+    displayName: string
+    muted: boolean
+    deafened: boolean
+    sharing: boolean
+  }> = {},
+  speaking = false
+): void {
+  render(
+    <VoiceParticipantRow
+      participant={{
+        userId: 'user_1',
+        displayName: 'Ana',
+        username: 'ana',
+        avatarUrl: null,
+        muted: false,
+        deafened: false,
+        sharing: false,
+        ...overrides
+      }}
+      speaking={speaking}
+    />
+  )
+}
 
-    await user.tab()
-    // O clique esquerdo da linha continua sendo a ação primária (selecionar o
-    // canal): o menu não roubou a primeira parada de Tab.
-    expect(document.activeElement).toBe(linha)
+function renderSection(opts: { open: boolean; pinnedName: string; hiddenName: string }): void {
+  render(
+    <ChannelSection
+      label="Canais de texto"
+      open={opts.open}
+      onOpenChange={() => {}}
+      pinned={<div>{opts.pinnedName}</div>}
+    >
+      <div>{opts.hiddenName}</div>
+    </ChannelSection>
+  )
+}
 
-    await user.tab()
-
-    expect(document.activeElement).toBe(gatilhoDoMenu)
-    expect(gatilhoDoMenu.getAttribute('aria-haspopup')).toBe('menu')
-    expect(gatilhoDoMenu.getAttribute('aria-expanded')).toBe('false')
+describe('TextChannelRow', () => {
+  it('canal não lido fica branco com a pílula e sem número', () => {
+    renderRow({ unreadCount: 3 })
+    const row = screen.getByRole('button', { name: /geral/ })
+    expect(row.getAttribute('data-unread')).toBe('true')
+    expect(row.textContent).not.toContain('3')
   })
 
-  it('Enter no gatilho abre o menu do canal de texto', async () => {
-    const user = userEvent.setup()
-    const { gatilhoDoMenu } = renderTextRow()
-
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
-
-    await user.tab()
-    await user.tab()
-    await user.keyboard('{Enter}')
-
-    const itens = screen.getAllByRole('menuitem')
-    expect(itens.map((item) => item.textContent)).toEqual([
-      'Marcar como lido',
-      'Copiar nome do canal'
-    ])
-    expect(gatilhoDoMenu.getAttribute('aria-expanded')).toBe('true')
-    // Abrir por teclado tem que levar o foco PARA dentro do menu; se ficasse no
-    // gatilho, a seta seguinte não navegaria nada.
-    expect(document.activeElement).toBe(itens[0])
+  it('canal lido não tem data-unread', () => {
+    renderRow({})
+    expect(screen.getByRole('button', { name: /geral/ }).getAttribute('data-unread')).toBeNull()
   })
 
-  it('Escape fecha o menu e devolve o foco ao gatilho', async () => {
-    const user = userEvent.setup()
-    const { gatilhoDoMenu } = renderTextRow()
-
-    await user.tab()
-    await user.tab()
-    await user.keyboard('{Enter}')
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
-
-    await user.keyboard('{Escape}')
-
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
-    expect(gatilhoDoMenu.getAttribute('aria-expanded')).toBe('false')
-    // Fechar sem devolver o foco joga quem usa teclado para o começo do
-    // documento — é a parte que mais quebra na prática.
-    expect(document.activeElement).toBe(gatilhoDoMenu)
+  it('clique direito abre Marcar como lido e Copiar nome', () => {
+    renderRow({})
+    fireEvent.contextMenu(screen.getByRole('button', { name: /geral/ }))
+    expect(screen.getByRole('menuitem', { name: 'Marcar como lido' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Copiar nome' })).toBeTruthy()
   })
 
-  it('botão direito em qualquer ponto da linha abre o MESMO menu', () => {
-    const { linha, gatilhoDoMenu } = renderTextRow()
-
-    // O `onContextMenu` está no container da linha, não no gatilho: o evento
-    // disparado sobre o botão da ação primária tem que borbulhar até ele.
-    fireEvent.contextMenu(linha)
-
-    const itens = screen.getAllByRole('menuitem')
-    expect(itens.map((item) => item.textContent)).toEqual([
-      'Marcar como lido',
-      'Copiar nome do canal'
-    ])
-    expect(gatilhoDoMenu.getAttribute('aria-expanded')).toBe('true')
-  })
-
-  it('"Marcar como lido" chama a mutation com o channelId da linha', async () => {
-    const user = userEvent.setup()
+  it('Marcar como lido chama a mutation com o channelId da linha', async () => {
     const markAsRead = vi.fn(() => Promise.resolve(null))
-    renderTextRow(markAsRead)
-
-    await user.tab()
-    await user.tab()
-    await user.keyboard('{Enter}')
-    await user.keyboard('{Enter}')
-
+    renderRow({ markAsRead })
+    fireEvent.contextMenu(screen.getByRole('button', { name: /geral/ }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Marcar como lido' }))
     expect(markAsRead).toHaveBeenCalledWith({ channelId: 'channel_1' })
-    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
     expect(toast.success).toHaveBeenCalledWith('Canal marcado como lido')
   })
 
-  it('abrir o menu não dispara a ação primária da linha', async () => {
-    const user = userEvent.setup()
-    const onClick = vi.fn()
-    renderTextRow(() => Promise.resolve(null), onClick)
+  it('canal aberto mostra o botão de criar convite', () => {
+    renderRow({ isSelected: true })
+    expect(screen.getByRole('button', { name: 'Criar convite' })).toBeTruthy()
+  })
 
-    await user.tab()
-    await user.tab()
-    await user.keyboard('{Enter}')
+  it('o botão de convite chama onInvite sem selecionar o canal', async () => {
+    const onInvite = vi.fn()
+    renderRow({ isSelected: true, onInvite })
+    await userEvent.click(screen.getByRole('button', { name: 'Criar convite' }))
+    expect(onInvite).toHaveBeenCalledTimes(1)
+  })
 
-    // O gatilho do menu é um botão IRMÃO da linha, não um filho dela: se
-    // estivesse aninhado (HTML inválido), abrir o menu selecionaria o canal
-    // junto.
-    expect(onClick).not.toHaveBeenCalled()
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+  it('não existe mais o botão de opções', () => {
+    renderRow({})
+    expect(screen.queryByRole('button', { name: /Opções do canal/ })).toBeNull()
+  })
+
+  it('nome longo de canal corta com reticências e mantém o nome inteiro no title', () => {
+    render(
+      <TooltipProvider>
+        <TextChannelRow
+          channel={{ ...canalDeTexto, name: 'canal-com-um-nome-muito-comprido-mesmo' }}
+          isSelected={false}
+          unreadCount={0}
+          onClick={() => {}}
+          markAsRead={() => Promise.resolve(null)}
+          onInvite={() => {}}
+        />
+      </TooltipProvider>
+    )
+    const name = screen.getByText('canal-com-um-nome-muito-comprido-mesmo')
+    expect(name.className).toContain('truncate')
+    expect(name.getAttribute('title')).toBe('canal-com-um-nome-muito-comprido-mesmo')
+  })
+})
+
+describe('VoiceParticipantRow', () => {
+  it('ensurdecido mostra o fone cortado e AO VIVO aparece para quem transmite', () => {
+    renderVoiceRow({ deafened: true, muted: true, sharing: true })
+    expect(screen.getByLabelText('Ensurdecido')).toBeTruthy()
+    expect(screen.queryByLabelText('Mutado')).toBeNull()
+    expect(screen.getByText('AO VIVO')).toBeTruthy()
+  })
+
+  it('mutado sem ensurdecer mostra só o microfone cortado', () => {
+    renderVoiceRow({ muted: true })
+    expect(screen.getByLabelText('Mutado')).toBeTruthy()
+    expect(screen.queryByLabelText('Ensurdecido')).toBeNull()
+    expect(screen.queryByText('AO VIVO')).toBeNull()
+  })
+
+  it('nome longo corta com reticências e mantém o nome inteiro no title', () => {
+    renderVoiceRow({ displayName: 'Gordão Guerreiro do Norte da Silva' })
+    const name = screen.getByText('Gordão Guerreiro do Norte da Silva')
+    expect(name.className).toContain('truncate')
+    expect(name.getAttribute('title')).toBe('Gordão Guerreiro do Norte da Silva')
+  })
+
+  it('falando acende o anel verde no avatar', () => {
+    renderVoiceRow({}, true)
+    expect(document.querySelector('.ring-success')).not.toBeNull()
+  })
+})
+
+describe('ChannelSection', () => {
+  it('seção recolhida continua mostrando o canal aberto', () => {
+    renderSection({ open: false, pinnedName: 'geral', hiddenName: 'memes' })
+    expect(screen.getByText('geral')).toBeTruthy()
+    expect(screen.queryByText('memes')).toBeNull()
+  })
+
+  it('seção aberta mostra tudo', () => {
+    renderSection({ open: true, pinnedName: 'geral', hiddenName: 'memes' })
+    expect(screen.getByText('memes')).toBeTruthy()
   })
 })
 

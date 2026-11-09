@@ -1,3 +1,4 @@
+import { ChannelListResizeHandle } from '@/components/shell/ChannelListResizeHandle'
 import { ChannelSidebar } from '@/components/shell/ChannelSidebar'
 import { ConversationArea } from '@/components/shell/ConversationArea'
 import { MemberList } from '@/components/shell/MemberList'
@@ -10,10 +11,12 @@ import { FriendsPanel } from '@/components/friends/FriendsPanel'
 import { UserPanel } from '@/features/auth/UserPanel'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { clampChannelListWidth } from '@/lib/layout-preferences'
 import { LayoutProvider, useLayout } from '@/state/layout-context'
 import { SelectionProvider, useSelection } from '@/state/selection-context'
 import { VoiceProvider } from '@/state/voice-context'
 import { screenShare } from '@platform/screenshare'
+import { useEffect, useState } from 'react'
 
 // Layout da Fase 3 (RESEARCH.md §3), reestruturado na rodada 1 da UI do
 // Discord: a raiz é uma coluna — a barra de título (`TitleBar`, 32px) em cima e,
@@ -39,7 +42,18 @@ import { screenShare } from '@platform/screenshare'
 // canais, dentro da moldura, até a Tarefa 7 da rodada mudá-los de lugar.
 function ShellBody(): React.JSX.Element {
   const { view, selectedDmChannelId } = useSelection()
-  const { membersVisible } = useLayout()
+  const { membersVisible, channelListWidth, setChannelListWidth } = useLayout()
+
+  // A largura guardada pode ter sido escolhida numa janela maior (ou com os
+  // membros fechados). Na hora de desenhar, passa de novo pelo clamp com a
+  // janela de AGORA, para o chat nunca ficar com menos de 400px.
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  useEffect(() => {
+    const onResize = (): void => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const channelColumnWidth = clampChannelListWidth(channelListWidth, viewportWidth, membersVisible)
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-sidebar text-foreground">
@@ -57,10 +71,15 @@ function ShellBody(): React.JSX.Element {
           data-content-frame
           className="flex min-w-0 flex-1 overflow-hidden rounded-tl-[10px] border-t border-l border-sidebar-border"
         >
-          {/* Coluna de canais: 240px FIXOS por enquanto (a Tarefa 5 da rodada a
-              torna redimensionável). `ChannelSidebar` e `DmSidebar` são o MESMO
-              lugar do shell, então trocam entre si aqui dentro. */}
-          <div className="flex w-60 flex-none flex-col bg-sidebar">
+          {/* Coluna de canais: 240–360px, ajustável pela alça da borda direita
+              (largura em `useLayout`, limitada para o chat manter 400px).
+              `ChannelSidebar` e `DmSidebar` são o MESMO lugar do shell, então
+              trocam entre si aqui dentro. */}
+          <div
+            className="relative flex flex-none flex-col bg-sidebar"
+            style={{ width: channelColumnWidth }}
+          >
+            <ChannelListResizeHandle width={channelColumnWidth} onResize={setChannelListWidth} />
             <div className="min-h-0 flex-1">
               {view === 'server' ? <ChannelSidebar /> : <DmSidebar />}
             </div>
@@ -96,7 +115,7 @@ function ShellBody(): React.JSX.Element {
           </div>
 
           {/* Janela estreita (Plano 08.5-05): a lista de membros é a válvula de
-              escape da área principal. As colunas fixas somam 552px (rail 72 +
+              escape da área principal. As colunas somam 552px no mínimo (rail 72 +
               canais 240 + membros 240) e a janela mínima é 900x600
               (`src/main/index.ts`) — esconder a lista devolve 240px para a
               conversa. A coluna central já é `flex-1 min-w-0`, então absorve o
