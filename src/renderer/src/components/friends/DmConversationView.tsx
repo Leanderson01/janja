@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { MessageInput } from '@/components/shell/MessageInput'
 import { Button } from '@/components/ui/button'
 import { readableConvexError } from '@/lib/convex-error'
+import { displayNameOf } from '@/lib/display-name'
 
 import { api } from '../../../../../convex/_generated/api'
 import type { Id } from '../../../../../convex/_generated/dataModel'
@@ -91,7 +92,12 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
         </div>
       </div>
 
-      <MessageInput onSend={handleSend} />
+      <MessageInput
+        placeholder={`Conversar com @${
+          otherUser ? displayNameOf(otherUser) : 'Usuário desconhecido'
+        }`}
+        onSend={handleSend}
+      />
     </div>
   )
 }

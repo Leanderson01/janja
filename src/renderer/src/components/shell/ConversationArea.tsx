@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from 'convex/react'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { toast } from 'sonner'
 
 import { CallStage, VoiceParticipantGrid } from '@/components/shell/CallStage'
 import { ChannelHeader } from '@/components/shell/ChannelHeader'
-import { MessageInput } from '@/components/shell/MessageInput'
+import { FileDropOverlay } from '@/components/shell/FileDropOverlay'
+import { MessageInput, type MessageInputHandle } from '@/components/shell/MessageInput'
 import { MessageList } from '@/components/shell/MessageList'
 import { TypingIndicator } from '@/components/shell/TypingIndicator'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -31,6 +32,11 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
   const generateUploadUrl = useMutation(api.messages.generateUploadUrl)
   const setTyping = useMutation(api.typing.setTyping)
   const lastTypingCallRef = useRef(0)
+  const inputRef = useRef<MessageInputHandle>(null)
+  // Contador de dragenter/dragleave: os filhos da conversa disparam os dois a
+  // cada fronteira, e só o zero significa que o arquivo saiu de verdade.
+  const dragDepthRef = useRef(0)
+  const [dragging, setDragging] = useState(false)
   const channel = useQuery(api.channels.getChannel, { channelId })
   const members = useQuery(
     api.members.listServerMembers,
@@ -130,8 +136,44 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
     setTyping({ channelId }).catch(() => {})
   }
 
+  const hasFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes('Files')
+
+  function handleDragEnter(e: DragEvent): void {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragDepthRef.current += 1
+    setDragging(true)
+  }
+
+  function handleDragOver(e: DragEvent): void {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+  }
+
+  function handleDragLeave(e: DragEvent): void {
+    if (!hasFiles(e)) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragging(false)
+  }
+
+  function handleDrop(e: DragEvent): void {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setDragging(false)
+    inputRef.current?.addFiles(Array.from(e.dataTransfer.files))
+  }
+
   return (
-    <>
+    <div
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* A faixa “ir para o presente” mora no fim deste bloco, colada na caixa
+          de texto. O indicador de digitação fica ABAIXO da caixa. */}
       <div className="flex-1 min-h-0 min-w-0">
         <MessageList
           channelId={channelId}
@@ -139,13 +181,16 @@ function TextChannelView({ channelId }: { channelId: Id<'channels'> }): React.JS
           nicknameByUserId={nicknameByUserId}
         />
       </div>
-      <TypingIndicator channelId={channelId} />
       <MessageInput
+        ref={inputRef}
+        placeholder={`Conversar em #${channel?.name ?? ''}`}
         onSend={handleSend}
         onTyping={handleTyping}
         onSendWithAttachments={handleSendWithAttachments}
       />
-    </>
+      <TypingIndicator channelId={channelId} />
+      <FileDropOverlay channelName={channel?.name ?? ''} active={dragging} />
+    </div>
   )
 }
 

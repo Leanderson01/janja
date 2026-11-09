@@ -53,6 +53,17 @@ function ShellBody(): React.JSX.Element {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+  // Sem isto, soltar um arquivo fora de uma área que trate o drop faz o Electron
+  // navegar para o arquivo e a janela vira uma página em branco.
+  useEffect(() => {
+    const prevent = (e: Event): void => e.preventDefault()
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
   const channelColumnWidth = clampChannelListWidth(channelListWidth, viewportWidth, membersVisible)
 
   return (

@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import '@/test/jsdom-setup'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createRef, type ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MessageInput } from '@/components/shell/MessageInput'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { MessageInput, type MessageInputHandle } from '@/components/shell/MessageInput'
 
 // Os quatro caminhos de tecla do UNICO composer do app (canal de servidor e DM
 // compartilham este componente), mais a prova de que a guarda de IME nao deixa
@@ -28,17 +30,29 @@ import { MessageInput } from '@/components/shell/MessageInput'
 // testing-library nao se registra e o render anterior fica no documento.
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
 })
 
+URL.createObjectURL = vi.fn(() => 'blob:x')
+URL.revokeObjectURL = vi.fn()
+
+function renderInput(props: Partial<ComponentProps<typeof MessageInput>> = {}) {
+  return render(
+    <TooltipProvider>
+      <MessageInput placeholder="Conversar em #geral" onSend={vi.fn()} {...props} />
+    </TooltipProvider>
+  )
+}
+
 function campo(): HTMLTextAreaElement {
-  return screen.getByPlaceholderText('Enviar mensagem...') as HTMLTextAreaElement
+  return screen.getByPlaceholderText('Conversar em #geral') as HTMLTextAreaElement
 }
 
 describe('MessageInput — teclado', () => {
   it('Enter com texto envia uma vez, com o texto aparado, e limpa o campo', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     await user.type(campo(), '  ola mundo  ')
     fireEvent.keyDown(campo(), { key: 'Enter' })
@@ -51,7 +65,7 @@ describe('MessageInput — teclado', () => {
   it('Shift+Enter NAO envia e o texto continua no campo', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     await user.type(campo(), 'primeira linha')
     fireEvent.keyDown(campo(), { key: 'Enter', shiftKey: true })
@@ -65,7 +79,7 @@ describe('MessageInput — teclado', () => {
   it('Enter durante composicao de IME NAO envia e nao perde o texto', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     await user.type(campo(), 'nihon')
     fireEvent.keyDown(campo(), { key: 'Enter', isComposing: true })
@@ -80,7 +94,7 @@ describe('MessageInput — teclado', () => {
   it('Enter com keyCode 229 (compositionend antes do keydown) NAO envia', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     await user.type(campo(), 'nihon')
     fireEvent.keyDown(campo(), { key: 'Enter', keyCode: 229 })
@@ -94,7 +108,7 @@ describe('MessageInput — teclado', () => {
   it('Enter DEPOIS da composicao envia — a guarda nao trava o campo', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     await user.type(campo(), 'konnichiwa')
     fireEvent.keyDown(campo(), { key: 'Enter', isComposing: true })
@@ -108,7 +122,7 @@ describe('MessageInput — teclado', () => {
   it('Enter com o campo vazio ou so com espacos NAO envia', async () => {
     const onSend = vi.fn()
     const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+    renderInput({ onSend })
 
     fireEvent.keyDown(campo(), { key: 'Enter' })
     expect(onSend).not.toHaveBeenCalled()
@@ -119,23 +133,41 @@ describe('MessageInput — teclado', () => {
   })
 })
 
-describe('MessageInput — botao de envio', () => {
-  it('fica desabilitado com o campo vazio ou so com espacos e habilita com texto', async () => {
-    const onSend = vi.fn()
-    const user = userEvent.setup()
-    render(<MessageInput onSend={onSend} />)
+describe('MessageInput — caixa do Discord', () => {
+  it('não existe botão Enviar', () => {
+    renderInput()
+    expect(screen.queryByRole('button', { name: 'Enviar mensagem' })).toBeNull()
+  })
 
-    const botao = screen.getByLabelText('Enviar mensagem') as HTMLButtonElement
-    expect(botao.disabled).toBe(true)
+  it('o “+” só aparece quando dá para anexar', () => {
+    renderInput({ onSendWithAttachments: undefined })
+    expect(screen.queryByRole('button', { name: 'Enviar um arquivo' })).toBeNull()
+  })
 
-    await user.type(campo(), '   ')
-    expect(botao.disabled).toBe(true)
+  it('o “+” aparece com anexos habilitados', () => {
+    renderInput({ onSendWithAttachments: vi.fn() })
+    expect(screen.getByRole('button', { name: 'Enviar um arquivo' })).toBeTruthy()
+  })
 
-    await user.type(campo(), 'oi')
-    expect(botao.disabled).toBe(false)
+  it('colar imagem vira miniatura dentro da caixa', () => {
+    renderInput({ onSendWithAttachments: vi.fn() })
+    const file = new File(['x'], 'image.png', { type: 'image/png' })
+    fireEvent.paste(screen.getByPlaceholderText('Conversar em #geral'), {
+      clipboardData: { files: [file] }
+    })
+    expect(screen.getByRole('button', { name: 'Remover image.png' })).toBeTruthy()
+  })
 
-    await user.click(botao)
-    expect(onSend).toHaveBeenCalledWith('oi')
-    expect(botao.disabled).toBe(true)
+  it('addFiles pela ref também adiciona', () => {
+    const ref = createRef<MessageInputHandle>()
+    renderInput({ onSendWithAttachments: vi.fn(), ref })
+    act(() => ref.current!.addFiles([new File(['x'], 'a.txt', { type: 'text/plain' })]))
+    expect(screen.getByRole('button', { name: 'Remover a.txt' })).toBeTruthy()
+  })
+
+  it('só texto colado não é interceptado', () => {
+    renderInput({ onSendWithAttachments: vi.fn() })
+    const notCancelled = fireEvent.paste(campo(), { clipboardData: { files: [] } })
+    expect(notCancelled).toBe(true)
   })
 })

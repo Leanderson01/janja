@@ -15,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChatScroll } from '@/hooks/useChatScroll'
 import type { MessageAttachment } from '@/lib/attachments'
 import { displayNameOf } from '@/lib/display-name'
+import { shouldShowJumpBar } from '@/lib/jump-bar'
 import { buildTimeline } from '@/lib/message-grouping'
 import { linksOf } from '@/lib/message-links'
 
@@ -157,7 +158,7 @@ export function MessageList({
       null
   })
 
-  const { isViewingOld, scrollToBottom } = useChatScroll({
+  const { isViewingOld, newMessageCount, scrollToBottom } = useChatScroll({
     viewportRef,
     newestId,
     oldestId,
@@ -243,8 +244,8 @@ export function MessageList({
         </div>
       </ScrollArea>
 
-      {isViewingOld && (
-        <div className="absolute inset-x-4 bottom-0">
+      {shouldShowJumpBar({ isViewingOld, newMessageCount }) && (
+        <div className="absolute inset-x-2 bottom-0">
           <JumpToPresentBar onJump={scrollToBottom} />
         </div>
       )}
