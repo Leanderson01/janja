@@ -113,7 +113,7 @@ function ScreenShareTile({ entry }: { entry: ScreenShareTrack }): React.JSX.Elem
     <div
       ref={containerRef}
       data-screenshare-tile={entry.trackSid}
-      className="relative flex h-full min-h-40 min-w-64 flex-1 items-center justify-center overflow-hidden rounded-lg bg-black"
+      className="relative flex h-full min-h-40 min-w-64 flex-1 items-center justify-center overflow-hidden rounded-lg bg-stage"
     />
   )
 }

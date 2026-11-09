@@ -65,26 +65,44 @@
   --stage-foreground: oklch(0.145 0 0);
   --highlight: oklch(0.52 0.2 264);
   --highlight-foreground: oklch(0.985 0 0);
+
+  /* Tokens da UI estilo Discord (rodada 1). Mesmo valor nos dois blocos: o app
+     só tem tema escuro, mas a convenção do arquivo exige os dois. */
+  --panel: #202024;
+  --panel-border: #252529;
+  --composer: #222327;
+  --strong: #fbfbfb;
+  --hint: #6c6d76;
+  --icon: #96979e;
+  --link: #4d96ee;
+  --voice: #5eb479;
+  --avatar-1: #5865f2;
+  --avatar-2: #3ba55d;
+  --avatar-3: #faa61a;
+  --avatar-4: #ed4245;
+  --avatar-5: #eb459e;
+  --embed-x: #1da0f2;
+  --embed-youtube: #ff0033;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --background: #1a1a1e;
+  --foreground: #efeff1;
+  --card: #242429;
+  --card-foreground: #efeff1;
+  --popover: #202024;
+  --popover-foreground: #efeff1;
+  --primary: #5865f2;
+  --primary-foreground: #ffffff;
+  --secondary: #2c2c30;
+  --secondary-foreground: #fbfbfb;
+  --muted: #242428;
+  --muted-foreground: #81828a;
+  --accent: #242428;
+  --accent-foreground: #fbfbfb;
+  --destructive: #d83a42;
+  --border: #29292d;
+  --input: #27282b;
   /* anel de foco do tema escuro herda o destaque: @layer base aplica
      outline-ring/50 a TODO elemento, então nenhum componente precisa
      ser tocado para o foco deixar de ser cinza neutro. */
@@ -94,27 +112,45 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar: #121214;
+  --sidebar-foreground: #efeff1;
+  --sidebar-primary: #5865f2;
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-accent: #1f1f23;
+  --sidebar-accent-foreground: #dbdee1;
+  --sidebar-border: #222225;
   --sidebar-ring: oklch(0.556 0 0);
 
   /* Tokens da Fase 8.5 — os valores que o app realmente usa.
      Regra de uso e racional: ver o comentário no bloco :root acima. */
-  --success: oklch(0.72 0.17 150);
+  --success: #45a366;
   --success-foreground: oklch(0.145 0 0);
-  --warning: oklch(0.8 0.15 85);
+  --warning: #f0b232;
   --warning-foreground: oklch(0.145 0 0);
   /* Ver o racional no `:root`. 0.10 contra 0.145 do `--background`: separação
      perceptível sem virar preto absoluto, que faria o vídeo parecer recortado. */
-  --stage: oklch(0.1 0 0);
+  --stage: #000000;
   --stage-foreground: oklch(0.985 0 0);
-  --highlight: oklch(0.6 0.19 264);
+  --highlight: #5865f2;
   --highlight-foreground: oklch(0.985 0 0);
+
+  /* Tokens da UI estilo Discord (rodada 1). Mesmo valor nos dois blocos: o app
+     só tem tema escuro, mas a convenção do arquivo exige os dois. */
+  --panel: #202024;
+  --panel-border: #252529;
+  --composer: #222327;
+  --strong: #fbfbfb;
+  --hint: #6c6d76;
+  --icon: #96979e;
+  --link: #4d96ee;
+  --voice: #5eb479;
+  --avatar-1: #5865f2;
+  --avatar-2: #3ba55d;
+  --avatar-3: #faa61a;
+  --avatar-4: #ed4245;
+  --avatar-5: #eb459e;
+  --embed-x: #1da0f2;
+  --embed-youtube: #ff0033;
 }
 
 @theme inline {
@@ -157,6 +193,22 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-panel: var(--panel);
+  --color-panel-border: var(--panel-border);
+  --color-composer: var(--composer);
+  --color-strong: var(--strong);
+  --color-hint: var(--hint);
+  --color-icon: var(--icon);
+  --color-link: var(--link);
+  --color-voice: var(--voice);
+  --color-avatar-1: var(--avatar-1);
+  --color-avatar-2: var(--avatar-2);
+  --color-avatar-3: var(--avatar-3);
+  --color-avatar-4: var(--avatar-4);
+  --color-avatar-5: var(--avatar-5);
+  --color-embed-x: var(--embed-x);
+  --color-embed-youtube: var(--embed-youtube);
+  --font-sans: 'Figtree Variable', ui-sans-serif, system-ui, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
