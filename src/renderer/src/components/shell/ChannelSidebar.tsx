@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Check,
@@ -251,32 +251,52 @@ async function copyToClipboard(text: string, successMessage: string): Promise<vo
 export function ServerMenu({
   serverName,
   onInvite,
-  onCreateChannel
+  onCreateChannel,
+  children
 }: {
   serverName: string
   onInvite: () => void
   onCreateChannel: () => void
+  // Gatilho próprio (rail de servidores): o clique esquerdo continua sendo do
+  // filho; só o clique direito abre o menu. O gatilho do Radix vira uma âncora
+  // invisível sobre o filho, só para posicionar o menu e devolver o foco.
+  children?: ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Menu do servidor ${serverName}`}
+      {children ? (
+        <div
+          className="relative"
           onContextMenu={(event) => {
             event.preventDefault()
             setOpen(true)
           }}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded-md text-left font-semibold text-foreground transition-colors hover:text-muted-foreground"
         >
-          <span className="min-w-0 flex-1 truncate">{serverName}</span>
-          {/* `aria-haspopup` e `aria-expanded` são do Radix; o chevron é só
+          {children}
+          <DropdownMenuTrigger asChild>
+            <span aria-hidden="true" className="pointer-events-none absolute inset-0" />
+          </DropdownMenuTrigger>
+        </div>
+      ) : (
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Menu do servidor ${serverName}`}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setOpen(true)
+            }}
+            className="flex min-w-0 flex-1 items-center gap-1 rounded-md text-left font-semibold text-foreground transition-colors hover:text-muted-foreground"
+          >
+            <span className="min-w-0 flex-1 truncate">{serverName}</span>
+            {/* `aria-haspopup` e `aria-expanded` são do Radix; o chevron é só
               affordance visual e por isso fica escondido do leitor de tela. */}
-          <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
-        </button>
-      </DropdownMenuTrigger>
+            <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+      )}
       {/* SÓ o que já existe neste componente ou no backend de hoje. Fora, por
           decisão explícita: renomear/apagar servidor, sair do servidor e
           qualquer gerenciamento de permissão — não existe mutation para
