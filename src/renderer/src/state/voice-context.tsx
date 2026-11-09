@@ -32,7 +32,15 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
-import { playSelfLeaveTone } from '../lib/voice-sounds'
+import { playMuteStateChangeTone, playSelfLeaveTone } from '../lib/voice-sounds'
+import {
+  loadVoiceSelfState,
+  resolveSavedDevice,
+  saveVoiceSelfState,
+  toggleDeafen,
+  toggleMute,
+  type VoiceSelfState
+} from '../lib/voice-self-state'
 import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
 import {
   addScreenShareEntry,
@@ -137,37 +145,48 @@ export type VoiceContextValue = {
    */
   applyVoicePreferences: () => void
   /**
-   * Sincroniza o mute MANUAL (botão do rodapé) com o VAD: enquanto
-   * `muted` for `true`, o monitor de VAD não reabre o microfone ao
-   * detectar fala — sem isto, mutar manualmente com VAD ativo seria
-   * revertido no próximo momento em que a pessoa falasse. Chamado por
-   * `VoiceControlBar` a cada toggle de mute/deafen, nunca pelo próprio VAD.
-   */
-  setManualMute: (muted: boolean) => void
-  /**
-   * Plano 07-11: espelha o estado de ENSURDECER (botão do rodapé) para que
-   * o tom de "eu saí" (disparado direto daqui, na transição de saída, não
-   * mais via diff — ver `voice-sounds.ts`/`playSelfLeaveTone`) saiba se
-   * deve tocar. Mesma justificativa de `setManualMute`: quem ensurdeceu a
-   * si mesmo não quer ouvir som de notificação nenhum, nem o de sua
-   * própria saída. Chamado por `VoiceControlBar` a cada toggle de
-   * ensurdecer/desensurdecer (incluindo o desensurdecimento implícito de
-   * desmutar), nunca por nenhuma outra via.
-   */
-  setDeafened: (deafened: boolean) => void
-  /**
-   * Plano 08.5-11: ENSURDECIDO agora também é ESTADO, não só `deafenedRef`.
-   * O motivo é técnico e não cosmético: o efeito que aplica volume nas tracks
-   * remotas precisa de uma dependência REATIVA para reexecutar, e `ref` não
-   * reexecuta efeito nenhum. O ref continua existindo (é lido de dentro de
-   * callbacks assíncronos por `voice-sounds`), como espelho síncrono deste
-   * estado — `setDeafened` escreve nos dois.
+   * Rodada 1 do visual Discord: MIC MUTADO, dentro e fora da call. Estado de
+   * máquina salvo em `localStorage` (`lib/voice-self-state.ts`) — sobrevive ao
+   * fim da call e ao reinício do app, e quem entra mutado já entra assim.
+   * Ensurdecido implica mutado (`muted` é `true` sempre que `deafened` é).
    *
-   * Quem renderiza o botão do rodapé lê daqui, não de um `useState` próprio:
-   * até o Plano 08.5-11 o `VoiceControlBar` tinha uma cópia local, e cópia de
-   * estado que também mora aqui é divergência esperando para acontecer.
+   * Até esta rodada o botão do rodapé guardava uma cópia local que voltava a
+   * "desmutado" a cada entrada; agora é este o único lugar.
+   */
+  muted: boolean
+  /**
+   * ENSURDECIDO, dentro e fora da call, salvo junto de `muted`. Continua sendo
+   * ESTADO (Plano 08.5-11) porque o efeito que aplica volume nas tracks
+   * remotas precisa de dependência reativa para reexecutar; o espelho
+   * síncrono `deafenedRef` continua existindo para o tom de "eu saí" (Plano
+   * 07-11), lido de dentro da fila de transições.
    */
   deafened: boolean
+  /**
+   * Botão do mic. Ensurdecido, desensurdece e desmuta de uma vez (como no
+   * Discord). Fora da call só muda e salva o estado; em call também aplica
+   * no microfone publicado e sincroniza `voiceStates` no servidor. Desmutar
+   * nunca liga o microfone à força: devolve o controle ao VAD ou ao PTT.
+   * Não lança.
+   */
+  toggleMuted: () => Promise<void>
+  /**
+   * Botão do fone. Ensurdecer muta; desensurdecer devolve o mic como estava
+   * antes de ensurdecer. Mesmo alcance de `toggleMuted`. Não lança.
+   */
+  toggleDeafened: () => Promise<void>
+  /**
+   * Microfone e saída EM USO (`null` = padrão do sistema). Um dispositivo
+   * salvo que não está mais plugado não aparece aqui: a sala usa o padrão.
+   */
+  inputDeviceId: string | null
+  outputDeviceId: string | null
+  /**
+   * Troca microfone ou saída, dentro ou fora da call (fora, vale para a
+   * próxima entrada), e salva a escolha. Lança se o `Room` recusar a troca —
+   * nesse caso nada é salvo.
+   */
+  selectDevice: (kind: 'audioinput' | 'audiooutput', deviceId: string) => Promise<void>
   /**
    * VOICE-18 (Plano 08.5-11): volume (0..2) e "silenciado só para mim" por
    * `identity` (= `users._id`). Entrada ausente = volume normal. Estado de
@@ -262,6 +281,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // mesma premissa que `leaveVoiceChannelMutation` já usa na fila de
   // transições.
   const setSharingMutation = useMutation(api.voice.setSharing)
+  // Espelho de mic/fone no servidor (o que os outros veem). Desde a rodada 1
+  // do visual Discord quem chama é este provider, não mais o botão do rodapé.
+  const setMutedMutation = useMutation(api.voice.setMuted)
+  const setDeafenedMutation = useMutation(api.voice.setDeafened)
 
   // Um único `Room` para a vida inteira do provider (= vida do app montado).
   // `useState` com inicializador preguiçoso garante uma única instância
@@ -326,29 +349,50 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // pertence a outra sessão.
   const vadGenerationRef = useRef(0)
 
-  // Espelha o mute MANUAL (botão do rodapé) — ver `setManualMute` no valor
-  // do contexto. Resetado a cada novo join bem-sucedido (nova intenção =
-  // sempre destravado, mesma linha de base do resto da reconciliação
-  // mínima documentada no Plano 07-03).
-  const manualMuteRef = useRef(false)
+  // Mic e fone da própria pessoa (rodada 1 do visual Discord), carregados do
+  // `localStorage` na primeira renderização e salvos a cada mudança — ver
+  // `lib/voice-self-state.ts`. É ESTADO porque o rodapé renderiza a partir
+  // dele e o efeito de volume (VOICE-18, mais abaixo) precisa reexecutar
+  // quando `deafened` muda; `selfStateRef` é o espelho síncrono, lido de
+  // dentro da fila de transições e de callbacks assíncronos, onde uma closure
+  // sobre o estado estaria velha. Os dois são escritos juntos, sempre por
+  // `commitSelfState`.
+  const [selfState, setSelfState] = useState<VoiceSelfState>(loadVoiceSelfState)
+  const selfStateRef = useRef<VoiceSelfState>(selfState)
+  const { muted, deafened } = selfState
 
-  // Espelha ENSURDECER (botão do rodapé) — ver `setDeafened` no valor do
-  // contexto (Plano 07-11). Mesmo padrão/mesma justificativa de
-  // `manualMuteRef`, resetado a cada novo join bem-sucedido pela mesma
-  // linha de base.
-  //
-  // Plano 08.5-11: o ref CONTINUA (é lido de dentro de callbacks assíncronos
-  // da fila de transições, onde um valor capturado por closure estaria
-  // velho), mas agora é espelho do estado `deafened` abaixo. Os dois são
-  // escritos juntos, sempre por `setDeafened`.
-  const deafenedRef = useRef(false)
+  // Espelha o mute MANUAL (botão do rodapé): enquanto `true`, nem o VAD nem
+  // o PTT reabrem o microfone. Desde a rodada 1 do visual Discord parte do
+  // estado SALVO (não mais de "destravado" a cada join) e é escrito só por
+  // `commitSelfState`, de forma síncrona, ANTES de qualquer toque na track —
+  // sem isso um VAD em andamento poderia reabrir o microfone no instante
+  // seguinte ao clique (Plano 07-05).
+  const manualMuteRef = useRef(selfState.muted)
 
-  // ENSURDECIDO como ESTADO: o efeito de volume (VOICE-18, mais abaixo)
-  // precisa de dependência reativa para reexecutar quando o usuário
-  // ensurdece/desensurdece. Um `ref` não reexecuta efeito — foi por isso que
-  // o efeito antigo, no `VoiceControlBar`, dependia do `useState` local de
-  // lá. Ao centralizar a aplicação aqui, o estado veio junto.
-  const [deafened, setDeafenedState] = useState(false)
+  // Espelha ENSURDECER para o tom de "eu saí" (Plano 07-11), lido de dentro
+  // da fila de transições. Mesma origem e mesmo escritor de `manualMuteRef`.
+  const deafenedRef = useRef(selfState.deafened)
+
+  // O que a linha de `voiceStates` guarda AGORA, segundo as escritas deste
+  // provider: os argumentos do join e cada `setMuted`/`setDeafened` que
+  // terminou sem erro. `null` fora de call. É contra isto que
+  // `syncSelfStateToServer` decide o que mandar — uma escrita que falhou não
+  // atualiza este ref, então a próxima sincronização tenta de novo.
+  const serverSelfStateRef = useRef<{ muted: boolean; deafened: boolean } | null>(null)
+
+  // Microfone e saída EM USO (`null` = padrão). Começam no padrão e passam a
+  // valer o dispositivo salvo quando a restauração da montagem confirma que
+  // ele ainda está plugado — ver o efeito de restauração mais abaixo.
+  const [inputDeviceId, setInputDeviceId] = useState<string | null>(null)
+  const [outputDeviceId, setOutputDeviceId] = useState<string | null>(null)
+
+  // Tecla de PTT pressionada AGORA, segundo os eventos `onDown`/`onUp`. Lida
+  // por `applyVoicePreferencesAsync` para fechar o microfone em modo PTT sem
+  // cortar quem está de fato segurando a tecla. Zerada sempre que o modo
+  // salvo não é 'ptt' — mesmo motivo de `src/main/voice/ptt.ts` zerar o seu
+  // `isKeyCurrentlyDown` ao ligar/desligar a captura: com a captura
+  // desligada, o `keyup` nunca chega.
+  const pttKeyDownRef = useRef(false)
 
   // VOICE-18: volume individual por participante, carregado do `localStorage`
   // na primeira renderização do provider (inicializador preguiçoso: a leitura
@@ -502,6 +546,13 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       return false
     }
 
+    // O clone HERDA `enabled` da track publicada. Quando ela está mutada
+    // (entrou mutado, mute manual, ou o próprio VAD fechou antes de uma
+    // troca de dispositivo), o clone nasceria com `enabled = false` —
+    // silêncio digital, o mesmo deadlock descrito em `vadAnalysisTrackRef`.
+    // O clone nunca é publicado, então habilitá-lo não transmite nada.
+    analysisTrack.enabled = true
+
     vadAnalysisTrackRef.current = analysisTrack
 
     try {
@@ -561,6 +612,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // a chamada fica incondicional de propósito — quem sabe o que fazer com
     // ela é a plataforma, não este arquivo.
     pushToTalk.setActive(prefs.mode === 'ptt')
+    if (prefs.mode !== 'ptt') pttKeyDownRef.current = false
 
     if (activeChannelRef.current === null) return
 
@@ -570,8 +622,21 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     const generation = vadGenerationRef.current
 
     // modo 'ptt': não inicia o VAD — o Plano 07-06 assume o controle da
-    // track nesse modo.
-    if (prefs.mode !== 'vad') return
+    // track nesse modo. Mas o microfone FECHA aqui, salvo se a tecla está
+    // pressionada agora: até a rodada 1 do visual Discord este ramo só
+    // retornava, e quem entrava em modo PTT transmitia do join até o
+    // primeiro soltar de tecla (o join publica o microfone aberto). Fechar
+    // é sempre seguro — só a tecla (`onDown`) reabre.
+    if (prefs.mode !== 'vad') {
+      if (!pttKeyDownRef.current || manualMuteRef.current) {
+        try {
+          await room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+        } catch (err) {
+          console.error('[voice] PTT: falha ao fechar o microfone fora da tecla', err)
+        }
+      }
+      return
+    }
 
     // FAIL-OPEN: não muta o que não está sendo monitorado.
     if (!startVadMonitor(prefs)) return
@@ -689,16 +754,198 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }
 
-  function setManualMute(muted: boolean): void {
-    manualMuteRef.current = muted
+  // O ÚNICO escritor de mic/fone/dispositivos salvos. Escreve tudo de uma
+  // vez, de forma síncrona: os refs que o VAD, o PTT e a fila de transições
+  // leem (ANTES de qualquer `await` de quem chamou — é isso que faz o mute
+  // vencer um VAD já em andamento), o estado que a UI e o efeito de volume
+  // leem, e o `localStorage`.
+  function commitSelfState(next: VoiceSelfState): void {
+    selfStateRef.current = next
+    manualMuteRef.current = next.muted || next.deafened
+    deafenedRef.current = next.deafened
+    setSelfState(next)
+    saveVoiceSelfState(next)
   }
 
-  // Escreve nos DOIS lugares, sempre: o ref (lido por callbacks assíncronos,
-  // onde uma closure sobre o estado estaria velha) e o estado (que faz o
-  // efeito de volume reexecutar e o botão do rodapé rerenderizar).
-  function setDeafened(next: boolean): void {
-    deafenedRef.current = next
-    setDeafenedState(next)
+  // Aplica o mute salvo no microfone PUBLICADO. Só faz algo em call; fora
+  // dela não há track, e o join publica já no estado salvo.
+  //
+  // Mutado: fecha. Desmutado: NUNCA liga o microfone à força — devolve o
+  // controle a quem manda nele no modo salvo (o VAD, que reabre ao detectar
+  // fala; ou o PTT, que reabre com a tecla). `applyVoicePreferencesAsync`
+  // reinstala os dois a partir do zero, sobre a track atual.
+  async function applySelfStateToMicrophone(): Promise<void> {
+    if (activeChannelRef.current === null) return
+    if (manualMuteRef.current) {
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+      } catch (err) {
+        console.error('[voice] falha ao fechar o microfone', err)
+      }
+      return
+    }
+    await applyVoicePreferencesAsync()
+    await openMicrophoneIfVadFailed()
+  }
+
+  // O FAIL-OPEN do VAD (ver `startVadMonitor`) supunha a track ABERTA: se o
+  // monitor não sobe, ninguém a fecha e a pessoa continua sendo ouvida. Com
+  // mic e fone salvos, a track pode estar MUTADA quando o VAD falha (entrou
+  // mutado e desmutou, ou desmutou durante o join) — aí "não fechar" deixaria
+  // a pessoa muda sem saber. Nos caminhos que desmutam, esta função completa
+  // o contrato: modo VAD, mic desmutado e nenhum monitor de pé → abre.
+  async function openMicrophoneIfVadFailed(): Promise<void> {
+    if (activeChannelRef.current === null || manualMuteRef.current) return
+    if (loadVoicePreferences().mode !== 'vad' || vadMonitorRef.current !== null) return
+    console.error('[voice] VAD fora do ar com o mic desmutado — microfone ABERTO (fail-open)')
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
+    } catch (err) {
+      console.error('[voice] falha ao abrir o microfone sem VAD', err)
+    }
+  }
+
+  // Publica o microfone no join. Aberto, é o caminho de sempre
+  // (`setMicrophoneEnabled(true)`). MUTADO, a track é criada, mutada e SÓ
+  // ENTÃO publicada: publicar aberto e mutar depois deixaria passar áudio
+  // real entre os dois passos, e a publicação já chega ao SFU (e aos outros)
+  // como mutada, sem piscar desmutada.
+  //
+  // `localParticipant.createTracks` e não o `createLocalAudioTrack` solto: é
+  // a mesma fábrica que `setMicrophoneEnabled` usa por dentro, e a única que
+  // aplica o padrão de captura do `Room` (o microfone salvo, gravado por
+  // `switchActiveDevice`) e o `AudioContext` da sala. Com a função solta, quem
+  // entrasse mutado capturaria do microfone padrão do sistema. A publicação
+  // usa `source: Microphone`, então todo `setMicrophoneEnabled` seguinte
+  // (desmutar, VAD, PTT) encontra ESTA publicação e só a desmuta/muta — nunca
+  // cria uma segunda.
+  //
+  // Nada mais chama `setMicrophoneEnabled` durante esta janela: VAD, PTT,
+  // botões e troca de dispositivo só agem com `activeChannelRef` marcado, e
+  // ele só é marcado depois que esta função termina.
+  async function publishMicrophone(startMuted: boolean): Promise<void> {
+    if (!startMuted) {
+      await room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
+      return
+    }
+    const tracks = await room.localParticipant.createTracks({ audio: AUDIO_CAPTURE_OPTIONS })
+    const [track, ...extra] = tracks
+    extra.forEach((t) => t.stop())
+    if (!track) throw new Error('nenhuma track de microfone foi criada')
+    try {
+      await track.mute()
+      await room.localParticipant.publishTrack(track, { source: Track.Source.Microphone })
+    } catch (err) {
+      track.stop()
+      throw err
+    }
+  }
+
+  // Leva a linha de `voiceStates` ao estado salvo, mandando só o que
+  // diverge de `serverSelfStateRef`. A ordem reproduz a semântica do
+  // servidor: primeiro ensurdecer (que no servidor também muta, e
+  // desensurdecer não mexe no mic), depois o mute que ainda faltar.
+  //
+  // Roda sempre DENTRO da fila de transições (ver `enqueueServerSync` e o
+  // fim do join): nunca no meio de um join ou leave, e nunca duas ao mesmo
+  // tempo — `serverSelfStateRef` só é consistente assim. Lê o estado salvo
+  // na hora em que roda, não na do clique: três cliques rápidos viram, no
+  // máximo, uma escrita de verdade.
+  async function syncSelfStateToServer(): Promise<void> {
+    if (activeChannelRef.current === null) return
+    const server = serverSelfStateRef.current
+    if (server === null) return
+    const desired = selfStateRef.current
+    const desiredMuted = desired.muted || desired.deafened
+
+    try {
+      if (desired.deafened !== server.deafened) {
+        await setDeafenedMutation({ deafened: desired.deafened })
+        serverSelfStateRef.current = desired.deafened
+          ? { muted: true, deafened: true }
+          : { muted: server.muted, deafened: false }
+      }
+      const afterDeafen = serverSelfStateRef.current
+      if (afterDeafen !== null && desiredMuted !== afterDeafen.muted) {
+        await setMutedMutation({ muted: desiredMuted })
+        serverSelfStateRef.current = { muted: desiredMuted, deafened: afterDeafen.deafened }
+      }
+    } catch (err) {
+      // Linha apagada no meio (saída concorrente, webhook) ou rede: o
+      // estado salvo continua valendo e a próxima sincronização tenta de
+      // novo a partir do que de fato foi confirmado.
+      console.error('[voice] falha ao sincronizar mic/fone com o servidor', err)
+    }
+  }
+
+  // Botões do mic e do fone. Ordem: estado salvo (síncrono, refs inclusos) →
+  // tom → microfone → servidor. O microfone vem ANTES do servidor e fora da
+  // fila: mutar tem que fechar o microfone na hora, nunca esperar uma
+  // escrita de rede. Já o servidor vai para a fila de transições: um clique
+  // durante o join espera o join terminar, e o fim do join já sincroniza o
+  // que mudou enquanto ele acontecia.
+  //
+  // Tom de mute (Plano 07-11) só no botão do mic, como antes: ensurdecer é um
+  // pedido de "não quero ouvir nada", e um som de confirmação nessa hora é o
+  // contrário disso (ver `playMuteStateChangeTone`).
+  async function toggleMuted(): Promise<void> {
+    const next = toggleMute(selfStateRef.current)
+    commitSelfState(next)
+    playMuteStateChangeTone(next.muted)
+    await applySelfStateToMicrophone()
+    await enqueueServerSync()
+  }
+
+  async function toggleDeafened(): Promise<void> {
+    commitSelfState(toggleDeafen(selfStateRef.current))
+    await applySelfStateToMicrophone()
+    await enqueueServerSync()
+  }
+
+  // Troca o dispositivo no `Room` (dentro ou fora da call) SEM `exact`: se o
+  // dispositivo sumir entre a escolha e a próxima entrada, o SDK cai para o
+  // padrão em vez de a entrada falhar.
+  //
+  // Microfone trocado em call com a track MUTADA (VAD fechado, mute manual,
+  // entrou mutado): o SDK só guarda o dispositivo novo e adia a troca para o
+  // próximo `unmute` (`LocalTrack.setDeviceId`, livekit-client 2.22). Até lá
+  // a track publicada continua no microfone ANTIGO — e o clone do VAD,
+  // refeito pelo `ActiveDeviceChanged` que o SDK emite na hora, também. O VAD
+  // passaria a ouvir o microfone abandonado (ou um morto, se ele foi
+  // desplugado) e nunca reabriria. Por isso a troca é forçada aqui, com a
+  // track ainda mutada (`restart` mantém `enabled = false`, nada vaza), e o
+  // VAD é reinstalado sobre a track nova.
+  async function applyDevice(kind: 'audioinput' | 'audiooutput', deviceId: string): Promise<void> {
+    const switched = await room.switchActiveDevice(kind, deviceId, false)
+    if (!switched) {
+      console.warn('[voice] %s: o dispositivo em uso difere do pedido (%s)', kind, deviceId)
+    }
+    if (kind !== 'audioinput' || activeChannelRef.current === null) return
+    const micTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
+    if (!micTrack || !micTrack.isMuted) return
+    if (micTrack.mediaStreamTrack.getSettings().deviceId === deviceId) return
+    try {
+      await micTrack.restartTrack()
+    } catch (err) {
+      console.error(
+        '[voice] falha ao trocar o microfone mutado; a troca fica para o próximo unmute',
+        err
+      )
+      return
+    }
+    applyVoicePreferences()
+  }
+
+  async function selectDevice(kind: 'audioinput' | 'audiooutput', deviceId: string): Promise<void> {
+    await applyDevice(kind, deviceId)
+    const current = selfStateRef.current
+    if (kind === 'audioinput') {
+      commitSelfState({ ...current, inputDeviceId: deviceId })
+      setInputDeviceId(deviceId)
+    } else {
+      commitSelfState({ ...current, outputDeviceId: deviceId })
+      setOutputDeviceId(deviceId)
+    }
   }
 
   // Grava o mapa inteiro: persiste, atualiza o espelho síncrono e publica o
@@ -1124,6 +1371,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // a um canal do qual o app já caiu.
       if (activeChannelRef.current !== null) {
         activeChannelRef.current = null
+        serverSelfStateRef.current = null
         stopVadMonitor()
         setJoinedVoiceChannelId(null)
       }
@@ -1189,6 +1437,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     const offPtt = pushToTalk.subscribe({
       onDown: () => {
+        // Antes de qualquer guarda: o estado da tecla vale mesmo fora da
+        // call, para o join em modo PTT saber se deve fechar o microfone.
+        pttKeyDownRef.current = true
         if (activeChannelRef.current === null) return
         if (loadVoicePreferences().mode !== 'ptt') return
         // Mute manual sempre vence — mesma regra do VAD (ver
@@ -1198,6 +1449,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
         void room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
       },
       onUp: () => {
+        pttKeyDownRef.current = false
         if (activeChannelRef.current === null) return
         if (loadVoicePreferences().mode !== 'ptt') return
         // Desligar é sempre permitido, mesmo com mute manual ativo — harmless,
@@ -1216,11 +1468,89 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Rodada 1 do visual Discord: devolve ao `Room` o microfone e a saída
+  // salvos, uma vez, na montagem — antes de qualquer call, para o join já
+  // capturar do microfone escolhido (`switchActiveDevice` com a sala
+  // desconectada só grava o padrão de captura/saída, que o SDK usa ao
+  // publicar e ao tocar quem entrar).
+  //
+  // Dispositivo salvo que não está mais plugado (fone USB tirado entre uma
+  // call e outra) fica de fora: a sala usa o padrão do sistema e a entrada
+  // não falha. A escolha continua salva — plugado de novo, vale no próximo
+  // início do app. `enumerateDevices` e não `Room.getLocalDevices`: este
+  // pede permissão de microfone (abre a captura) quando os rótulos vêm
+  // vazios, e nada aqui precisa de rótulo.
+  useEffect(() => {
+    let cancelled = false
+    const saved = selfStateRef.current
+    if (saved.inputDeviceId === null && saved.outputDeviceId === null) return
+
+    async function restoreSavedDevices(): Promise<void> {
+      let devices: MediaDeviceInfo[]
+      try {
+        devices = await navigator.mediaDevices.enumerateDevices()
+      } catch (err) {
+        console.error('[voice] falha ao listar dispositivos para restaurar os salvos', err)
+        return
+      }
+
+      const kinds = [
+        { kind: 'audioinput', savedId: saved.inputDeviceId, setInUse: setInputDeviceId },
+        { kind: 'audiooutput', savedId: saved.outputDeviceId, setInUse: setOutputDeviceId }
+      ] as const
+      for (const { kind, savedId, setInUse } of kinds) {
+        if (cancelled) return
+        const id = resolveSavedDevice(
+          savedId,
+          devices.filter((device) => device.kind === kind)
+        )
+        if (id === null) {
+          if (savedId !== null) {
+            console.warn('[voice] %s salvo não está plugado; usando o padrão', kind)
+          }
+          continue
+        }
+        // A pessoa já escolheu outro dispositivo enquanto a lista carregava:
+        // a escolha dela vence a restauração.
+        const current =
+          kind === 'audioinput'
+            ? selfStateRef.current.inputDeviceId
+            : selfStateRef.current.outputDeviceId
+        if (current !== savedId) continue
+        try {
+          await applyDevice(kind, id)
+          if (!cancelled) setInUse(id)
+        } catch (err) {
+          console.error('[voice] falha ao restaurar o %s salvo; usando o padrão', kind, err)
+        }
+      }
+    }
+
+    void restoreSavedDevices()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room])
+
   // Fila serializada de transições: cada mudança de `joinedVoiceChannelId`
   // encadeia um passo na mesma promise, garantindo que um leave anterior
   // sempre termine antes do próximo join começar — mesmo que o usuário troque
   // de canal de voz rapidamente (channelA -> channelB sem passar por null).
   const transitionChainRef = useRef<Promise<void>>(Promise.resolve())
+
+  // Sincronização de mic/fone com o servidor como mais um passo da fila: um
+  // clique durante um join/leave espera ele terminar, e duas sincronizações
+  // nunca correm juntas (ver `syncSelfStateToServer`). Nunca rejeita.
+  function enqueueServerSync(): Promise<void> {
+    const step = transitionChainRef.current
+      .catch(() => {
+        // Erro de um passo anterior já foi logado por ele.
+      })
+      .then(() => syncSelfStateToServer())
+    transitionChainRef.current = step
+    return step
+  }
 
   // 07-10: alvo já RECLAMADO por uma invocação deste efeito, atualizado de
   // forma SÍNCRONA — antes de qualquer `await`, antes até de enfileirar
@@ -1266,6 +1596,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
         if (activeChannelRef.current !== null) {
           activeChannelRef.current = null
+          // A linha de `voiceStates` deixa de existir com o leave abaixo.
+          serverSelfStateRef.current = null
 
           // Plano 07-11 (correção de defeito relatado após teste em
           // Windows: "quando eu saio da call, nenhum som toca"). Disparado
@@ -1334,31 +1666,54 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
               return
             }
 
-            const { token, url } = await joinVoiceChannel({ channelId: target })
+            // Rodada 1 do visual Discord: a entrada respeita o mic e o fone
+            // SALVOS (até aqui, todo join voltava a "desmutado"). A linha de
+            // `voiceStates` já nasce nesse estado, então quem entra mutado
+            // nunca aparece desmutado para os outros.
+            const joinSelf = selfStateRef.current
+            const joinDeafened = joinSelf.deafened
+            const joinMuted = joinSelf.muted || joinDeafened
+            const { token, url } = await joinVoiceChannel({
+              channelId: target,
+              muted: joinMuted,
+              deafened: joinDeafened
+            })
+            serverSelfStateRef.current = { muted: joinMuted, deafened: joinDeafened }
             await room.connect(url, token)
             // VOICE-16: cancelamento de eco, supressão de ruído e ganho
             // automático nunca vêm ligados por padrão — precisam ser
-            // setados explicitamente aqui, sempre.
-            await room.localParticipant.setMicrophoneEnabled(true, AUDIO_CAPTURE_OPTIONS)
+            // setados explicitamente aqui, sempre (`publishMicrophone` passa
+            // `AUDIO_CAPTURE_OPTIONS` nos dois caminhos). O mute é relido
+            // AGORA, não o do início do join: quem mutou durante o connect
+            // já publica mutado.
+            await publishMicrophone(manualMuteRef.current)
             activeChannelRef.current = target
-            // Nova intenção de join = sempre destravado (mesma linha de
-            // base da reconciliação mínima do Plano 07-03).
-            manualMuteRef.current = false
-            // Plano 08.5-11: `setDeafened` (não `deafenedRef.current = false`
-            // direto) porque agora existe ESTADO junto do ref, e o
-            // `VoiceControlBar` renderiza o botão a partir dele. Antes deste
-            // plano os dois divergiam neste exato ponto: o ref só zerava aqui
-            // (join bem-sucedido), enquanto a cópia local do rodapé zerava na
-            // troca de INTENÇÃO — ou seja, um join que falhava deixava o botão
-            // dizendo "não ensurdecido" com o ref dizendo o contrário.
-            setDeafened(false)
+            // `manualMuteRef`/`deafenedRef` NÃO são mais zerados aqui: partem
+            // do estado salvo e só `commitSelfState` os escreve. Um clique no
+            // mic durante o publish (com `activeChannelRef` ainda vazio) só
+            // mudou o estado salvo — se ele pede mutado e a track saiu
+            // aberta, fecha já, antes de qualquer outra coisa.
+            if (manualMuteRef.current) {
+              try {
+                await room.localParticipant.setMicrophoneEnabled(false, AUDIO_CAPTURE_OPTIONS)
+              } catch (err) {
+                console.error('[voice] falha ao fechar o microfone mutado no join', err)
+              }
+            }
             // Aplica a preferência de transmissão salva (VAD por padrão) à
             // track recém-publicada. Em modo VAD, a track existe mas
             // começa desabilitada — o VAD é quem liga/desliga a partir
-            // daqui (07-05-PLAN.md Task 2). Com `await`: o join só termina
-            // com o estado de transmissão de fato aplicado, então um leave
-            // imediatamente depois não corre contra um setup pela metade.
+            // daqui (07-05-PLAN.md Task 2); em modo PTT ela fecha até a
+            // tecla. Com `await`: o join só termina com o estado de
+            // transmissão de fato aplicado, então um leave imediatamente
+            // depois não corre contra um setup pela metade.
             await applyVoicePreferencesAsync()
+            // Publicado mutado e desmutado durante o connect: se o VAD não
+            // subiu, ninguém abriria a track (ver a função).
+            await openMicrophoneIfVadFailed()
+            // Leva ao servidor o que mudou desde os argumentos do join (um
+            // clique durante o connect). Normalmente não manda nada.
+            await syncSelfStateToServer()
           } catch (err) {
             console.error('[voice] falha ao entrar no canal de voz', err)
             // A intenção não pôde ser cumprida — devolve a UI para o estado
@@ -1378,6 +1733,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // solta.
             if (activeChannelRef.current !== target) {
               lastEnqueuedTargetRef.current = null
+              serverSelfStateRef.current = null
             }
           }
         }
@@ -1391,9 +1747,13 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     speakingUserIds,
     connectionQualities,
     applyVoicePreferences,
-    setManualMute,
-    setDeafened,
+    muted,
     deafened,
+    toggleMuted,
+    toggleDeafened,
+    inputDeviceId,
+    outputDeviceId,
+    selectDevice,
     participantVolumes,
     setParticipantVolume,
     toggleParticipantSilenced,

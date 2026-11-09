@@ -1,11 +1,10 @@
-import { useState } from 'react'
-import { useMutation, useQuery } from 'convex/react'
+import { useQuery } from 'convex/react'
 import { Headphones, Mic, MicOff, MonitorUp, PhoneOff, Signal, VolumeX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { playMuteStateChangeTone, useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
+import { useVoiceJoinLeaveSounds } from '@/lib/voice-sounds'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
 
@@ -192,101 +191,19 @@ export function VoiceControlBar(): React.JSX.Element | null {
 // FAIXA 3 — controles rápidos, montados pelo `AppShell` ao lado do painel do
 // usuário (ver a nota de disposição no topo deste arquivo).
 //
-// O estado de mute veio junto com os botões: `muted` é `useState` local — não
-// porque é mock, mas porque não existe ainda (Plano 07-04) uma query pública
-// de "minha linha de voiceStates" para ler a fonte da verdade do servidor. Por
-// isso, ao completar um NOVO join, o estado local reseta para "destravado" —
-// mesma linha de base que `upsertVoiceState` usa para uma linha nova.
-//
-// `deafened` NÃO é local: mora em `voice-context.tsx` desde o Plano 08.5-11,
-// porque volume individual (VOICE-18) e ensurdecimento escrevem na MESMA
-// propriedade das tracks remotas e um efeito só aplica os dois.
+// Desde a rodada 1 do visual Discord estes botões não guardam estado nenhum e
+// não falam com o servidor: `muted`, `deafened` e os dois toggles moram em
+// `voice-context.tsx`, salvos em `localStorage`, e funcionam também FORA da
+// call — mutar ou ensurdecer antes de entrar faz a pessoa entrar assim. Por
+// isso os botões nunca ficam desabilitados. Antes, `muted` era um `useState`
+// local que voltava a "desmutado" a cada nova entrada, e os botões só
+// funcionavam com a sala conectada.
 export function VoiceQuickControls(): React.JSX.Element {
   const { joinedVoiceChannelId } = useSelection()
-  const { room, connectionState, setManualMute, deafened, setDeafened } = useVoice()
-
-  const setMutedMutation = useMutation(api.voice.setMuted)
-  const setDeafenedMutation = useMutation(api.voice.setDeafened)
-
-  const [muted, setMutedState] = useState(false)
+  const { connectionState, muted, deafened, toggleMuted, toggleDeafened } = useVoice()
 
   const hasIntention = joinedVoiceChannelId !== null
   const isReady = hasIntention && connectionState === 'connected'
-
-  // Reconciliação mínima ao (re)conectar: uma nova intenção de join sempre
-  // nasce destravada — não dispara em reconexões automáticas do próprio
-  // LiveKit (connectionState oscilando connected -> reconnecting -> connected
-  // sem `joinedVoiceChannelId` mudar), só quando o usuário de fato troca de
-  // canal de voz. Ajuste de estado durante o render (não dentro de um
-  // `useEffect`) — padrão recomendado pelo React para "resetar estado quando
-  // uma prop muda", sem o commit extra de um efeito rodando depois do primeiro
-  // paint. O reset do ENSURDECER não está aqui de propósito: acontece dentro
-  // de `voice-context.tsx`, no join bem-sucedido (Plano 08.5-11).
-  const [syncedChannelId, setSyncedChannelId] = useState(joinedVoiceChannelId)
-  if (joinedVoiceChannelId !== syncedChannelId) {
-    setSyncedChannelId(joinedVoiceChannelId)
-    if (joinedVoiceChannelId !== null) {
-      setMutedState(false)
-    }
-  }
-
-  async function toggleMuted(): Promise<void> {
-    const next = !muted
-    try {
-      await setMutedMutation({ muted: next })
-    } catch (err) {
-      console.error('[voice] setMuted falhou', err)
-      return
-    }
-    // Plano 07-05: sincroniza o mute manual com o VAD ANTES de tocar na track —
-    // sem isso, um monitor de VAD já em andamento poderia reabrir o microfone
-    // no instante seguinte se a pessoa estivesse falando.
-    setManualMute(next)
-    // VOICE-16: mesmo neste caminho de toggle (que na prática só muta/desmuta a
-    // track já publicada com as opções do join), as três opções são passadas de
-    // novo explicitamente. Nunca ficam implícitas em nenhum caminho que
-    // habilita o microfone.
-    await room.localParticipant.setMicrophoneEnabled(!next, {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    })
-    setMutedState(next)
-    // Plano 07-11: tom de mute/desmute do PRÓPRIO microfone. Chamado SÓ aqui —
-    // o único lugar onde a mudança de mute é uma decisão manual real. Nunca do
-    // VAD nem do push-to-talk (`voice-context.tsx`), nem do lado "ensurdecer
-    // implica mutar" de `toggleDeafened`.
-    playMuteStateChangeTone(next)
-    // Desativar mute enquanto ensurdecido também desativa o ensurdecimento — a
-    // mutation já aplicou essa semântica no servidor (design §8); aqui só
-    // refletimos o resultado na UI e na reprodução local.
-    if (!next && deafened) {
-      setDeafened(false)
-    }
-  }
-
-  async function toggleDeafened(): Promise<void> {
-    const next = !deafened
-    try {
-      await setDeafenedMutation({ deafened: next })
-    } catch (err) {
-      console.error('[voice] setDeafened falhou', err)
-      return
-    }
-    // Plano 08.5-11: esta chamada é o que atualiza o ícone (o estado mora no
-    // contexto), o que faz o efeito de volume de lá reexecutar zerando ou
-    // restaurando a reprodução de todo mundo, e o que informa ao tom de "eu
-    // saí" que ele deve ficar em silêncio (Plano 07-11). Uma chamada, três
-    // consequências, um lugar só.
-    setDeafened(next)
-    // Ativar deafen implica mute (design §8) — a mutation já aplicou isso no
-    // servidor; aqui refletimos no microfone real e no ícone.
-    if (next && !muted) {
-      setManualMute(true)
-      await room.localParticipant.setMicrophoneEnabled(false)
-      setMutedState(true)
-    }
-  }
 
   return (
     <div className="flex flex-none items-center gap-0.5">
@@ -296,7 +213,6 @@ export function VoiceQuickControls(): React.JSX.Element {
             type="button"
             variant="ghost"
             size="icon-sm"
-            disabled={!isReady}
             aria-pressed={muted}
             onClick={() => void toggleMuted()}
           >
@@ -312,7 +228,6 @@ export function VoiceQuickControls(): React.JSX.Element {
             type="button"
             variant="ghost"
             size="icon-sm"
-            disabled={!isReady}
             aria-pressed={deafened}
             onClick={() => void toggleDeafened()}
           >

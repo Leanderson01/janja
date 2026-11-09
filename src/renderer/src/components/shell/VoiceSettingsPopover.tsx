@@ -53,13 +53,21 @@ export function VoiceSettingsPopover({
    * Plano 07-09: o testador de microfone precisa funcionar sem nenhum canal
    * conectado (VOICE-21) — `VoiceControlBar` agora renderiza este popover sempre,
    * não só quando há intenção de canal. As seções que dependem de um `Room` real
-   * (modo, limiar com nível ao vivo do próprio VAD, seleção de dispositivo do
-   * `Room`) continuam condicionadas a `hasVoiceIntention`; o botão de teste de
-   * microfone não.
+   * conectado (modo e limiar com nível ao vivo do próprio VAD) continuam
+   * condicionadas a `hasVoiceIntention`; o teste de microfone e, desde a rodada 1
+   * do visual Discord, a escolha de dispositivo não (a escolha feita fora da call
+   * é salva e vale ao entrar).
    */
   hasVoiceIntention?: boolean
 }): React.JSX.Element {
-  const { room, applyVoicePreferences, getVadAnalysisTrack } = useVoice()
+  const {
+    room,
+    applyVoicePreferences,
+    getVadAnalysisTrack,
+    inputDeviceId,
+    outputDeviceId,
+    selectDevice
+  } = useVoice()
 
   const [open, setOpen] = useState(false)
   const [prefs, setPrefs] = useState(() => loadVoicePreferences())
@@ -72,31 +80,31 @@ export function VoiceSettingsPopover({
 
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([])
-  const [activeInputId, setActiveInputId] = useState<string | undefined>(undefined)
-  const [activeOutputId, setActiveOutputId] = useState<string | undefined>(undefined)
+
+  // Dispositivo em uso: o escolhido (salvo pelo provider, dentro ou fora da
+  // call) ou, sem escolha, o que a sala reporta. `undefined` mostra o
+  // placeholder do Select.
+  const activeInputId = inputDeviceId ?? room.getActiveDevice('audioinput')
+  const activeOutputId = outputDeviceId ?? room.getActiveDevice('audiooutput')
 
   const [level, setLevel] = useState(0)
 
-  // Snapshot do valor ativo/preferências ao ABRIR (mesmo padrão de "ajustar
-  // estado durante o render" já usado em VoiceControlBar.tsx para resetar
-  // mute/deafen numa nova intenção de join — evita o commit extra de um
-  // `useEffect` só para sincronizar estado local com uma mudança de prop).
+  // Snapshot das preferências ao ABRIR ("ajustar estado durante o render" —
+  // evita o commit extra de um `useEffect` só para sincronizar estado local
+  // com uma mudança de prop).
   const [syncedOpen, setSyncedOpen] = useState(open)
   if (open !== syncedOpen) {
     setSyncedOpen(open)
     if (open) {
-      setActiveInputId(room.getActiveDevice('audioinput'))
-      setActiveOutputId(room.getActiveDevice('audiooutput'))
       setPrefs(loadVoicePreferences())
     }
   }
 
   // `enumerateDevices()` é assíncrono (pode pedir permissão) — fica num
-  // efeito de verdade, só ativo enquanto o popover está aberto E há um canal
-  // conectado (Plano 07-09: sem `hasVoiceIntention`, esta seção nem aparece —
-  // ver o JSX abaixo — então não há Select nenhum para popular).
+  // efeito de verdade, só ativo enquanto o popover está aberto. Desde a
+  // rodada 1 do visual Discord, com ou sem canal conectado.
   useEffect(() => {
-    if (!open || !hasVoiceIntention) return
+    if (!open) return
     let cancelled = false
 
     async function loadDevices(): Promise<void> {
@@ -106,8 +114,11 @@ export function VoiceSettingsPopover({
           Room.getLocalDevices('audiooutput')
         ])
         if (cancelled) return
-        setInputDevices(inputs)
-        setOutputDevices(outputs)
+        // Sem permissão de microfone o navegador lista dispositivos com
+        // `deviceId` vazio — agora alcançável fora da call — e o `SelectItem`
+        // do Radix não aceita valor vazio.
+        setInputDevices(inputs.filter((device) => device.deviceId !== ''))
+        setOutputDevices(outputs.filter((device) => device.deviceId !== ''))
       } catch (err) {
         console.error('[voice] falha ao listar dispositivos de áudio', err)
       }
@@ -118,7 +129,7 @@ export function VoiceSettingsPopover({
     return () => {
       cancelled = true
     }
-  }, [open, hasVoiceIntention])
+  }, [open])
 
   // Medidor de nível ao vivo para o usuário calibrar o limiar vendo a
   // própria voz. Cria SEU PRÓPRIO monitor (threshold acima de qualquer
@@ -155,6 +166,9 @@ export function VoiceSettingsPopover({
         console.error('[voice] falha ao clonar a track para o medidor de nível', err)
         return
       }
+      // Mesmo motivo do clone do VAD no provider: o clone herda `enabled`
+      // da publicada, que em PTT fica mutada fora da tecla. Não é publicado.
+      meterTrack.enabled = true
       ownsTrack = true
     }
 
@@ -216,12 +230,13 @@ export function VoiceSettingsPopover({
     applyVoicePreferences()
   }
 
+  // VOICE-13: nunca desconectar/reconectar a sala para trocar de
+  // dispositivo — `selectDevice` usa `switchActiveDevice`, que troca a track
+  // ativa por baixo (ou, fora da call, o padrão da próxima entrada) e salva a
+  // escolha.
   async function handleInputChange(deviceId: string): Promise<void> {
     try {
-      // VOICE-13: nunca desconectar/reconectar a sala para trocar de
-      // dispositivo — `switchActiveDevice` troca a track ativa por baixo.
-      await room.switchActiveDevice('audioinput', deviceId)
-      setActiveInputId(deviceId)
+      await selectDevice('audioinput', deviceId)
     } catch (err) {
       console.error('[voice] falha ao trocar microfone', err)
     }
@@ -229,8 +244,7 @@ export function VoiceSettingsPopover({
 
   async function handleOutputChange(deviceId: string): Promise<void> {
     try {
-      await room.switchActiveDevice('audiooutput', deviceId)
-      setActiveOutputId(deviceId)
+      await selectDevice('audiooutput', deviceId)
     } catch (err) {
       console.error('[voice] falha ao trocar saída de áudio', err)
     }
@@ -328,9 +342,43 @@ export function VoiceSettingsPopover({
           </p>
         </div>
 
+        {/* Rodada 1 do visual Discord: dispositivos fora da trava de canal —
+            a escolha feita fora da call é salva e vale ao entrar. */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Microfone</span>
+          <Select value={activeInputId} onValueChange={(value) => void handleInputChange(value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Selecionar microfone" />
+            </SelectTrigger>
+            <SelectContent>
+              {inputDevices.map((device) => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || 'Microfone'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Saída de áudio</span>
+          <Select value={activeOutputId} onValueChange={(value) => void handleOutputChange(value)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Selecionar saída" />
+            </SelectTrigger>
+            <SelectContent>
+              {outputDevices.map((device) => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || 'Saída de áudio'}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {!hasVoiceIntention && (
           <p className="text-xs text-muted-foreground">
-            Entre em um canal de voz para ajustar modo, limiar e dispositivos ao vivo.
+            Entre em um canal de voz para ajustar modo e limiar ao vivo.
           </p>
         )}
 
@@ -381,44 +429,6 @@ export function VoiceSettingsPopover({
                   style={{ width: `${Math.min(level, 1) * 100}%` }}
                 />
               </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Microfone</span>
-              <Select
-                value={activeInputId}
-                onValueChange={(value) => void handleInputChange(value)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Selecionar microfone" />
-                </SelectTrigger>
-                <SelectContent>
-                  {inputDevices.map((device) => (
-                    <SelectItem key={device.deviceId} value={device.deviceId}>
-                      {device.label || 'Microfone'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Saída de áudio</span>
-              <Select
-                value={activeOutputId}
-                onValueChange={(value) => void handleOutputChange(value)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Selecionar saída" />
-                </SelectTrigger>
-                <SelectContent>
-                  {outputDevices.map((device) => (
-                    <SelectItem key={device.deviceId} value={device.deviceId}>
-                      {device.label || 'Saída de áudio'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </>
         )}

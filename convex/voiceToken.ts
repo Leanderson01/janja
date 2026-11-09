@@ -43,7 +43,7 @@ const validateVoiceJoinRef = makeFunctionReference<
 
 const upsertVoiceStateRef = makeFunctionReference<
   'mutation',
-  { channelId: Id<'channels'>; userId: Id<'users'> },
+  { channelId: Id<'channels'>; userId: Id<'users'>; muted?: boolean; deafened?: boolean },
   null
 >('voice:upsertVoiceState')
 
@@ -54,8 +54,15 @@ const resolveAuthenticatedUserIdRef = makeFunctionReference<
 >('voice:resolveAuthenticatedUserId')
 
 export const joinVoiceChannel = action({
-  args: { channelId: v.id('channels') },
-  handler: async (ctx, { channelId }): Promise<{ token: string; url: string }> => {
+  // `muted`/`deafened` (rodada 1 do visual Discord): o estado do mic e do fone que a
+  // pessoa escolheu ANTES de entrar. Opcionais — quem não manda (cliente antigo)
+  // continua com o comportamento de antes, linha nova desmutada.
+  args: {
+    channelId: v.id('channels'),
+    muted: v.optional(v.boolean()),
+    deafened: v.optional(v.boolean())
+  },
+  handler: async (ctx, { channelId, muted, deafened }): Promise<{ token: string; url: string }> => {
     const identity = await ctx.auth.getUserIdentity()
     if (!identity) throw new Error('Não autenticado')
 
@@ -86,7 +93,7 @@ export const joinVoiceChannel = action({
     })
     const jwt = await accessToken.toJwt()
 
-    await ctx.runMutation(upsertVoiceStateRef, { channelId, userId })
+    await ctx.runMutation(upsertVoiceStateRef, { channelId, userId, muted, deafened })
 
     return { token: jwt, url }
   },

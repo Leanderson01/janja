@@ -273,6 +273,117 @@ describe('voice.joinVoiceChannel — sucesso', () => {
       expect(rows[0].muted).toBe(true)
     })
   })
+
+  // Rodada 1 do visual Discord: mic e fone valem fora da call. Quem mutou ou
+  // ensurdeceu antes de entrar já nasce assim na linha, sem aparecer desmutado
+  // para os outros por um instante.
+  test('entrar com { deafened: true } cria a linha mutada e ensurdecida', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId, deafened: true })
+
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].muted).toBe(true)
+      expect(rows[0].deafened).toBe(true)
+      expect(rows[0].sharing).toBe(false)
+    })
+  })
+
+  test('entrar com { muted: true } cria a linha mutada e não ensurdecida', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId, muted: true })
+
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].muted).toBe(true)
+      expect(rows[0].deafened).toBe(false)
+    })
+  })
+
+  test('entrar sem os argumentos numa linha que já existe não muda mutado nem ensurdecido', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      await asAna.mutation(anyApi.voice.setDeafened, { deafened: true })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].muted).toBe(true)
+      expect(rows[0].deafened).toBe(true)
+    })
+  })
+
+  test('entrar com os argumentos numa linha que já existe passa a valer o estado enviado', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, { channelId })
+      await asAna.mutation(anyApi.voice.setDeafened, { deafened: true })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, {
+        channelId,
+        muted: false,
+        deafened: false
+      })
+
+      const rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].muted).toBe(false)
+      expect(rows[0].deafened).toBe(false)
+    })
+  })
+
+  test('nunca grava ensurdecido sem mutado, nem numa linha nova nem numa existente', async () => {
+    await withLiveKitEnv(async () => {
+      const t = convexTest(schema, modules)
+      const anaWorkosId = 'workos_ana'
+      const anaId = await insertUser(t, anaWorkosId, 'ana', '0001')
+      const { channelId } = await insertServerWithChannel(t, anaId)
+      const asAna = t.withIdentity({ subject: anaWorkosId })
+
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, {
+        channelId,
+        muted: false,
+        deafened: true
+      })
+      let rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows[0].muted).toBe(true)
+      expect(rows[0].deafened).toBe(true)
+
+      await asAna.mutation(anyApi.voice.setDeafened, { deafened: false })
+      await asAna.mutation(anyApi.voice.setMuted, { muted: false })
+      await asAna.action(anyApi.voiceToken.joinVoiceChannel, {
+        channelId,
+        muted: false,
+        deafened: true
+      })
+      rows = await t.run((ctx) => ctx.db.query('voiceStates').collect())
+      expect(rows).toHaveLength(1)
+      expect(rows[0].muted).toBe(true)
+      expect(rows[0].deafened).toBe(true)
+    })
+  })
 })
 
 describe('voiceToken.mintMicTestTokens (Plano 07-09: testador de microfone)', () => {

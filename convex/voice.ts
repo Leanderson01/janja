@@ -60,24 +60,45 @@ export const resolveAuthenticatedUserId = internalQuery({
 })
 
 /**
- * Upsert por `by_channel_and_user`: se a linha já existe (reconectar ao mesmo canal),
- * não reseta `muted`/`deafened` de uma sessão anterior — só garante que ela existe.
- * Nunca duplica linha para o mesmo (channelId, userId).
+ * Upsert por `by_channel_and_user`. Nunca duplica linha para o mesmo (channelId, userId).
+ *
+ * `muted`/`deafened` (rodada 1 do visual Discord) são o estado do mic e do fone que o
+ * cliente escolheu antes de entrar, para a linha já NASCER assim — sem isto quem entra
+ * mutado aparece desmutado para os outros até a primeira `setMuted` chegar. Mesma
+ * regra de `setDeafened`: ensurdecido sempre implica mutado.
+ *
+ * Linha que já existe (reconectar ao mesmo canal): sem os argumentos, não reseta
+ * `muted`/`deafened` de uma sessão anterior — só garante que ela existe. Com eles, o
+ * estado enviado passa a valer (é o que a pessoa vê no próprio botão agora).
  */
 export const upsertVoiceState = internalMutation({
-  args: { channelId: v.id('channels'), userId: v.id('users') },
-  handler: async (ctx, { channelId, userId }) => {
+  args: {
+    channelId: v.id('channels'),
+    userId: v.id('users'),
+    muted: v.optional(v.boolean()),
+    deafened: v.optional(v.boolean())
+  },
+  handler: async (ctx, { channelId, userId, muted, deafened }) => {
     const existing = await ctx.db
       .query('voiceStates')
       .withIndex('by_channel_and_user', (q) => q.eq('channelId', channelId).eq('userId', userId))
       .unique()
-    if (existing) return null
+
+    if (existing) {
+      if (muted === undefined && deafened === undefined) return null
+      const nextDeafened = deafened ?? existing.deafened
+      await ctx.db.patch(existing._id, {
+        muted: (muted ?? existing.muted) || nextDeafened,
+        deafened: nextDeafened
+      })
+      return null
+    }
 
     await ctx.db.insert('voiceStates', {
       channelId,
       userId,
-      muted: false,
-      deafened: false,
+      muted: (muted ?? false) || (deafened ?? false),
+      deafened: deafened ?? false,
       sharing: false
     })
     return null
