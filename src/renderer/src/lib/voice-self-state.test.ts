@@ -7,7 +7,8 @@ import {
   saveVoiceSelfState,
   shouldPublishMicrophoneMuted,
   toggleDeafen,
-  toggleMute
+  toggleMute,
+  toneForSelfStateChange
 } from './voice-self-state'
 
 // Mesmo arranjo de `participant-volumes.test.ts`: o ambiente padrão dos testes
@@ -175,4 +176,40 @@ describe('voice-self-state — publicar o microfone mutado no join', () => {
     expect(
       shouldPublishMicrophoneMuted({ muted: true, deafened: true, mode: 'ptt', pttKeyDown: true })
     ).toBe(true))
+})
+
+// Follow-up 1: tons de mic e fone como no Discord. Decisão do Leo: ensurdecer e
+// desensurdecer agora TÊM tom próprio (revoga a regra antiga de nunca tocar do
+// lado do fone), e ensurdecer não toca o tom de mutar junto.
+describe('voice-self-state — tom de cada clique', () => {
+  // Cada caso aplica o clique de verdade (toggleMute/toggleDeafen) e pergunta
+  // qual tom aquela mudança toca.
+  function toneOf(prev: typeof base, click: (s: typeof base) => typeof base): string | null {
+    return toneForSelfStateChange(prev, click(prev))
+  }
+
+  it('mutar toca o tom de mutar; desmutar, o de desmutar', () => {
+    expect(toneOf(base, toggleMute)).toBe('mute')
+    expect(toneOf(toggleMute(base), toggleMute)).toBe('unmute')
+  })
+
+  it('ensurdecer toca o tom de ensurdecer, e não o de mutar junto', () => {
+    expect(toneOf(base, toggleDeafen)).toBe('deafen')
+    expect(toneOf(toggleMute(base), toggleDeafen)).toBe('deafen')
+  })
+
+  it('desensurdecer toca o tom de desensurdecer (com o mic voltando aberto ou mutado)', () => {
+    expect(toneOf(toggleDeafen(base), toggleDeafen)).toBe('undeafen')
+    expect(toneOf(toggleDeafen(toggleMute(base)), toggleDeafen)).toBe('undeafen')
+  })
+
+  it('clicar no mic ensurdecido (desensurdece e desmuta) toca o de desensurdecer', () => {
+    expect(toneOf(toggleDeafen(base), toggleMute)).toBe('undeafen')
+  })
+
+  it('o que não é mic nem fone não toca nada', () => {
+    const trocouMicrofone = { ...base, inputDeviceId: 'mic-usb' }
+    expect(toneForSelfStateChange(base, trocouMicrofone)).toBeNull()
+    expect(toneForSelfStateChange(base, base)).toBeNull()
+  })
 })

@@ -135,3 +135,25 @@ export function shouldPublishMicrophoneMuted(s: {
   if (s.muted || s.deafened) return true
   return s.mode === 'ptt' && !s.pttKeyDown
 }
+
+/** O tom que um clique no mic ou no fone toca. */
+export type SelfStateTone = 'mute' | 'unmute' | 'deafen' | 'undeafen'
+
+/**
+ * Qual tom a mudança `prev` → `next` toca (follow-up 1, como no Discord). O fone
+ * vence o mic: ensurdecer também muta, mas toca SÓ o tom de ensurdecer; clicar
+ * no mic ensurdecido desensurdece e desmuta, e toca o de desensurdecer. Isto
+ * revoga a regra do Plano 07-11 de nunca tocar tom do lado do fone (decisão do
+ * Leo, seguindo o Discord). Mudança que não é de mic nem de fone (dispositivo)
+ * não toca nada.
+ */
+export function toneForSelfStateChange(
+  prev: Pick<VoiceSelfState, 'muted' | 'deafened'>,
+  next: Pick<VoiceSelfState, 'muted' | 'deafened'>
+): SelfStateTone | null {
+  if (!prev.deafened && next.deafened) return 'deafen'
+  if (prev.deafened && !next.deafened) return 'undeafen'
+  if (!prev.muted && next.muted) return 'mute'
+  if (prev.muted && !next.muted) return 'unmute'
+  return null
+}

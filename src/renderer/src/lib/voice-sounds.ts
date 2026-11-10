@@ -5,6 +5,7 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { loadVoicePreferences } from './voice-preferences'
+import type { SelfStateTone } from './voice-self-state'
 import { useSelection } from '../state/selection-context'
 import { useVoice } from '../state/voice-context'
 
@@ -35,13 +36,15 @@ import { useVoice } from '../state/voice-context'
 // Direção (sobe/desce) sempre marca entrada/saída dentro de cada família.
 //
 // Plano 07-11 (follow-up de VOICE-17, pedido do usuário depois do teste em
-// Windows): dois tons a mais, mute/desmute do PRÓPRIO microfone —
-// `playMuteStateChangeTone`, exportado deste módulo, chamado só de
-// `VoiceControlBar.tsx` no toggle MANUAL do botão de microfone. Nunca do
+// Windows): dois tons a mais, mute/desmute do PRÓPRIO microfone. Nunca do
 // VAD nem do push-to-talk (`voice-context.tsx`), que ligam/desligam a track
-// a cada fala/tecla — tocar aí soaria em todo utterance. Nunca do lado
-// "ensurdecer implica mutar" de `toggleDeafened` — ver comentário em
-// `playMuteStateChangeTone` abaixo.
+// a cada fala/tecla — tocar aí soaria em todo utterance.
+//
+// Follow-up 1 da rodada 1 do visual Discord (pedido do Leo): mais dois tons,
+// sintetizados aqui como os outros (nunca arquivos do Discord):
+// ensurdecer/desensurdecer (`playSelfStateTone`, que agora toca os quatro
+// tons de mic e fone; a regra antiga de "nunca tocar tom do lado do fone" foi
+// revogada para seguir o Discord).
 //
 // Também no Plano 07-11: correção de defeito relatado após teste em
 // Windows ("quando eu saio da call, nenhum som toca"). `playSelfLeaveTone`
@@ -185,37 +188,56 @@ const MUTE_TONE_PEAK_GAIN = 0.1
 // desmutar, mesma convenção de direção das quatro notas de canal, mas em
 // timbre e duração deliberadamente diferentes.
 function playMuteTone(): void {
-  playTone([{ freq: 320, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }])
+  playTone([
+    { freq: 320, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }
+  ])
 }
 function playUnmuteTone(): void {
-  playTone([{ freq: 720, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }])
+  playTone([
+    { freq: 720, start: 0, duration: 0.06, waveform: 'triangle', gain: MUTE_TONE_PEAK_GAIN }
+  ])
+}
+
+// Ensurdecer/desensurdecer (follow-up 1): mesma família de mic e fone do
+// mute (onda 'triangle'), mas DUAS notas e graves, para não confundir com o
+// mute de nota única. Ensurdecer desce (G4 → C4), desensurdecer sobe (C4 →
+// G4). Ganho um pouco acima do mute: nota grave soa mais baixa ao ouvido no
+// mesmo ganho, e o objetivo é o mesmo volume percebido dos tons atuais.
+const DEAFEN_TONE_PEAK_GAIN = 0.12
+
+function playDeafenTone(): void {
+  playTone([
+    { freq: 392, start: 0, duration: 0.07, waveform: 'triangle', gain: DEAFEN_TONE_PEAK_GAIN },
+    { freq: 262, start: 0.07, duration: 0.1, waveform: 'triangle', gain: DEAFEN_TONE_PEAK_GAIN }
+  ])
+}
+function playUndeafenTone(): void {
+  playTone([
+    { freq: 262, start: 0, duration: 0.07, waveform: 'triangle', gain: DEAFEN_TONE_PEAK_GAIN },
+    { freq: 392, start: 0.07, duration: 0.1, waveform: 'triangle', gain: DEAFEN_TONE_PEAK_GAIN }
+  ])
 }
 
 /**
- * VOICE-17 follow-up (Plano 07-11): toca o tom de mute/desmute do PRÓPRIO
- * microfone. Chamar SOMENTE no toggle manual (botão do rodapé) — nunca a
- * partir do VAD ou do push-to-talk, que ligam/desligam a track a cada
- * fala/tecla e tocariam este som em todo utterance, o que é inutilizável.
- * `VoiceControlBar.tsx` (`VoiceConnectedSection`) é o único chamador: é o único lugar cuja mudança
- * de mute é de fato uma decisão manual do usuário.
+ * Toca o tom de um clique no PRÓPRIO mic ou fone — o que
+ * `toneForSelfStateChange` (`voice-self-state.ts`) devolveu para a mudança, ou
+ * nada (`null`). Chamado só de `toggleMuted`/`toggleDeafened` do
+ * `voice-context.tsx`, uma vez por clique, dentro e fora da call. Nunca do VAD
+ * nem do push-to-talk, que ligam/desligam a track a cada fala/tecla e tocariam
+ * em todo utterance.
  *
- * Deliberadamente NÃO chamado do caminho "ensurdecer implica mutar"
- * (`toggleDeafened`): ensurdecer já é, por si, um pedido de "não quero
- * ouvir nada agora" — tocar um som de confirmação nesse instante é o
- * oposto do que a pessoa acabou de pedir. O evento real ali é "eu
- * ensurdeci", não "eu me mutei" (a mutação do mic é só um efeito colateral
- * de servidor da semântica de deafen); o usuário não apertou o botão de
- * microfone, então o som de microfone não deve tocar. Ver
- * `07-11-SUMMARY.md`.
+ * Follow-up 1: ensurdecer e desensurdecer têm tom próprio, e ensurdecer toca SÓ
+ * o dele (não o de mutar junto). Revoga a regra do Plano 07-11 de nunca tocar
+ * tom do lado do fone — decisão do Leo, seguindo o Discord.
  */
-export function playMuteStateChangeTone(muted: boolean): void {
+export function playSelfStateTone(tone: SelfStateTone | null): void {
+  if (tone === null) return
   const prefs = loadVoicePreferences()
   if (!prefs.soundsEnabled) return
-  if (muted) {
-    playMuteTone()
-  } else {
-    playUnmuteTone()
-  }
+  if (tone === 'mute') playMuteTone()
+  else if (tone === 'unmute') playUnmuteTone()
+  else if (tone === 'deafen') playDeafenTone()
+  else playUndeafenTone()
 }
 
 // Janela de supressão do som de saída quando o mesmo `userId` some e volta

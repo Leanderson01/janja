@@ -32,7 +32,7 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 import { createVadMonitor, type VadMonitor } from '../lib/vad'
-import { playMuteStateChangeTone, playSelfLeaveTone } from '../lib/voice-sounds'
+import { playSelfLeaveTone, playSelfStateTone } from '../lib/voice-sounds'
 import {
   loadVoiceSelfState,
   resolveSavedDevice,
@@ -40,6 +40,7 @@ import {
   shouldPublishMicrophoneMuted,
   toggleDeafen,
   toggleMute,
+  toneForSelfStateChange,
   type VoiceSelfState
 } from '../lib/voice-self-state'
 import { loadScreenSharePreferences, type ScreenShareQuality } from '../lib/screenshare-preferences'
@@ -1142,19 +1143,25 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // durante o join espera o join terminar, e o fim do join já sincroniza o
   // que mudou enquanto ele acontecia.
   //
-  // Tom de mute (Plano 07-11) só no botão do mic, como antes: ensurdecer é um
-  // pedido de "não quero ouvir nada", e um som de confirmação nessa hora é o
-  // contrário disso (ver `playMuteStateChangeTone`).
+  // Tom (follow-up 1, como no Discord): um por clique, dentro e fora da call,
+  // o que `toneForSelfStateChange` escolher — mutar, desmutar, ensurdecer
+  // (só ele, não o de mutar junto) ou desensurdecer (também quando o clique no
+  // mic ensurdecido desensurdece). Revoga a regra antiga de nunca tocar tom do
+  // lado do fone.
   async function toggleMuted(): Promise<void> {
-    const next = toggleMute(selfStateRef.current)
+    const prev = selfStateRef.current
+    const next = toggleMute(prev)
     commitSelfState(next)
-    playMuteStateChangeTone(next.muted)
+    playSelfStateTone(toneForSelfStateChange(prev, next))
     await applySelfStateToMicrophone()
     await enqueueServerSync()
   }
 
   async function toggleDeafened(): Promise<void> {
-    commitSelfState(toggleDeafen(selfStateRef.current))
+    const prev = selfStateRef.current
+    const next = toggleDeafen(prev)
+    commitSelfState(next)
+    playSelfStateTone(toneForSelfStateChange(prev, next))
     await applySelfStateToMicrophone()
     await enqueueServerSync()
   }
