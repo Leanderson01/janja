@@ -158,7 +158,7 @@ export function ScreenSharePicker(): React.JSX.Element {
             duas frases são verdadeiras ao mesmo tempo, e nenhuma delas pode
             sumir — a primeira é o preço do modo EXCLUIR (vai o computador
             inteiro), a segunda é o ganho (a voz dos outros não vai). */}
-        <div className="border-border flex flex-col gap-2 rounded-md border p-3">
+        <div className="border-border bg-sidebar flex flex-col gap-2 rounded-lg border p-3">
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2 text-sm font-medium">
               {systemAudio && !audioUnavailable ? (
@@ -223,10 +223,10 @@ export function ScreenSharePicker(): React.JSX.Element {
           </ScrollArea>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
           {/* Redundante com Esc/clique fora/X de propósito: é o caminho
               descoberto sem tentativa e erro, e todos terminam em cancel(). */}
-          <Button variant="secondary" onClick={cancel}>
+          <Button variant="ghost" onClick={cancel}>
             Cancelar
           </Button>
         </DialogFooter>
@@ -301,12 +301,12 @@ function SourceSection({
             key={source.id}
             type="button"
             onClick={() => onChoose(source.id)}
-            className="border-border hover:border-primary hover:bg-accent focus-visible:ring-ring group flex flex-col gap-1.5 rounded-md border p-1.5 text-left transition-colors focus-visible:ring-2 focus-visible:outline-none"
+            className="border-border hover:bg-accent hover:outline-primary focus-visible:outline-primary group flex flex-col gap-1.5 rounded-lg border p-1.5 text-left transition-colors hover:outline-2 focus-visible:outline-2"
           >
             <img
               src={source.thumbnailDataUrl}
               alt=""
-              className="bg-muted aspect-video w-full rounded-sm object-contain"
+              className="bg-muted aspect-video w-full rounded-lg object-contain"
             />
             <span className="flex min-w-0 items-center gap-1.5">
               {source.appIconDataUrl ? (

@@ -104,7 +104,7 @@ export function InviteDialog({
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
         {hasInvite && isOwner ? (
-          <DialogFooter>
+          <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
             <Button type="button" variant="outline" disabled={pending} onClick={handleGenerate}>
               Gerar novo código
             </Button>

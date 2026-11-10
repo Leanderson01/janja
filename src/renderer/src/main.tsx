@@ -9,7 +9,7 @@ import { convexClient, isConvexConfigured } from './lib/convex-client'
 import { AuthGate } from './features/auth/AuthGate'
 import { AuthWatchdog } from './features/auth/AuthWatchdog'
 import { PresenceHeartbeat } from './features/auth/PresenceHeartbeat'
-import { HydraMark } from '@/components/brand/HydraMark'
+import { SplashScreen } from '@/components/brand/SplashScreen'
 import { RootErrorBoundary } from '@/components/boundary/RootErrorBoundary'
 // Primeiro consumidor real do alias `@platform` (Fase 10): resolve para
 // `platform/electron` sob `electron.vite.config.ts` e para `platform/web` sob
@@ -37,18 +37,11 @@ import { auth, isAuthConfigured } from '@platform/auth'
 // node_modules do AuthKit.
 function NotConfiguredScreen({ missingVar }: { missingVar: string }): React.JSX.Element {
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
-      <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-        <HydraMark className="size-10" />
-        <h1 className="text-xl font-semibold tracking-tight">Hydra</h1>
-        <p className="text-sm text-destructive">
-          Configuração incompleta: {missingVar} não definida.
-        </p>
-        <p className="text-muted-foreground text-xs">
-          Este build não foi gerado corretamente — contate quem fez o empacotamento.
-        </p>
-      </div>
-    </div>
+    <SplashScreen message={`Configuração incompleta: ${missingVar} não definida.`}>
+      <p className="text-muted-foreground text-xs">
+        Este build não foi gerado corretamente — contate quem fez o empacotamento.
+      </p>
+    </SplashScreen>
   )
 }
 

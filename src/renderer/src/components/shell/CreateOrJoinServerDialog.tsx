@@ -137,6 +137,7 @@ export function CreateOrJoinServerDialog({
               Nome do servidor
             </label>
             <Input
+              className="bg-sidebar border-input"
               id="server-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -151,6 +152,7 @@ export function CreateOrJoinServerDialog({
               Código de convite
             </label>
             <Input
+              className="bg-sidebar border-input"
               id="invite-code"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -163,7 +165,7 @@ export function CreateOrJoinServerDialog({
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <DialogFooter>
+        <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
           {tab === 'create' ? (
             <Button type="button" disabled={!nameValid || pending} onClick={handleCreate}>
               Criar servidor

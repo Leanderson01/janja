@@ -31,11 +31,11 @@ export function LoginScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
-      <div className="flex flex-col items-center gap-4">
-        <HydraMark className="size-12" />
-        <h1 className="text-xl font-semibold tracking-tight">Hydra</h1>
-        <Button onClick={handleClick} disabled={pending}>
+    <div className="bg-sidebar grid h-screen w-screen place-items-center">
+      <div className="bg-panel border-panel-border flex w-[480px] max-w-[calc(100vw-32px)] flex-col items-center gap-4 rounded-lg border p-8">
+        <HydraMark className="text-strong size-12" />
+        <h1 className="text-strong text-2xl font-bold">Hydra</h1>
+        <Button onClick={handleClick} disabled={pending} className="bg-primary h-11 w-full">
           {/* Paridade DECLARADA, não string duplicada por tela: quem abre um
               navegador externo (e volta por deep link) é só o alvo com
               integração de desktop. Na web, quem navega é esta própria aba. */}

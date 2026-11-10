@@ -99,6 +99,7 @@ export function CreateChannelDialog({
             Nome do canal
           </label>
           <Input
+            className="bg-sidebar border-input"
             id="channel-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -110,7 +111,7 @@ export function CreateChannelDialog({
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <DialogFooter>
+        <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
           <Button type="button" disabled={!nameValid || pending} onClick={handleCreate}>
             Criar canal
           </Button>

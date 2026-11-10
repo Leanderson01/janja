@@ -149,6 +149,7 @@ export function EditProfileForm({
           Nome de exibição
         </label>
         <Input
+          className="bg-sidebar border-input"
           id="profile-display-name"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
@@ -167,6 +168,7 @@ export function EditProfileForm({
             Nome de usuário
           </label>
           <Input
+            className="bg-sidebar border-input"
             id="profile-username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -179,6 +181,7 @@ export function EditProfileForm({
             Tag
           </label>
           <Input
+            className="bg-sidebar border-input"
             id="profile-tag"
             value={tag}
             onChange={(e) => setTag(e.target.value.replace(/\D/g, '').slice(0, TAG_LENGTH))}
@@ -200,7 +203,7 @@ export function EditProfileForm({
         </p>
       ) : null}
 
-      <DialogFooter>
+      <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
         <Button type="submit" disabled={pending || unchanged}>
           {pending ? 'Salvando…' : 'Salvar'}
         </Button>

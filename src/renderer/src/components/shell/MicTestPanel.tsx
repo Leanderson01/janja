@@ -294,7 +294,7 @@ export function MicTestPanel({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="bg-sidebar -mx-6 -mb-6 flex-row justify-end rounded-b-lg px-6 py-4">
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Fechar
           </Button>

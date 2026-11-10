@@ -5,6 +5,8 @@ import { toProfileHint } from '@/lib/profile-hint'
 import { readableConvexError } from '@/lib/convex-error'
 import { auth } from '@platform/auth'
 import { LoginScreen } from './LoginScreen'
+import { SplashScreen } from '@/components/brand/SplashScreen'
+import { Button } from '@/components/ui/button'
 
 // Portão de autenticação: decide entre a tela de login e a aplicação real
 // (children = <App /> a partir de main.tsx), e garante que `ensureUser` roda
@@ -117,30 +119,19 @@ export function AuthGate({ children }: { children: ReactNode }): React.JSX.Eleme
   return <>{children}</>
 }
 
-function TelaDeEspera({ children }: { children: ReactNode }): React.JSX.Element {
-  return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
-      {children}
-    </div>
-  )
+function TelaDeEspera({ children }: { children: string }): React.JSX.Element {
+  return <SplashScreen message={children} />
 }
 
 // A tela que a antiga "tela preta" deveria ter sido: diz o que falhou, em
 // português, e oferece a saída que a pessoa ia tentar de qualquer jeito (o F5).
 function ContaIndisponivel({ motivo }: { motivo: string }): React.JSX.Element {
   return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background text-foreground">
-      <div className="flex max-w-sm flex-col items-center gap-2 text-center">
-        <p className="text-sm text-destructive">Não foi possível preparar sua conta.</p>
-        <p className="text-muted-foreground text-xs">{motivo}</p>
-        <button
-          type="button"
-          className="text-muted-foreground mt-2 text-xs underline underline-offset-4"
-          onClick={() => window.location.reload()}
-        >
-          Tentar de novo
-        </button>
-      </div>
-    </div>
+    <SplashScreen message="Não foi possível preparar sua conta.">
+      <p className="text-muted-foreground text-xs">{motivo}</p>
+      <Button type="button" onClick={() => window.location.reload()}>
+        Tentar de novo
+      </Button>
+    </SplashScreen>
   )
 }
