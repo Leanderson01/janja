@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveMainView, type MainViewInput } from './stage-view'
+import {
+  resolveMainView,
+  viewingStageAfterJoin,
+  voiceChannelClickAction,
+  type MainViewInput
+} from './stage-view'
 
 // Função pura, sem DOM: roda no `edge-runtime` global do projeto, sem
 // `// @vitest-environment jsdom` e sem `@/test/jsdom-setup`.
@@ -193,4 +198,60 @@ describe('resolveMainView — tabela de verdade completa', () => {
       expect(view.kind).toBe(caso.esperado)
     })
   }
+})
+
+// Follow-up 1 da rodada 1 (pedido do Leo depois do teste no Windows): entrar
+// numa call NÃO leva para a tela da call. A área do meio fica onde estava; quem
+// leva para o palco é clicar de novo no canal em que você já está, o cartão
+// "Voz conectada" ou o AO VIVO.
+describe('clicar num canal de voz', () => {
+  it('canal em que NÃO estou → entra', () => {
+    expect(voiceChannelClickAction({ clicked: VOZ, joinedVoiceChannelId: null })).toBe('join')
+    expect(voiceChannelClickAction({ clicked: VOZ_OUTRO, joinedVoiceChannelId: VOZ })).toBe('join')
+  })
+
+  it('canal em que JÁ estou → abre a tela da call', () => {
+    expect(voiceChannelClickAction({ clicked: VOZ, joinedVoiceChannelId: VOZ })).toBe('show-stage')
+  })
+})
+
+describe('viewingStageAfterJoin', () => {
+  it('entrar de fora da call não liga o palco', () => {
+    expect(viewingStageAfterJoin({ viewingStage: false, from: null, to: VOZ })).toBe(false)
+  })
+
+  it('entrar de fora da call desliga um palco velho que tenha sobrado', () => {
+    expect(viewingStageAfterJoin({ viewingStage: true, from: null, to: VOZ })).toBe(false)
+  })
+
+  it('sair da call devolve a área do meio para o texto', () => {
+    expect(viewingStageAfterJoin({ viewingStage: true, from: VOZ, to: null })).toBe(false)
+    expect(viewingStageAfterJoin({ viewingStage: false, from: VOZ, to: null })).toBe(false)
+  })
+
+  it('trocar de call mantém o que a área do meio mostrava', () => {
+    expect(viewingStageAfterJoin({ viewingStage: false, from: VOZ, to: VOZ_OUTRO })).toBe(false)
+    expect(viewingStageAfterJoin({ viewingStage: true, from: VOZ, to: VOZ_OUTRO })).toBe(true)
+  })
+
+  // O caminho inteiro, como o Leo descreveu: chat de texto aberto, clica num
+  // canal de voz de fora → entra e continua no chat; clica de novo no mesmo
+  // canal → tela da call.
+  it('chat aberto + entrar num canal de voz → continua no chat; clicar de novo → palco', () => {
+    const antes = input({ selectedChannelId: TEXTO, selectedChannelType: 'text' })
+    expect(voiceChannelClickAction({ clicked: VOZ, joinedVoiceChannelId: null })).toBe('join')
+
+    const depoisDeEntrar = input({
+      ...antes,
+      joinedVoiceChannelId: VOZ,
+      viewingStage: viewingStageAfterJoin({ viewingStage: false, from: null, to: VOZ })
+    })
+    expect(resolveMainView(depoisDeEntrar)).toEqual({ kind: 'text', channelId: TEXTO })
+
+    expect(voiceChannelClickAction({ clicked: VOZ, joinedVoiceChannelId: VOZ })).toBe('show-stage')
+    expect(resolveMainView({ ...depoisDeEntrar, viewingStage: true })).toEqual({
+      kind: 'stage',
+      channelId: VOZ
+    })
+  })
 })

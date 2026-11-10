@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { callStartedAt } from '@/lib/call-timer'
 import { displayNameOf } from '@/lib/display-name'
 import { loadSidebarPreferences, saveSidebarPreferences } from '@/lib/sidebar-preferences'
+import { voiceChannelClickAction } from '@/lib/stage-view'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -134,14 +135,22 @@ export function ChannelSidebar(): React.JSX.Element {
   // para a call, e por isso chama `showStage()` e mais nada. Chamar
   // `setSelectedChannelId` também aqui seria contraproducente: no provider,
   // selecionar canal desliga o palco (regra 3), então o "voltar" desligaria
-  // exatamente o que veio ligar. Entrar/trocar de canal, sim, seleciona e conecta
-  // — nessa ordem, porque quem fala por último sobre o palco é o join.
+  // exatamente o que veio ligar.
+  //
+  // Follow-up 1 da rodada 1 (pedido do Leo, como no Discord): entrar/trocar de
+  // canal SÓ conecta. Não seleciona o canal de voz e não abre o palco — a área
+  // do meio continua no chat que estava aberto, e o canal de texto continua
+  // marcado na lista. A tela da call abre no segundo clique no mesmo canal, no
+  // cartão "Voz conectada" ou no AO VIVO. Decisão em `voiceChannelClickAction`.
   function handleVoiceChannelClick(channel: Doc<'channels'>): void {
-    if (joinedVoiceChannelId === channel._id) {
+    const action = voiceChannelClickAction({
+      clicked: channel._id,
+      joinedVoiceChannelId
+    })
+    if (action === 'show-stage') {
       showStage()
       return
     }
-    setSelectedChannelId(channel._id)
     setJoinedVoiceChannelId(channel._id)
   }
 

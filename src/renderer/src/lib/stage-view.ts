@@ -87,3 +87,38 @@ export function resolveMainView<TChannelId extends string>(
 
   return { kind: 'voice-preview', channelId: selectedChannelId }
 }
+
+/**
+ * Follow-up 1 da rodada 1 (pedido do Leo, teste no Windows): clicar num canal de
+ * voz NÃO leva mais para a tela da call, como no Discord.
+ *
+ * - canal em que NÃO estou → `'join'`: entra na call e a área do meio continua
+ *   no que estava (o chat aberto). A seleção da lista também não muda.
+ * - canal em que JÁ estou → `'show-stage'`: é o gesto de abrir a tela da call
+ *   (Plano 08.5-03). Nunca desconecta.
+ */
+export function voiceChannelClickAction<TChannelId extends string>(input: {
+  clicked: TChannelId
+  joinedVoiceChannelId: TChannelId | null
+}): 'join' | 'show-stage' {
+  return input.clicked === input.joinedVoiceChannelId ? 'show-stage' : 'join'
+}
+
+/**
+ * O valor de `viewingStage` quando a call muda (`from` → `to`). Quem liga o palco
+ * é só `showStage()` explícito — entrar não liga mais.
+ *
+ * - sair (`to === null`) → `false`: a área do meio volta para o texto;
+ * - entrar de fora (`from === null`) → `false`: a área do meio fica onde estava,
+ *   e fora de call ela não estava no palco (um `true` sobrando é estado velho);
+ * - trocar de uma call para outra → mantém: quem olhava a call passa a olhar a
+ *   nova, quem lia um canal de texto continua lendo.
+ */
+export function viewingStageAfterJoin<TChannelId extends string>(input: {
+  viewingStage: boolean
+  from: TChannelId | null
+  to: TChannelId | null
+}): boolean {
+  if (input.to === null || input.from === null) return false
+  return input.viewingStage
+}

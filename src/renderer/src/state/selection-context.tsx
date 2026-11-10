@@ -9,6 +9,7 @@ import {
   type NavEntry,
   type NavHistory
 } from '@/lib/nav-history'
+import { viewingStageAfterJoin } from '@/lib/stage-view'
 import { api } from '../../../../convex/_generated/api'
 import type { Doc, Id } from '../../../../convex/_generated/dataModel'
 
@@ -125,20 +126,24 @@ export function SelectionProvider({ children }: { children: ReactNode }): React.
   // é do estado, e espalhá-la pelos componentes garantiria que algum caminho
   // novo esquecesse dela.
   //
-  // 1. Entrar numa call põe o palco na frente.
+  // 1. Entrar numa call NÃO põe o palco na frente (follow-up 1 da rodada 1,
+  //    como no Discord): a área principal fica no que estava. Trocar de uma
+  //    call para outra mantém o que ela mostrava. Regra em
+  //    `viewingStageAfterJoin` (`lib/stage-view.ts`).
   // 2. Sair da call devolve a área principal para o texto.
   // 3. Navegar para um canal é pedir para ver AQUELE canal, então desliga o
-  //    palco. `showStage()` explícito é o único que reverte isso — os dois
-  //    caminhos de volta (clicar no canal de voz conectado na sidebar e clicar
-  //    em "Conectado a ..." no rodapé) chamam essa função.
+  //    palco. `showStage()` explícito é o único que liga o palco — os caminhos
+  //    (clicar no canal de voz conectado na sidebar, o cartão "Voz conectada" e
+  //    o AO VIVO da lista de canais) chamam essa função.
   //
-  // Ordem importa em `handleVoiceChannelClick` da ChannelSidebar, que chama
-  // `selectChannel` e depois `joinVoiceChannel` no mesmo handler: os dois
-  // `setViewingStage` são agrupados pelo React e vence o último — `true`, que é
-  // o pretendido ao entrar numa call.
+  // Ordem importa no AO VIVO da ChannelSidebar, que chama `joinVoiceChannel` e
+  // depois `showStage` no mesmo handler: os dois `setViewingStage` são
+  // agrupados pelo React, na ordem, e vence o último — `true`.
   function joinVoiceChannel(id: Id<'channels'> | null): void {
     setJoinedVoiceChannelIdState(id)
-    setViewingStage(id !== null)
+    setViewingStage((current) =>
+      viewingStageAfterJoin({ viewingStage: current, from: joinedVoiceChannelId, to: id })
+    )
   }
 
   function applyChannel(id: Id<'channels'>): void {
