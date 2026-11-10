@@ -8,49 +8,59 @@
  * @module
  */
 
-import type * as channelReadState from '../channelReadState.js'
-import type * as channels from '../channels.js'
-import type * as dms from '../dms.js'
-import type * as friends from '../friends.js'
-import type * as http from '../http.js'
-import type * as invites from '../invites.js'
-import type * as lib_identity from '../lib/identity.js'
-import type * as lib_inviteCode from '../lib/inviteCode.js'
-import type * as lib_membership from '../lib/membership.js'
-import type * as lib_tag from '../lib/tag.js'
-import type * as linkPreviews from '../linkPreviews.js'
-import type * as members from '../members.js'
-import type * as messages from '../messages.js'
-import type * as presence from '../presence.js'
-import type * as servers from '../servers.js'
-import type * as typing from '../typing.js'
-import type * as users from '../users.js'
-import type * as voice from '../voice.js'
-import type * as voiceToken from '../voiceToken.js'
+import type * as channelReadState from "../channelReadState.js";
+import type * as channels from "../channels.js";
+import type * as dms from "../dms.js";
+import type * as friends from "../friends.js";
+import type * as http from "../http.js";
+import type * as invites from "../invites.js";
+import type * as lib_attachmentLimits from "../lib/attachmentLimits.js";
+import type * as lib_authCompletionPage from "../lib/authCompletionPage.js";
+import type * as lib_identity from "../lib/identity.js";
+import type * as lib_inviteCode from "../lib/inviteCode.js";
+import type * as lib_membership from "../lib/membership.js";
+import type * as lib_ogParse from "../lib/ogParse.js";
+import type * as lib_tag from "../lib/tag.js";
+import type * as linkPreviews from "../linkPreviews.js";
+import type * as members from "../members.js";
+import type * as messages from "../messages.js";
+import type * as presence from "../presence.js";
+import type * as servers from "../servers.js";
+import type * as typing from "../typing.js";
+import type * as users from "../users.js";
+import type * as voice from "../voice.js";
+import type * as voiceToken from "../voiceToken.js";
 
-import type { ApiFromModules, FilterApi, FunctionReference } from 'convex/server'
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  channelReadState: typeof channelReadState
-  channels: typeof channels
-  dms: typeof dms
-  friends: typeof friends
-  http: typeof http
-  invites: typeof invites
-  'lib/identity': typeof lib_identity
-  'lib/inviteCode': typeof lib_inviteCode
-  'lib/membership': typeof lib_membership
-  'lib/tag': typeof lib_tag
-  linkPreviews: typeof linkPreviews
-  members: typeof members
-  messages: typeof messages
-  presence: typeof presence
-  servers: typeof servers
-  typing: typeof typing
-  users: typeof users
-  voice: typeof voice
-  voiceToken: typeof voiceToken
-}>
+  channelReadState: typeof channelReadState;
+  channels: typeof channels;
+  dms: typeof dms;
+  friends: typeof friends;
+  http: typeof http;
+  invites: typeof invites;
+  "lib/attachmentLimits": typeof lib_attachmentLimits;
+  "lib/authCompletionPage": typeof lib_authCompletionPage;
+  "lib/identity": typeof lib_identity;
+  "lib/inviteCode": typeof lib_inviteCode;
+  "lib/membership": typeof lib_membership;
+  "lib/ogParse": typeof lib_ogParse;
+  "lib/tag": typeof lib_tag;
+  linkPreviews: typeof linkPreviews;
+  members: typeof members;
+  messages: typeof messages;
+  presence: typeof presence;
+  servers: typeof servers;
+  typing: typeof typing;
+  users: typeof users;
+  voice: typeof voice;
+  voiceToken: typeof voiceToken;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
@@ -60,7 +70,10 @@ declare const fullApi: ApiFromModules<{
  * const myFunctionReference = api.myModule.myFunction;
  * ```
  */
-export declare const api: FilterApi<typeof fullApi, FunctionReference<any, 'public'>>
+export declare const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+>;
 
 /**
  * A utility for referencing Convex functions in your app's internal API.
@@ -70,6 +83,9 @@ export declare const api: FilterApi<typeof fullApi, FunctionReference<any, 'publ
  * const myFunctionReference = internal.myModule.myFunction;
  * ```
  */
-export declare const internal: FilterApi<typeof fullApi, FunctionReference<any, 'internal'>>
+export declare const internal: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "internal">
+>;
 
-export declare const components: {}
+export declare const components: {};
