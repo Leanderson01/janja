@@ -8,6 +8,14 @@ import { cn } from '@/lib/utils'
 // Bloco 16:9 de um participante na grade da call. Parte pura: o menu de áudio
 // (`ParticipantAudioMenu`) é decidido por quem monta a grade e envolve este bloco.
 // O fundo é a cor do id (translúcida) sobre o `bg-stage` do palco, que é o pai.
+//
+// `live` (Tarefa 13): a pessoa está transmitindo a tela. O bloco ganha a etiqueta
+// AO VIVO e vira um botão que cobre o bloco inteiro — "Assistir transmissão"
+// enquanto não assisto, "Ver transmissão" (volta o palco para a tela) quando já
+// assisto, como clicar no bloco de uma transmissão no Discord. O clique direito
+// continua chegando a `onContextMenu`, que fica no elemento raiz: o evento sobe
+// do botão. Por ter um botão DENTRO, quem monta um bloco ao vivo não pode
+// envolvê-lo noutro `<button>` (ver `GridTile` em `CallStage.tsx`).
 export function ParticipantTile({
   userId,
   name,
@@ -16,6 +24,7 @@ export function ParticipantTile({
   speaking,
   extras,
   dimmed,
+  live,
   onContextMenu
 }: {
   userId: string
@@ -27,6 +36,8 @@ export function ParticipantTile({
   extras?: ReactNode
   /** Silenciado para mim: o avatar fica opaco pela metade. */
   dimmed?: boolean
+  /** Transmitindo a tela (só para OUTRA pessoa, no canal em que estou). */
+  live?: { watching: boolean; onWatch(): void }
   onContextMenu?(e: MouseEvent): void
 }): React.JSX.Element {
   return (
@@ -57,6 +68,28 @@ export function ParticipantTile({
         </span>
         {extras}
       </div>
+      {live ? (
+        <>
+          <span className="pointer-events-none absolute left-2 top-2 rounded bg-destructive px-1.5 text-[10px] font-bold text-primary-foreground">
+            AO VIVO
+          </span>
+          <button
+            type="button"
+            onClick={live.onWatch}
+            className="group absolute inset-0 grid place-items-center rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            {live.watching ? (
+              <span className="rounded-full bg-stage/80 px-4 py-2 text-sm font-semibold text-strong opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                Ver transmissão
+              </span>
+            ) : (
+              <span className="rounded-full bg-stage/80 px-4 py-2 text-sm font-semibold text-strong transition-colors group-hover:bg-stage">
+                Assistir transmissão
+              </span>
+            )}
+          </button>
+        </>
+      ) : null}
     </div>
   )
 }

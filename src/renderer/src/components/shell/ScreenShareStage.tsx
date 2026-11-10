@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react'
 import { MonitorUp } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { displayNameOf } from '@/lib/display-name'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
@@ -132,9 +133,16 @@ function ScreenShareTile({ entry }: { entry: ScreenShareTrack }): React.JSX.Elem
 // MVP explícito: mais de uma tela ao mesmo tempo cai num grid `flex-wrap`
 // simples, sem UI de destacar/focar um stream (nenhum requisito pede, e não
 // há sinal de que o grupo compartilhe em paralelo com frequência).
+//
+// Tarefa 13: desde que a tela dos outros só chega a quem clica em "Assistir
+// transmissão", cada tela REMOTA aqui é uma que eu escolhi — e ganha "Parar de
+// assistir", que cancela a assinatura do vídeo e do som dela (a voz da pessoa
+// continua). A tela some daqui quando o SDK confirma (`TrackUnsubscribed`), pelo
+// mesmo caminho de sempre; sendo a última, o palco volta aos blocos sozinho. A
+// MINHA tela não tem o botão: ela é a prévia da track local, não uma assinatura.
 export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): React.JSX.Element {
   const { joinedVoiceChannelId } = useSelection()
-  const { screenShareTracks } = useVoice()
+  const { room, screenShareTracks, stopWatchingScreenShare } = useVoice()
   const isConnectedHere = channelId === joinedVoiceChannelId
 
   // Só para rotular cada tela com o nome de quem compartilha: `identity` do
@@ -155,6 +163,14 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
 
   const tracks = isConnectedHere ? screenShareTracks : []
 
+  // Tarefa 13: sem tela assinada não quer mais dizer que ninguém transmite — a
+  // tela dos outros só chega depois do clique. O aviso não pode afirmar o
+  // contrário do AO VIVO que está no bloco logo acima.
+  const someoneElseSharing = (participants ?? []).some(
+    (participant) =>
+      participant.sharing && String(participant.userId) !== room.localParticipant.identity
+  )
+
   // `h-full` em vez de `flex-1`: a partir do Plano 08.5-07 quem dimensiona esta
   // região é o container do `CallStage`, que muda de tamanho conforme o layout
   // do palco (ladrilhos / compartilhamento / expandido). O componente só
@@ -162,9 +178,11 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
   if (tracks.length === 0) {
     return (
       <ShareNotice className="h-full min-h-40">
-        {isConnectedHere
-          ? 'Ninguém está compartilhando a tela'
-          : 'Entre no canal para ver a tela compartilhada'}
+        {!isConnectedHere
+          ? 'Entre no canal para ver a tela compartilhada'
+          : someoneElseSharing
+            ? 'Clique em “Assistir transmissão” para ver a tela'
+            : 'Ninguém está compartilhando a tela'}
       </ShareNotice>
     )
   }
@@ -195,6 +213,19 @@ export function ScreenShareStage({ channelId }: { channelId: Id<'channels'> }): 
               ? 'Sua tela'
               : (usernameByIdentity.get(entry.participantIdentity) ?? 'Tela compartilhada')}
           </span>
+          {/* Canto superior ESQUERDO: o direito é dos controles do modo
+              expandido, que o `CallStage` desenha por cima da região. */}
+          {entry.isLocal ? null : (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="absolute left-2 top-2"
+              onClick={() => stopWatchingScreenShare(entry.participantIdentity)}
+            >
+              Parar de assistir
+            </Button>
+          )}
         </div>
       ))}
     </div>

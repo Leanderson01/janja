@@ -230,3 +230,43 @@ export function ParticipantAudioMenu({
     </DropdownMenu>
   )
 }
+
+// O MESMO menu, para um bloco que já tem botão dentro (o bloco AO VIVO da
+// Tarefa 13, com "Assistir transmissão"): botão dentro de botão é HTML inválido,
+// então o bloco não pode ser envolvido pelo gatilho de `ParticipantAudioMenu`.
+// Mesmo padrão do menu de canal da `ChannelSidebar`: `DropdownMenu` CONTROLADO,
+// aberto pelo `onContextMenu` de quem chama, com uma âncora invisível que cobre
+// o pai posicionado (`relative`) para o menu nascer sobre o bloco.
+export function ParticipantAudioContextMenu({
+  open,
+  onOpenChange,
+  username,
+  preference,
+  onVolumeChange,
+  onToggleSilenced
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  username: string
+  preference: ParticipantAudioPreference | undefined
+  onVolumeChange: (volume: number) => void
+  onToggleSilenced: () => void
+}): React.JSX.Element {
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-0" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-60">
+        <DropdownMenuLabel className="truncate">{username}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <ParticipantAudioMenuItems
+          username={username}
+          preference={preference}
+          onVolumeChange={onVolumeChange}
+          onToggleSilenced={onToggleSilenced}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}

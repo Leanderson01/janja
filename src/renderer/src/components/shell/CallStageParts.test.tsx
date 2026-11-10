@@ -81,6 +81,57 @@ describe('ParticipantTile', () => {
     fireEvent.contextMenu(container.firstElementChild!)
     expect(onContextMenu).toHaveBeenCalledOnce()
   })
+  it('bloco ao vivo mostra AO VIVO e Assistir transmissão', async () => {
+    const onWatch = vi.fn()
+    render(
+      <ParticipantTile
+        userId="u1"
+        name="VM"
+        muted={false}
+        speaking={false}
+        live={{ watching: false, onWatch }}
+      />
+    )
+    expect(screen.getByText('AO VIVO')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Assistir transmissão' }))
+    expect(onWatch).toHaveBeenCalledOnce()
+  })
+  it('assistindo, o bloco continua AO VIVO e o clique volta para a transmissão', async () => {
+    const onWatch = vi.fn()
+    render(
+      <ParticipantTile
+        userId="u1"
+        name="VM"
+        muted={false}
+        speaking={false}
+        live={{ watching: true, onWatch }}
+      />
+    )
+    expect(screen.getByText('AO VIVO')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Assistir transmissão' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Ver transmissão' }))
+    expect(onWatch).toHaveBeenCalledOnce()
+  })
+  it('bloco sem transmissão não tem AO VIVO nem botão', () => {
+    render(<ParticipantTile userId="u1" name="VM" muted={false} speaking={false} />)
+    expect(screen.queryByText('AO VIVO')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+  it('clique direito no bloco ao vivo chega ao handler do menu de áudio', () => {
+    const onContextMenu = vi.fn()
+    render(
+      <ParticipantTile
+        userId="u1"
+        name="VM"
+        muted={false}
+        speaking={false}
+        onContextMenu={onContextMenu}
+        live={{ watching: false, onWatch: vi.fn() }}
+      />
+    )
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Assistir transmissão' }))
+    expect(onContextMenu).toHaveBeenCalledOnce()
+  })
 })
 
 describe('CallControlsView', () => {

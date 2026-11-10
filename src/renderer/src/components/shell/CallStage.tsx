@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import {
+  ParticipantAudioContextMenu,
   ParticipantAudioMenu,
   ParticipantVolumeHint
 } from '@/components/shell/ParticipantAudioMenu'
@@ -67,17 +68,24 @@ import type { Id } from '../../../../../convex/_generated/dataModel'
 // - EU MESMO: não me ouço, então volume da minha própria voz aqui não existe.
 // - Canal apenas VISUALIZADO (prévia, não conectado): não há track tocando
 //   para ajustar, e o menu prometeria um efeito que não aconteceria.
+//
+// Bloco AO VIVO (Tarefa 13, `live`): o clique é "Assistir transmissão", e o
+// menu de áudio fica só no clique direito — o bloco já tem um botão dentro e
+// não pode ser envolvido pelo `<button>` do `ParticipantAudioMenu`.
 function GridTile({
   participant,
   preference,
   onVolumeChange,
-  onToggleSilenced
+  onToggleSilenced,
+  live
 }: {
   participant: VoiceParticipantView
   preference: ParticipantAudioPreference | undefined
   onVolumeChange: ((volume: number) => void) | null
   onToggleSilenced: (() => void) | null
+  live?: { watching: boolean; onWatch(): void }
 }): React.JSX.Element {
+  const [liveMenuOpen, setLiveMenuOpen] = useState(false)
   const silenced = preference?.silenced ?? false
   const hasMenu = onVolumeChange !== null && onToggleSilenced !== null
 
@@ -91,6 +99,15 @@ function GridTile({
       muted={participant.muted}
       speaking={participant.isSpeaking}
       dimmed={silenced}
+      live={live}
+      onContextMenu={
+        live && hasMenu
+          ? (event) => {
+              event.preventDefault()
+              setLiveMenuOpen(true)
+            }
+          : undefined
+      }
       extras={
         <>
           {silenced ? (
@@ -107,6 +124,22 @@ function GridTile({
   )
 
   if (!hasMenu) return tile
+
+  if (live) {
+    return (
+      <div className="relative block w-full rounded-lg">
+        {tile}
+        <ParticipantAudioContextMenu
+          open={liveMenuOpen}
+          onOpenChange={setLiveMenuOpen}
+          username={participant.displayName}
+          preference={preference}
+          onVolumeChange={onVolumeChange}
+          onToggleSilenced={onToggleSilenced}
+        />
+      </div>
+    )
+  }
 
   return (
     <ParticipantAudioMenu
@@ -134,13 +167,29 @@ function GridTile({
 // Plano 08.5-11: é também por aqui que se chega ao volume individual
 // (VOICE-18) — cada ladrilho de OUTRA pessoa vira gatilho do menu de áudio.
 // Ver `ParticipantTile` acima para os dois casos sem menu.
+//
+// Tarefa 13: quem transmite a tela (`sharing`, do Convex) e não sou eu ganha o
+// bloco AO VIVO — só no canal em que estou, porque assistir é assinar track do
+// `Room` conectado. Clicar assina a tela e o som dela (`watchScreenShare`); o
+// palco passa para o modo `share` sozinho quando o vídeo chega (a troca
+// automática do `CallStage`, que segue `screenShareTracks`). `onShowShare` é
+// para quando já há tela no palco e essa troca não vai acontecer.
 export function VoiceParticipantGrid({
-  channelId
+  channelId,
+  onShowShare
 }: {
   channelId: Id<'channels'>
+  onShowShare?: () => void
 }): React.JSX.Element {
   const { joinedVoiceChannelId } = useSelection()
-  const { room, participantVolumes, setParticipantVolume, toggleParticipantSilenced } = useVoice()
+  const {
+    room,
+    participantVolumes,
+    setParticipantVolume,
+    toggleParticipantSilenced,
+    watchedScreenShares,
+    watchScreenShare
+  } = useVoice()
   const participants = useVoiceParticipants(channelId)
 
   // Canal de voz apenas VISUALIZADO (não conectado): não existe track para
@@ -188,6 +237,17 @@ export function VoiceParticipantGrid({
               }
               onToggleSilenced={
                 canControl ? () => toggleParticipantSilenced(participant.userId) : null
+              }
+              live={
+                canControl && participant.sharing
+                  ? {
+                      watching: watchedScreenShares.has(participant.userId),
+                      onWatch: () => {
+                        watchScreenShare(participant.userId)
+                        onShowShare?.()
+                      }
+                    }
+                  : undefined
               }
             />
           )
@@ -519,7 +579,15 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
               layout !== 'tiles' && 'hidden'
             )}
           >
-            <VoiceParticipantGrid channelId={channelId} />
+            <VoiceParticipantGrid
+              channelId={channelId}
+              onShowShare={() => {
+                // Sem tela no palco ainda, a troca automática leva ao `share`
+                // quando o vídeo chegar; trocar agora mostraria a moldura
+                // vazia da região de vídeo até lá.
+                if (shareCount > 0) setLayout('share')
+              }}
+            />
           </div>
 
           {/* A faixa: altura fixa, `flex-none`, e some com `hidden` nos outros dois
