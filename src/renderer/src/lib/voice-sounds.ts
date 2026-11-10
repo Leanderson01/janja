@@ -4,6 +4,7 @@ import { useQuery } from 'convex/react'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
+import { shareSoundEvents, type ShareRow } from './share-sound-events'
 import { loadVoicePreferences } from './voice-preferences'
 import type { SelfStateTone } from './voice-self-state'
 import { useSelection } from '../state/selection-context'
@@ -40,11 +41,12 @@ import { useVoice } from '../state/voice-context'
 // VAD nem do push-to-talk (`voice-context.tsx`), que ligam/desligam a track
 // a cada fala/tecla — tocar aí soaria em todo utterance.
 //
-// Follow-up 1 da rodada 1 do visual Discord (pedido do Leo): mais dois tons,
-// sintetizados aqui como os outros (nunca arquivos do Discord):
+// Follow-up 1 da rodada 1 do visual Discord (pedido do Leo): mais quatro
+// tons, todos sintetizados aqui como os outros (nunca arquivos do Discord):
 // ensurdecer/desensurdecer (`playSelfStateTone`, que agora toca os quatro
 // tons de mic e fone; a regra antiga de "nunca tocar tom do lado do fone" foi
-// revogada para seguir o Discord).
+// revogada para seguir o Discord) e transmissão começou/terminou (diff da
+// coluna `sharing` neste mesmo hook, ver `share-sound-events.ts`).
 //
 // Também no Plano 07-11: correção de defeito relatado após teste em
 // Windows ("quando eu saio da call, nenhum som toca"). `playSelfLeaveTone`
@@ -218,6 +220,25 @@ function playUndeafenTone(): void {
   ])
 }
 
+// Transmissão começou/terminou (follow-up 1): família da call (senoidal, ganho
+// cheio), mas TRÊS notas curtas — um arpejo maior (D5 F#5 A5) — para não
+// confundir com o "eu entrei/saí" de duas notas. Começou sobe, alegre;
+// terminou desce pelas mesmas notas.
+function playStreamStartTone(): void {
+  playTone([
+    { freq: 587, start: 0, duration: 0.06 },
+    { freq: 740, start: 0.06, duration: 0.06 },
+    { freq: 880, start: 0.12, duration: 0.12 }
+  ])
+}
+function playStreamStopTone(): void {
+  playTone([
+    { freq: 880, start: 0, duration: 0.06 },
+    { freq: 740, start: 0.06, duration: 0.06 },
+    { freq: 587, start: 0.12, duration: 0.12 }
+  ])
+}
+
 /**
  * Toca o tom de um clique no PRÓPRIO mic ou fone — o que
  * `toneForSelfStateChange` (`voice-self-state.ts`) devolveu para a mudança, ou
@@ -264,6 +285,11 @@ export function useVoiceJoinLeaveSounds(): void {
   const baselineIdsRef = useRef<Set<Id<'users'>> | null>(null)
   const lastChannelRef = useRef<Id<'channels'> | null>(null)
 
+  // Follow-up 1: o retrato anterior de quem transmite (`sharing`), para os sons
+  // de transmissão. Mesmo ciclo de `baselineIdsRef`: `null` = primeiro retrato
+  // do canal, que não toca nada.
+  const previousShareRowsRef = useRef<readonly ShareRow[] | null>(null)
+
   // `userId` -> timeout pendente de tocar o som de saída, aguardando a
   // janela de graça de reconexão (`RECONNECT_GRACE_MS`) antes de confirmar
   // que a saída é real.
@@ -289,6 +315,7 @@ export function useVoiceJoinLeaveSounds(): void {
     if (lastChannelRef.current === joinedVoiceChannelId) return
     lastChannelRef.current = joinedVoiceChannelId
     baselineIdsRef.current = null
+    previousShareRowsRef.current = null
     clearAllPendingLeaves()
   }, [joinedVoiceChannelId])
 
@@ -306,6 +333,12 @@ export function useVoiceJoinLeaveSounds(): void {
 
     if (!joinedVoiceChannelId) return
     if (participants === undefined) return // ainda carregando
+
+    // Follow-up 1: quem começou/parou de transmitir desde o retrato anterior.
+    // Calculado antes de qualquer retorno, para o retrato anterior estar sempre
+    // em dia — inclusive no primeiro, que só vira ponto de partida.
+    const shareEvents = shareSoundEvents(previousShareRowsRef.current, participants)
+    previousShareRowsRef.current = participants
 
     const currentIds = new Set(participants.map((p) => p.userId))
 
@@ -328,7 +361,7 @@ export function useVoiceJoinLeaveSounds(): void {
       if (!currentIds.has(id)) leftIds.push(id)
     })
 
-    if (joinedIds.length === 0 && leftIds.length === 0) return
+    if (joinedIds.length === 0 && leftIds.length === 0 && shareEvents.length === 0) return
 
     // Nada toca se a preferência estiver desligada, ou se o próprio usuário
     // estiver ensurdecido agora — quem ensurdeceu a si mesmo não deve ouvir
@@ -407,6 +440,15 @@ export function useVoiceJoinLeaveSounds(): void {
         }, RECONNECT_GRACE_MS)
         pendingLeaveTimeoutsRef.current.set(representativeId, timeout)
       }
+    }
+
+    // Transmissão começou/terminou (follow-up 1), para qualquer pessoa da call,
+    // inclusive eu. No máximo um tom por retrato, como na entrada: duas pessoas
+    // começando juntas tocam um "começou" só, e "começou" vence "terminou".
+    if (shareEvents.includes('start')) {
+      playStreamStartTone()
+    } else if (shareEvents.includes('stop')) {
+      playStreamStopTone()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [participants, joinedVoiceChannelId])
