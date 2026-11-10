@@ -252,7 +252,7 @@ export function MicTestPanel({
             <p className="text-xs text-muted-foreground">
               {markDb === null
                 ? 'Medindo o ruído de fundo…'
-                : `Limiar ${autoSensitivity ? 'automático' : 'manual'}: ${formatDb(markDb)}. Verde: sua voz seria transmitida.`}
+                : `Limiar ${autoSensitivity ? 'automático' : 'manual'}: ${formatDb(markDb)}. Verde: acima do limiar, abriria o microfone.`}
             </p>
           </div>
 

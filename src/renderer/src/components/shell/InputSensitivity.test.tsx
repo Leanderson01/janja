@@ -58,7 +58,7 @@ describe('VadLevelMeter', () => {
 })
 
 describe('InputSensitivity', () => {
-  const reading = { levelDb: -40, thresholdDb: -58, speaking: true }
+  const reading = { levelDb: -40, thresholdDb: -58 }
 
   it('automático (padrão): interruptor ligado, SEM slider, marca no limiar calculado', () => {
     const { container } = render(

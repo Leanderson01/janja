@@ -65,6 +65,8 @@ class FakeAudioContext {
   static initialState = 'running'
   static resumeBehavior: ResumeBehavior = 'resolve-running'
   static workletBehavior: WorkletBehavior = 'absent'
+  /** `createAnalyser` lança: o fallback também não sobe. */
+  static analyserThrows = false
 
   state: string
   resumes = 0
@@ -165,6 +167,7 @@ class FakeAudioContext {
   }
 
   createAnalyser(): FakeAnalyser {
+    if (FakeAudioContext.analyserThrows) throw new Error('createAnalyser explodiu')
     const analyser = new FakeAnalyser()
     this.analysers.push(analyser)
     return analyser
@@ -279,6 +282,7 @@ beforeEach(() => {
   FakeAudioContext.initialState = 'running'
   FakeAudioContext.resumeBehavior = 'resolve-running'
   FakeAudioContext.workletBehavior = 'absent'
+  FakeAudioContext.analyserThrows = false
   FakeAnalyser.sample = 0
   FakeAudioWorkletNode.instances = []
 
@@ -913,5 +917,99 @@ describe('createVadMonitor', () => {
     await settle()
     expect(loggedText(logged.info)).toMatch(/manual \(limiar -50 dB\)/)
     manualMonitor.stop()
+  })
+  it('36. `addModule` que NUNCA assenta: o prazo nasce com o monitor e o fallback sobe em ~2 s', async () => {
+    // Antes o vigia só era armado DEPOIS do `await addModule()`: pendente para
+    // sempre = sem vigia, sem fallback, e o microfone (já mutado por quem
+    // criou o monitor) fechado para sempre.
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'manual'
+    FakeAnalyser.sample = 0.4
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    const ctx = FakeAudioContext.instances[0]
+
+    vi.advanceTimersByTime(1000)
+    expect(ctx.analysers).toHaveLength(0)
+    vi.advanceTimersByTime(1000)
+    expect(ctx.analysers).toHaveLength(1)
+    expect(loggedText(logged.warn)).toMatch(/fallback/i)
+
+    vi.advanceTimersByTime(20)
+    expect(onSpeakingChange).toHaveBeenCalledWith(true)
+    monitor.stop()
+  })
+
+  it('37. `addModule` que resolve DEPOIS do fallback é ignorado: nenhum worklet nasce por cima', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'manual'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+    const ctx = FakeAudioContext.instances[0]
+    vi.advanceTimersByTime(2000)
+    expect(ctx.analysers).toHaveLength(1)
+    logged.info = []
+
+    ctx.finishAddModule()
+    await settle()
+
+    expect(FakeAudioWorkletNode.instances).toHaveLength(0)
+    expect(ctx.gains).toHaveLength(0)
+    expect(loggedText(logged.info)).not.toMatch(/AudioWorklet/)
+    monitor.stop()
+  })
+
+  it('38. nem worklet nem fallback: FALHA ABERTO — microfone aberto e erro no console, sem rejeição solta', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'absent'
+    FakeAudioContext.analyserThrows = true
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    // O "abre" vai num macrotask, depois do mute síncrono de quem criou.
+    expect(onSpeakingChange).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(0)
+
+    expect(onSpeakingChange).toHaveBeenCalledTimes(1)
+    expect(onSpeakingChange).toHaveBeenCalledWith(true)
+    const text = loggedText(logged.error)
+    expect(text).toContain('[voice]')
+    expect(text).toMatch(/ABERTO/)
+    expect(text).toContain('createAnalyser explodiu')
+    monitor.stop()
+  })
+
+  it('39. fallback que lança a partir do VIGIA também falha aberto', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'resolve'
+    FakeAudioContext.analyserThrows = true
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+
+    expect(() => vi.advanceTimersByTime(2000)).not.toThrow()
+    vi.advanceTimersByTime(1) // o "abre" adiado
+    expect(onSpeakingChange).toHaveBeenCalledWith(true)
+    expect(loggedText(logged.error)).toMatch(/ABERTO/)
+    monitor.stop()
+  })
+
+  it('40. `stop()` entre a falha e o "abre" adiado: ninguém é chamado', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'absent'
+    FakeAudioContext.analyserThrows = true
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    monitor.stop()
+    vi.advanceTimersByTime(10)
+
+    expect(onSpeakingChange).not.toHaveBeenCalled()
   })
 })

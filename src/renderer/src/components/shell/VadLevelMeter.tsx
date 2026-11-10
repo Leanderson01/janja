@@ -3,11 +3,11 @@ import { dbToPercent, formatDb } from '@/lib/vad-scale'
 
 // Medidor de nível do microfone na MESMA escala do slider de sensibilidade
 // (dBFS, −100…0, `lib/vad-scale.ts`), como o do Discord: o trecho do nível
-// ABAIXO do limiar fica âmbar (não transmite), o trecho ACIMA fica verde
-// (transmite), e uma marca vertical mostra o limiar em vigor — no automático,
-// o calculado a partir do ruído de fundo. O nível é o PICO do intervalo
-// (`VadLevelReading`), então o verde aparecer é exatamente o que abre o
-// microfone.
+// ABAIXO do limiar fica âmbar, o trecho ACIMA fica verde, e uma marca vertical
+// mostra o limiar em vigor — no automático, o calculado a partir do ruído de
+// fundo. O nível é o PICO do intervalo (`VadLevelReading`), então o verde
+// aparecer é exatamente o que ABRE o microfone. Âmbar não quer dizer fechado:
+// a histerese e a soltura de 600 ms o mantêm aberto no fim das palavras.
 export function VadLevelMeter({
   levelDb,
   thresholdDb,

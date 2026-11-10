@@ -49,6 +49,28 @@ function feed(
   return transitions
 }
 
+/** O gerador do cenário da revisão (Park–Miller): determinístico por semente. */
+function lcg(seed: number): () => number {
+  let state = seed
+  return () => {
+    state = (state * 16807) % 2147483647
+    return state / 2147483647
+  }
+}
+
+/**
+ * Microfone com gate duro: frases de 2 s a cada 3,5 s; dentro delas, palavras
+ * de 300 ms em `meanDb` ±6 dB com 100 ms de ZERO digital entre elas.
+ */
+function gatedSpeech(meanDb: number, rnd: () => number): (nowMs: number) => number {
+  return (t) => {
+    const inUtterance = t % 3500
+    if (inUtterance >= 2000) return -Infinity
+    if (inUtterance % 400 >= 300) return -Infinity
+    return meanDb + (rnd() * 12 - 6)
+  }
+}
+
 function manual(thresholdDb: number): VadDecision {
   return createVadDecision({ autoSensitivity: false, thresholdDb })
 }
@@ -224,7 +246,7 @@ describe('createVadDecision — sensibilidade automática', () => {
     expect(decision.speaking).toBe(false)
   })
 
-  it('a própria voz não prende o piso lá em cima: depois de 5 s falando, o silêncio devolve o limiar na hora', () => {
+  it('a própria voz não prende o piso lá em cima: depois de 5 s falando, 0,1 s de silêncio devolve o limiar', () => {
     const decision = auto()
     feed(decision, -75, 0, 2000)
     const quietThreshold = decision.thresholdDb
@@ -233,8 +255,10 @@ describe('createVadDecision — sensibilidade automática', () => {
     const duringSpeech = feed(decision, -30, 2000, 7000)
     expect(duringSpeech).toEqual([{ atMs: 2000, speaking: true }])
 
-    decision.push(-75, 7000)
-    expect(decision.thresholdDb).toBeCloseTo(quietThreshold, 5)
+    // O piso é alimentado pela média de ~80 ms, não pelo bloco cru: a volta
+    // leva uma janela, não um bloco.
+    feed(decision, -75, 7000, 7100)
+    expect(decision.thresholdDb).toBeCloseTo(quietThreshold, 1)
   })
 
   it('silêncio DIGITAL (zeros do início da captura) não derruba o piso — senão o ruído real abriria o microfone', () => {
@@ -245,6 +269,69 @@ describe('createVadDecision — sensibilidade automática', () => {
     feed(decision, -Infinity, 0, 1000)
 
     expect(feed(decision, -55, 1000, 20_000)).toEqual([])
+  })
+
+  it('zeros de aquecimento não diluem a média: o primeiro bloco real já é lido pelo que é', () => {
+    const decision = auto()
+    feed(decision, -Infinity, 0, 1000)
+
+    decision.push(-72, 1000)
+
+    expect(decision.noiseFloorDb).toBeCloseTo(-72, 5)
+  })
+
+  it('microfone com GATE (zeros exatos entre palavras): o limiar não sobe até o teto e o início da frase abre', () => {
+    // NVIDIA Broadcast, Krisp, Voicemeeter, gate de hardware: entre palavras
+    // e frases a entrada é ZERO digital, e o único sinal não-zero é a voz.
+    // Se zeros não contassem para o piso, ele subiria com a voz a 1 dB/s até
+    // o limiar bater em −30 e fala a −38 dB nunca mais abrir (revisão de
+    // 2026-11-10: −46 → −30 em 40 s, 0 de 86 inícios abriam).
+    const decision = auto()
+    const level = gatedSpeech(-38, lcg(7))
+    let maxThresholdDb = -Infinity
+    let onsets = 0
+    let opened = 0
+
+    for (let t = 0; t < 120_000; t += BLOCK_MS) {
+      const wasSpeaking = decision.speaking
+      const speaking = decision.push(level(t), t)
+      maxThresholdDb = Math.max(maxThresholdDb, decision.thresholdDb)
+      const inUtterance = t % 3500 < 2000
+      const wordStart = (t % 3500) % 400 === 0
+      if (inUtterance && wordStart && !wasSpeaking) {
+        onsets++
+        if (speaking) opened++
+      }
+    }
+
+    expect(maxThresholdDb).toBeLessThan(VAD_AUTO_MAX_THRESHOLD_DB)
+    expect(decision.thresholdDb).toBeLessThanOrEqual(-60)
+    expect(onsets).toBeGreaterThan(30)
+    expect(opened / onsets).toBeGreaterThanOrEqual(0.9)
+  })
+
+  it('zeros digitais no meio da conversa puxam o piso só até −79 (limiar −65), não até −100', () => {
+    const decision = auto()
+    feed(decision, -50, 0, 3000)
+
+    feed(decision, -Infinity, 3000, 3200)
+
+    expect(decision.noiseFloorDb).toBe(-79)
+    expect(decision.thresholdDb).toBe(VAD_AUTO_MIN_THRESHOLD_DB)
+  })
+
+  it('um único bloco de −80 numa sala de −58 dB não abre o microfone com o ruído da sala depois', () => {
+    // Antes, o bloco cru derrubava o piso na hora para −80, o limiar ia a
+    // −66 e o ruído de −58 ficava ABERTO por 15,6 s até o piso subir de volta.
+    const rnd = lcg(1)
+    const room = (): number => -58 + (rnd() * 2 - 1)
+    const decision = auto()
+    feed(decision, room, 0, 10_000)
+    expect(decision.speaking).toBe(false)
+
+    decision.push(-80, 10_000)
+
+    expect(feed(decision, room, 10_010, 70_000)).toEqual([])
   })
 
   it('começa num piso razoável: não fica mudo no primeiro segundo', () => {

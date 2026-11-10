@@ -60,6 +60,23 @@ export const VAD_NOISE_FLOOR_RISE_DB_PER_S = 1
  * plano) não pode virar um salto do piso de dezenas de dB de uma vez.
  */
 const MAX_FLOOR_STEP_MS = 1000
+/**
+ * O piso é alimentado pela MÉDIA (em potência) dos últimos 8 blocos — ~80 ms
+ * no worklet —, não pelo bloco cru. Um bloco quieto isolado não derruba o
+ * piso; o ataque continua no bloco cru, então abrir segue imediato.
+ */
+const FLOOR_SMOOTHING_BLOCKS = 8
+/**
+ * Até onde o silêncio DIGITAL (zeros exatos) puxa o piso: −79 é o maior piso
+ * que ainda dá o limiar mínimo de −65 (−65 − 14). Ir até −100 não mudaria o
+ * limiar e só aumentaria o tempo de o piso voltar ao ruído real.
+ */
+export const VAD_DIGITAL_SILENCE_FLOOR_DB = VAD_AUTO_MIN_THRESHOLD_DB - VAD_AUTO_MARGIN_DB
+/**
+ * Zeros antes de ouvir qualquer sinal, ou nos primeiros 500 ms do monitor,
+ * são aquecimento da captura — não dizem nada sobre a sala.
+ */
+const STARTUP_SILENCE_GRACE_MS = 500
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -104,19 +121,26 @@ export type VadDecision = {
  *   fechamento; qualquer bloco acima dele zera a contagem.
  * - **Automático**: limiar = piso de ruído + 14 dB, preso em −65…−30 dB.
  *
- * O piso de ruído é um mínimo com subida lenta: cai NA HORA para um nível
- * menor e sobe no máximo 1 dB/s enquanto o nível está acima dele. Dois
- * ajustes sobre a ideia original, cada um com teste em `vad-decision.test.ts`:
+ * O piso de ruído é um mínimo com subida lenta sobre a média de ~80 ms do
+ * nível: cai NA HORA para uma média menor e sobe no máximo 1 dB/s enquanto a
+ * média está acima dele. Cada regra abaixo tem teste em `vad-decision.test.ts`:
  *
+ * - Média, não bloco cru: um único bloco quieto de 10 ms derrubava o piso, e
+ *   o ruído da própria sala abria o microfone por ~15 s até ele voltar.
  * - Ele sobe também com o microfone ABERTO. Se só subisse fechado, um ruído
  *   que aparece de repente acima do limiar (ar-condicionado ligando) abriria
  *   o microfone e o deixaria aberto PARA SEMPRE — o piso congelado nunca o
  *   alcançaria. A própria voz não "prende" o piso: fala real tem quedas, e a
- *   primeira pausa o devolve ao ruído de fundo na hora (e 1 dB/s é lento
- *   demais para alcançar a voz durante uma frase).
- * - Silêncio DIGITAL (−100, os zeros do início de uma captura) não mexe no
- *   piso. Senão o piso despencava para −100, o limiar ia a −65 e o ruído real
- *   da sala abria o microfone por meio minuto, até o piso subir de volta.
+ *   primeira pausa o devolve ao ruído de fundo (e 1 dB/s é lento demais para
+ *   alcançar a voz durante uma frase).
+ * - Silêncio DIGITAL (zeros exatos por uma janela inteira) puxa o piso até
+ *   −79 (limiar −65). Microfone com gate (NVIDIA Broadcast, Krisp,
+ *   Voicemeeter, gate de hardware) entrega zero entre as palavras: se zeros
+ *   não contassem, o único sinal seria a voz, o piso subiria com ela até o
+ *   limiar bater em −30 e a fala normal deixaria de abrir.
+ * - EXCETO zeros de aquecimento (antes do primeiro sinal, ou nos primeiros
+ *   500 ms): o início de uma captura costuma vir zerado, e puxar o piso ali
+ *   abriria o microfone com o ruído real da sala por vários segundos.
  *
  * O piso é estimado também no modo manual: ligar o automático já chega
  * calibrado.
@@ -129,6 +153,16 @@ export function createVadDecision(options: VadDecisionOptions): VadDecision {
   /** Desde quando (ms) o nível está abaixo do limiar de fechamento; `null` fora disso. */
   let belowSinceMs: number | null = null
   let lastNowMs: number | null = null
+  let firstNowMs: number | null = null
+
+  // Janela da média que alimenta o piso: potência linear por bloco (zero
+  // digital = 0), em anel.
+  const windowPowers = new Float64Array(FLOOR_SMOOTHING_BLOCKS)
+  let windowNext = 0
+  let windowFilled = 0
+  /** Blocos seguidos de zero digital. */
+  let silentRun = 0
+  let heardSignal = false
 
   function openThresholdDb(): number {
     if (!autoSensitivity) return manualThresholdDb
@@ -139,14 +173,39 @@ export function createVadDecision(options: VadDecisionOptions): VadDecision {
     )
   }
 
-  function trackNoiseFloor(levelDb: number, elapsedMs: number): void {
-    if (levelDb <= VAD_SILENCE_DB) return
-    if (levelDb < noiseFloorDb) {
-      noiseFloorDb = levelDb
+  function trackNoiseFloor(levelDb: number, now: number | null, elapsedMs: number): void {
+    const silent = levelDb <= VAD_SILENCE_DB
+    if (!silent) heardSignal = true
+    const warmingUp =
+      !heardSignal ||
+      (now !== null && firstNowMs !== null && now - firstNowMs < STARTUP_SILENCE_GRACE_MS)
+    // Zeros de aquecimento ficam FORA da janela: diluiriam a média dos
+    // primeiros blocos reais e jogariam o piso abaixo do ruído da sala.
+    if (silent && warmingUp) return
+
+    windowPowers[windowNext] = silent ? 0 : 10 ** (levelDb / 10)
+    windowNext = (windowNext + 1) % FLOOR_SMOOTHING_BLOCKS
+    windowFilled = Math.min(windowFilled + 1, FLOOR_SMOOTHING_BLOCKS)
+    silentRun = silent ? silentRun + 1 : 0
+
+    if (silentRun >= FLOOR_SMOOTHING_BLOCKS) {
+      noiseFloorDb = Math.min(noiseFloorDb, VAD_DIGITAL_SILENCE_FLOOR_DB)
+      return
+    }
+
+    let sum = 0
+    for (let i = 0; i < windowFilled; i++) sum += windowPowers[i]
+    const meanPower = sum / windowFilled
+    // Só zeros na janela, mas ainda menos que uma janela inteira: espera.
+    if (!(meanPower > 0)) return
+    const smoothedDb = 10 * Math.log10(meanPower)
+
+    if (smoothedDb < noiseFloorDb) {
+      noiseFloorDb = smoothedDb
       return
     }
     const rise = (VAD_NOISE_FLOOR_RISE_DB_PER_S * elapsedMs) / 1000
-    noiseFloorDb = Math.min(levelDb, noiseFloorDb + rise)
+    noiseFloorDb = Math.min(smoothedDb, noiseFloorDb + rise)
   }
 
   return {
@@ -160,8 +219,9 @@ export function createVadDecision(options: VadDecisionOptions): VadDecision {
       const elapsedMs =
         now !== null && lastNowMs !== null ? clamp(now - lastNowMs, 0, MAX_FLOOR_STEP_MS) : 0
       if (now !== null) lastNowMs = now
+      if (firstNowMs === null && now !== null) firstNowMs = now
 
-      trackNoiseFloor(level, elapsedMs)
+      trackNoiseFloor(level, now, elapsedMs)
       const openDb = openThresholdDb()
 
       if (!speaking) {
@@ -214,7 +274,6 @@ export type VadLevelReading = {
   levelDb: number
   /** Limiar de abertura em vigor — no automático, o calculado. */
   thresholdDb: number
-  speaking: boolean
 }
 
 export type VadMonitorOptions = {
@@ -448,9 +507,16 @@ export function keepAudioContextRunning(audioContext: AudioContext): () => void 
  * nem minimizada, ao contrário do rAF de antes. O carregamento é assíncrono;
  * o monitor nasce na hora e começa a decidir no primeiro bloco.
  *
- * Fallback (worklet não carregou, ou carregou e não entrega nada): o
- * `AnalyserNode` de antes, com janela menor e `setInterval` de 20 ms no lugar
- * do rAF. Pior (o navegador espaça timers em segundo plano), mas nunca sem VAD.
+ * Fallback (worklet não carregou, não carregou A TEMPO, ou carregou e não
+ * entrega nada): o `AnalyserNode` de antes, com janela menor e `setInterval` de
+ * 20 ms no lugar do rAF. Pior (o navegador espaça timers em segundo plano), mas
+ * nunca sem VAD.
+ *
+ * FALHA ABERTO: quem cria o monitor muta o microfone assim que ele volta (ver
+ * `startVadMonitor` em voice-context). Se NENHUM caminho de medição subir — nem
+ * o worklet, nem o fallback —, o monitor chama `onSpeakingChange(true)` com
+ * erro no console: microfone aberto por engano é constrangedor; mudo por
+ * engano é o bug que este módulo existe para não ter.
  */
 export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOptions): VadMonitor {
   const label = opts.label ?? 'VAD'
@@ -475,6 +541,11 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
   let peakDb = VAD_SILENCE_DB
   let lastReportMs: number | null = null
 
+  /**
+   * Qual caminho de medição está de pé. Sai de 'pending' UMA vez: um
+   * `addModule` que resolve depois de o fallback assumir é ignorado.
+   */
+  let measurement: 'pending' | 'worklet' | 'fallback' | 'failed' = 'pending'
   let workletNode: AudioWorkletNode | null = null
   let workletSink: GainNode | null = null
   let watchdogId: ReturnType<typeof setInterval> | null = null
@@ -498,8 +569,7 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
     if (elapsed >= 0 && elapsed < LEVEL_REPORT_INTERVAL_MS) return
     opts.onLevel({
       levelDb: clamp(peakDb, VAD_SILENCE_DB, VAD_MAX_DB),
-      thresholdDb: decision.thresholdDb,
-      speaking
+      thresholdDb: decision.thresholdDb
     })
     peakDb = VAD_SILENCE_DB
     lastReportMs = nowMs
@@ -519,7 +589,6 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
   }
 
   function teardownWorklet(): void {
-    clearWatchdog()
     const node = workletNode
     workletNode = null
     if (node) {
@@ -536,7 +605,7 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
   }
 
   function startFallback(reason: unknown): void {
-    if (stopped || analyser !== null) return
+    measurement = 'fallback'
     console.warn(
       '[voice] %s: AudioWorklet indisponível — usando AnalyserNode a cada %d ms (fallback; em ' +
         'segundo plano o navegador pode espaçar este timer)',
@@ -559,9 +628,54 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
     logStart(`AnalyserNode a cada ${FALLBACK_INTERVAL_MS} ms (fallback)`)
   }
 
-  // Worklet carregado mas mudo, com o contexto RODANDO (contexto parado é
-  // assunto de `keepAudioContextRunning`, não do worklet): troca para o
-  // fallback em vez de deixar o microfone travado no último estado.
+  // Nenhum caminho de medição de pé: abre o microfone e diz isso alto.
+  function failOpen(err: unknown): void {
+    if (stopped || measurement === 'failed') return
+    measurement = 'failed'
+    console.error(
+      '[voice] %s: nem AudioWorklet nem AnalyserNode subiram — sem medição de nível; ' +
+        'microfone ABERTO (fail-open)',
+      label,
+      err
+    )
+    // Num macrotask, não já: quem criou o monitor muta o microfone na MESMA
+    // tarefa em que o recebe (`applyVoicePreferencesAsync`), e um "abre"
+    // disparado de um microtask poderia chegar ao SDK antes desse "fecha" e
+    // perder para ele.
+    setTimeout(() => {
+      if (stopped) return
+      try {
+        opts.onSpeakingChange(true)
+      } catch (callbackErr) {
+        console.error('[voice] %s: falha ao abrir o microfone no fail-open', label, callbackErr)
+      }
+    }, 0)
+  }
+
+  // Único jeito de sair do worklet para o fallback. Nada aqui pode escapar:
+  // roda dentro de um `.catch` e de um `setInterval`, onde um erro viraria
+  // rejeição solta e deixaria o microfone fechado para sempre.
+  function switchToFallback(reason: unknown): void {
+    if (stopped || measurement === 'fallback' || measurement === 'failed') return
+    clearWatchdog()
+    try {
+      teardownWorklet()
+    } catch {
+      // Desmontar o worklet é limpeza; o que importa é medir de outro jeito.
+    }
+    try {
+      startFallback(reason)
+    } catch (err) {
+      failOpen(err)
+    }
+  }
+
+  // O PRAZO nasce com o monitor, não depois do `await addModule()`: um
+  // `addModule` que nunca assenta também precisa cair no fallback. Conta só
+  // com o contexto RODANDO (contexto parado é assunto de
+  // `keepAudioContextRunning`, e o fallback também leria zeros); se em ~2 s
+  // rodando não chegou nenhum bloco — worklet pendente ou carregado e mudo —,
+  // troca para o fallback em vez de deixar o microfone travado.
   function armWatchdog(): void {
     let strikes = 0
     watchdogId = setInterval(() => {
@@ -575,12 +689,12 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
       }
       strikes++
       if (strikes < WORKLET_WATCHDOG_STRIKES) return
-      teardownWorklet()
-      startFallback(
+      const seconds = (WORKLET_WATCHDOG_STRIKES * WORKLET_WATCHDOG_INTERVAL_MS) / 1000
+      switchToFallback(
         new Error(
-          `o worklet carregou mas não entregou nenhum bloco em ~${
-            WORKLET_WATCHDOG_STRIKES * WORKLET_WATCHDOG_INTERVAL_MS
-          } ms com o contexto rodando`
+          measurement === 'pending'
+            ? `audioWorklet.addModule() não assentou em ~${seconds} s com o contexto rodando`
+            : `o worklet carregou mas não entregou nenhum bloco em ~${seconds} s com o contexto rodando`
         )
       )
     }, WORKLET_WATCHDOG_INTERVAL_MS)
@@ -590,7 +704,9 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
     const worklet = audioContext.audioWorklet
     if (!worklet) throw new Error('AudioContext sem audioWorklet (contexto não seguro?)')
     await worklet.addModule(levelProcessorUrl)
-    if (stopped) return
+    // Parado, ou o prazo venceu e o fallback já assumiu: chegou tarde.
+    if (stopped || measurement !== 'pending') return
+    measurement = 'worklet'
 
     const node = new AudioWorkletNode(audioContext, VAD_LEVEL_PROCESSOR_NAME, {
       numberOfInputs: 1,
@@ -621,14 +737,13 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
     node.connect(sink)
     sink.connect(audioContext.destination)
 
-    armWatchdog()
     logStart('AudioWorklet (blocos de 10 ms)')
   }
 
-  void startWorklet().catch((err: unknown) => {
-    teardownWorklet()
-    startFallback(err)
-  })
+  armWatchdog()
+  // Erro em qualquer ponto — inclusive um `connect` que lança depois de o nó
+  // existir — cai no fallback; `switchToFallback` desmonta o que sobrou.
+  void startWorklet().catch((err: unknown) => switchToFallback(err))
 
   return {
     stop(): void {
@@ -636,6 +751,7 @@ export function createVadMonitor(track: MediaStreamTrack, opts: VadMonitorOption
       stopped = true
       if (fallbackId !== null) clearInterval(fallbackId)
       fallbackId = null
+      clearWatchdog()
       teardownWorklet()
       // Solta os listeners de `statechange` e de gesto ANTES de fechar: um
       // listener no `document` sobrevive ao contexto e vazaria a cada

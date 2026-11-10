@@ -89,8 +89,8 @@ export function InputSensitivity({
 
       <p className="text-xs text-muted-foreground">
         {autoSensitivity
-          ? 'O limiar acompanha o ruído de fundo. Verde no medidor: sua voz está sendo transmitida.'
-          : 'Verde no medidor: sua voz está sendo transmitida.'}
+          ? 'O limiar acompanha o ruído de fundo. Verde no medidor: acima do limiar, abre o microfone.'
+          : 'Verde no medidor: acima do limiar, abre o microfone.'}
       </p>
     </div>
   )
