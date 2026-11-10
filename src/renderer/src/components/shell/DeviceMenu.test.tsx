@@ -27,6 +27,7 @@ describe('DeviceMenu', () => {
         enumerateDevices: vi.fn(async () => [
           { kind: 'audioinput', deviceId: 'mic-1', label: 'Microfone USB' },
           { kind: 'audioinput', deviceId: 'mic-2', label: '' },
+          { kind: 'audioinput', deviceId: '', label: 'Sem permissão' },
           { kind: 'audiooutput', deviceId: 'out-1', label: 'Caixas' }
         ])
       }
@@ -44,6 +45,9 @@ describe('DeviceMenu', () => {
     expect(first.getAttribute('aria-checked')).toBe('true')
     const second = screen.getByRole('menuitemradio', { name: 'Dispositivo 2' })
     expect(screen.queryByRole('menuitemradio', { name: 'Caixas' })).toBeNull()
+    // Sem permissão de mic (web) o navegador devolve deviceId vazio: não listar.
+    expect(screen.queryByRole('menuitemradio', { name: 'Sem permissão' })).toBeNull()
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
 
     await userEvent.click(second)
     await waitFor(() => expect(selectDevice).toHaveBeenCalledWith('audioinput', 'mic-2'))

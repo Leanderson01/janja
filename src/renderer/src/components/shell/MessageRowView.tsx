@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import { UserAvatar } from '@/components/shell/UserAvatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { formatFullTimestamp, formatMessageTimestamp, formatShortTime } from '@/lib/message-time'
 
 /** Linha de texto da mensagem. URL gigante quebra (`break-words`) em vez de estourar a coluna. */
@@ -40,7 +41,12 @@ export function MessageRowView({
   children: ReactNode
 }): React.JSX.Element {
   return (
-    <div className={`group relative py-0.5 pl-[72px] pr-12 hover:bg-accent${isGroupStart ? ' mt-4' : ''}`}>
+    <div
+      className={cn(
+        'group relative py-0.5 pl-[72px] pr-12 hover:bg-accent',
+        isGroupStart && 'mt-4'
+      )}
+    >
       {isGroupStart ? (
         <>
           <UserAvatar
@@ -51,7 +57,7 @@ export function MessageRowView({
             className="absolute left-4 top-1"
           />
           <div className="flex items-baseline gap-2">
-            <span className="text-base font-medium text-strong hover:underline">{authorName}</span>
+            <span className="text-base font-medium text-strong">{authorName}</span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="text-xs text-muted-foreground">

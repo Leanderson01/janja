@@ -188,9 +188,7 @@ export function MessageInput({
                 onRemove={() => removeSelected(index)}
               />
             ))}
-            {isSending && (
-              <span className="self-end text-xs text-muted-foreground">Enviando…</span>
-            )}
+            {isSending && <span className="self-end text-xs text-muted-foreground">Enviando…</span>}
           </div>
         )}
 
@@ -272,7 +270,12 @@ function SelectedFile({
     <div className="relative flex w-40 flex-col gap-1 rounded-md bg-secondary p-2">
       <div className="flex h-24 items-center justify-center overflow-hidden rounded-sm">
         {previewUrl ? (
-          <img src={previewUrl} alt="" className="size-full object-cover" />
+          <img
+            src={previewUrl}
+            alt=""
+            className="size-full object-cover"
+            onError={() => setPreviewUrl(null)}
+          />
         ) : (
           <FileText className="size-10 text-muted-foreground" aria-hidden="true" />
         )}

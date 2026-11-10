@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
 import { HydraMark } from '@/components/brand/HydraMark'
 import { capabilities } from '@platform/capabilities'
+import { WindowDragStrip } from '@/components/brand/WindowDragStrip'
 
 // Tela de login minimalista de propósito — a Fase 3 (components/shell/**) cuida do
 // visual definitivo depois. Aqui só precisa ser funcional/usável para o checkpoint
@@ -31,7 +32,8 @@ export function LoginScreen(): React.JSX.Element {
   }
 
   return (
-    <div className="bg-sidebar grid h-screen w-screen place-items-center">
+    <div className="bg-sidebar relative grid h-screen w-screen place-items-center">
+      <WindowDragStrip />
       <div className="bg-panel border-panel-border flex w-[480px] max-w-[calc(100vw-32px)] flex-col items-center gap-4 rounded-lg border p-8">
         <HydraMark className="text-strong size-12" />
         <h1 className="text-strong text-2xl font-bold">Hydra</h1>

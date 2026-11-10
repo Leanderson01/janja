@@ -16,7 +16,7 @@
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob: https://*.convex.cloud; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com https://api.workos.com"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https://*.convex.cloud; connect-src 'self' ws: wss: https://*.convex.cloud wss://*.convex.cloud https://*.convex.site wss://livekit.usesenju.com https://livekit.usesenju.com https://api.workos.com"
     />
     <!--
       A CSP padrão do template do electron-vite é `default-src 'self'`, que
@@ -29,6 +29,10 @@
         08.5-14, também as IMAGENS ANEXADAS, que o Convex serve de
         `https://*.convex.cloud`. Já estavam cobertas por `https:`; conferido
         antes de mexer, em vez de afrouxar por precaução.
+      img-src blob:: PRÉVIAS DO COMPOSER. As miniaturas dos arquivos prestes a
+        ser enviados vêm de `URL.createObjectURL(file)`, que gera uma URL
+        `blob:`. Sem esta entrada o Chromium recusa a imagem sem erro de
+        aplicação e a miniatura aparece como uma caixa vazia (Electron e web).
       media-src blob:: tracks de áudio e vídeo do WebRTC.
       media-src https://*.convex.cloud: ÁUDIO E VÍDEO ANEXADOS (CHAT-10, Plano
         08.5-14). Sem esta entrada, um `.mp3` ou `.mp4` anexado é recusado pelo

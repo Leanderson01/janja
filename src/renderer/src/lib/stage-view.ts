@@ -47,6 +47,9 @@ export type MainViewInput<TChannelId extends string = string> = {
  *    selecionado. É isto que faz "voltar para a call" funcionar: sem a
  *    precedência, clicar em Conectado no rodapé não teria efeito visível
  *    enquanto um canal de texto estivesse selecionado.
+ *    Também vale quando o canal selecionado É o canal conectado, mesmo com
+ *    `viewingStage === false` (ex.: Voltar no histórico) — nunca há prévia da
+ *    própria call.
  * 2. Canal de texto selecionado → texto. Note que este caminho é alcançável COM
  *    uma call ativa (`viewingStage === false`): é a call continuando enquanto se
  *    lê o texto, que é o ponto inteiro do plano.
@@ -64,6 +67,13 @@ export function resolveMainView<TChannelId extends string>(
   const { joinedVoiceChannelId, viewingStage, selectedChannelId, selectedChannelType } = input
 
   if (joinedVoiceChannelId !== null && viewingStage) {
+    return { kind: 'stage', channelId: joinedVoiceChannelId }
+  }
+
+  // Selecionar o canal de voz em que EU estou sempre mostra o palco: uma
+  // "prévia" da própria call não tem controles nem vídeo (ex.: Voltar do
+  // histórico de navegação reaplica o canal com `viewingStage=false`).
+  if (joinedVoiceChannelId !== null && selectedChannelId === joinedVoiceChannelId) {
     return { kind: 'stage', channelId: joinedVoiceChannelId }
   }
 

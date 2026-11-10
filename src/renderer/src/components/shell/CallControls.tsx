@@ -1,5 +1,14 @@
-import { Headphones, HeadphoneOff, Maximize, Mic, MicOff, MonitorUp, PhoneOff } from 'lucide-react'
-import type { ReactNode } from 'react'
+import {
+  Headphones,
+  HeadphoneOff,
+  Maximize,
+  Minimize,
+  Mic,
+  MicOff,
+  MonitorUp,
+  PhoneOff
+} from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { DeviceMenu } from '@/components/shell/DeviceMenu'
 import { DeviceChevron } from '@/components/shell/VoiceControlBar'
@@ -59,6 +68,8 @@ export function CallControlsView({
   onToggleDeafen,
   onLeave,
   onFullscreen,
+  isFullscreen = false,
+  aboveStrip = false,
   inputMenu,
   outputMenu
 }: {
@@ -72,6 +83,9 @@ export function CallControlsView({
   onToggleDeafen(): void
   onLeave(): void
   onFullscreen(): void
+  isFullscreen?: boolean
+  /** Layout de compartilhamento: a faixa de participantes fica no rodapé, a barra sobe acima dela. */
+  aboveStrip?: boolean
   inputMenu: ReactNode
   outputMenu: ReactNode
 }): React.JSX.Element {
@@ -84,7 +98,8 @@ export function CallControlsView({
     <div
       data-visible={visible}
       className={cn(
-        'group pointer-events-none absolute inset-x-0 bottom-6 flex justify-center transition-opacity focus-within:opacity-100',
+        'group pointer-events-none absolute inset-x-0 flex justify-center transition-opacity focus-within:opacity-100',
+        aboveStrip ? 'bottom-[6.5rem]' : 'bottom-6',
         !visible && 'opacity-0'
       )}
     >
@@ -124,8 +139,11 @@ export function CallControlsView({
       </div>
 
       <div className={cn('absolute bottom-0 right-6', interactive)}>
-        <ControlButton label="Tela cheia" onClick={onFullscreen}>
-          <Maximize />
+        <ControlButton
+          label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+          onClick={onFullscreen}
+        >
+          {isFullscreen ? <Minimize /> : <Maximize />}
         </ControlButton>
       </div>
     </div>
@@ -137,10 +155,12 @@ export function CallControlsView({
 export function CallControls({
   channelId,
   visible,
+  aboveStrip,
   onFullscreen
 }: {
   channelId: string
   visible: boolean
+  aboveStrip?: boolean
   onFullscreen(): void
 }): React.JSX.Element | null {
   const { joinedVoiceChannelId, setJoinedVoiceChannelId } = useSelection()
@@ -155,6 +175,13 @@ export function CallControls({
     stopScreenShare
   } = useVoice()
 
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement)
+  useEffect(() => {
+    const sync = (): void => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
   if (!shouldShowCallControls({ channelId, joinedVoiceChannelId })) return null
 
   return (
@@ -164,11 +191,21 @@ export function CallControls({
       canShare={connectionState === 'connected'} // conectado AQUI: o gate acima garante o canal
       muted={muted}
       deafened={deafened}
-      onToggleShare={() => void (isSharing ? stopScreenShare() : startScreenShare())}
+      onToggleShare={() =>
+        void (async () => {
+          if (isSharing) return stopScreenShare()
+          // O seletor de tela é um diálogo no body, fora do elemento em tela
+          // cheia: sair da tela cheia antes, senão o clique parece não fazer nada.
+          if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+          return startScreenShare()
+        })()
+      }
       onToggleMute={() => void toggleMuted()}
       onToggleDeafen={() => void toggleDeafened()}
       onLeave={() => setJoinedVoiceChannelId(null)}
       onFullscreen={onFullscreen}
+      isFullscreen={isFullscreen}
+      aboveStrip={aboveStrip}
       inputMenu={
         <DeviceMenu kind="audioinput">
           <DeviceChevron label="Dispositivo de entrada" />

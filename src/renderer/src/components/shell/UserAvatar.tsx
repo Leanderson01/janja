@@ -54,8 +54,10 @@ export function UserAvatar({
   return (
     <div className={cn('group/avatar relative shrink-0', BOX[size], className)} data-size="default">
       <Avatar className="size-full">
-        {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
-        <AvatarFallback className={cn(AVATAR_BG[avatarColorIndex(userId)], 'text-primary-foreground')}>
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} referrerPolicy="no-referrer" /> : null}
+        <AvatarFallback
+          className={cn(AVATAR_BG[avatarColorIndex(userId)], 'text-primary-foreground')}
+        >
           <HydraMark className={MARK[size]} />
         </AvatarFallback>
       </Avatar>

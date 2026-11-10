@@ -32,7 +32,7 @@ export function DeviceMenu({
     if (!open) return
     try {
       const all = await navigator.mediaDevices.enumerateDevices()
-      setDevices(all.filter((d) => d.kind === kind))
+      setDevices(all.filter((d) => d.kind === kind && d.deviceId !== ''))
     } catch {
       setDevices([])
     }

@@ -62,6 +62,28 @@ function renderControls(
   )
 }
 
+describe('CallControlsView — tela cheia e posição', () => {
+  it('rótulo do botão é "Tela cheia" fora da tela cheia', () => {
+    renderControls()
+    expect(screen.getByRole('button', { name: 'Tela cheia' })).toBeTruthy()
+  })
+  it('rótulo vira "Sair da tela cheia" em tela cheia', () => {
+    renderControls({ isFullscreen: true })
+    expect(screen.getByRole('button', { name: 'Sair da tela cheia' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Tela cheia' })).toBeNull()
+  })
+  it('no layout com faixa a barra sobe acima da faixa de participantes', () => {
+    const { container } = renderControls({ aboveStrip: true })
+    const root = container.querySelector('[data-visible]')!
+    expect(root.className).toContain('bottom-[6.5rem]')
+    expect(root.className).not.toContain('bottom-6')
+  })
+  it('sem faixa a barra fica em bottom-6', () => {
+    const { container } = renderControls()
+    expect(container.querySelector('[data-visible]')!.className).toContain('bottom-6')
+  })
+})
+
 describe('ParticipantTile', () => {
   it('bloco de quem fala tem a borda verde', () => {
     const { container } = render(<ParticipantTile userId="u1" name="Leo" muted={false} speaking />)

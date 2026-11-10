@@ -607,7 +607,12 @@ export function CallStage({ channelId }: { channelId: Id<'channels'> }): React.J
             <ParticipantStrip channelId={channelId} />
           </div>
         </div>
-        <CallControls channelId={channelId} visible={!idle} onFullscreen={handleFullscreen} />
+        <CallControls
+          channelId={channelId}
+          visible={!idle}
+          aboveStrip={layout === 'share'}
+          onFullscreen={handleFullscreen}
+        />
       </div>
     </PortalContainerProvider>
   )

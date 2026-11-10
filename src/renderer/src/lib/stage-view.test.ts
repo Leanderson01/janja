@@ -140,15 +140,14 @@ describe('resolveMainView — em call, olhando outra coisa (a call continua)', (
     ).toEqual({ kind: 'voice-preview', channelId: VOZ_OUTRO })
   })
 
-  // Só alcançável por estado inconsistente (o provider liga `viewingStage` ao
-  // entrar na call), mas a regra tem que ser total: sem `viewingStage`, o canal
-  // conectado é tratado como qualquer canal de voz selecionado.
-  it('o próprio canal conectado selecionado, sem viewingStage → prévia', () => {
+  // Voltar/Avançar do histórico reaplica o canal com `viewingStage=false`; uma
+  // "prévia" da própria call não tem palco nem controles.
+  it('voltar para o canal de voz em que estou mostra o palco', () => {
     expect(
       resolveMainView(
         input({ joinedVoiceChannelId: VOZ, selectedChannelId: VOZ, selectedChannelType: 'voice' })
       )
-    ).toEqual({ kind: 'voice-preview', channelId: VOZ })
+    ).toEqual({ kind: 'stage', channelId: VOZ })
   })
 
   it('nada selecionado → vazio, mesmo em call', () => {
