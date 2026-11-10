@@ -122,3 +122,22 @@ export function viewingStageAfterJoin<TChannelId extends string>(input: {
   if (input.to === null || input.from === null) return false
   return input.viewingStage
 }
+
+/**
+ * Clique no AO VIVO de quem transmite, na lista de canais:
+ *
+ * - a própria transmissão → `'show-stage'`: só abre a tela da call (a própria
+ *   tela aparece sem clique);
+ * - de outra pessoa, na call em que estou → `'watch'`: abre a tela da call e
+ *   assiste;
+ * - de outra pessoa, numa call em que NÃO estou → `'join-and-watch'`: entra
+ *   (como o Discord faz para assistir), abre a tela da call e assiste assim que
+ *   a transmissão chegar.
+ */
+export function watchStreamAction(input: {
+  isSelf: boolean
+  isJoinedHere: boolean
+}): 'show-stage' | 'watch' | 'join-and-watch' {
+  if (input.isSelf) return 'show-stage'
+  return input.isJoinedHere ? 'watch' : 'join-and-watch'
+}

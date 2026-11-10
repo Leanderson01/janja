@@ -52,6 +52,10 @@ import {
 } from '../lib/screenshare-tracks'
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
 import {
+  consumePendingWatch,
+  consumePendingWatchInRoom,
+  createPendingWatch,
+  keepPendingWatchFor,
   publicationsToSubscribe,
   sameMembers,
   screenSharePublicationOf,
@@ -59,7 +63,8 @@ import {
   shouldSubscribe,
   watchedIdentities,
   withWatched,
-  withoutWatched
+  withoutWatched,
+  type PendingWatch
 } from '../lib/stream-subscription'
 import {
   DEFAULT_PARTICIPANT_VOLUME,
@@ -283,6 +288,19 @@ export type VoiceContextValue = {
    */
   watchScreenShare: (identity: string) => void
   /**
+   * Follow-up 1: "Assistir transmissão" pelo AO VIVO da lista de canais, que
+   * pode chegar ANTES da publicação na sala (o mesmo clique entra na call, ou o
+   * Convex chegou antes do LiveKit). Se o vídeo da tela de `identity` já está
+   * na sala, é `watchScreenShare` na hora. Senão guarda uma intenção de UM uso
+   * para a call `channelId`: a primeira publicação do vídeo da tela dessa
+   * pessoa que aparecer (na passada pós-conexão ou no `TrackPublished`) vira
+   * "assistir" pelo sid, e a intenção some. Ela vence em
+   * `PENDING_WATCH_TTL_MS` e é descartada ao sair, ao trocar para outra call e
+   * no `Disconnected` — nunca faz uma transmissão futura chegar sem clique
+   * (ver `PendingWatch` em `lib/stream-subscription.ts`). Não lança.
+   */
+  watchScreenShareWhenAvailable: (identity: string, channelId: Id<'channels'>) => void
+  /**
    * "Parar de assistir": deixa de assinar a tela e o som da tela de
    * `identity`. A voz da pessoa continua. O vídeo sai de `screenShareTracks`
    * quando o SDK confirma a desinscrição (`TrackUnsubscribed`). Não lança.
@@ -360,6 +378,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     () => new Set()
   )
   const watchedScreenSharesRef = useRef<ReadonlySet<string>>(watchedScreenShares)
+
+  // Follow-up 1: o "assistir quando chegar" do AO VIVO da lista de canais (ver
+  // `watchScreenShareWhenAvailable`). Ref e não estado: só a passada de
+  // assinatura, os listeners do `Room` e a fila de transições a leem, e nada
+  // na UI desenha a partir dela.
+  const pendingWatchRef = useRef<PendingWatch | null>(null)
 
   // Canal ao qual o `Room` está de fato conectado agora (não a intenção).
   // Usado para: (1) decidir se uma transição de `joinedVoiceChannelId`
@@ -833,6 +857,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // Nunca lança: um erro numa publicação não pode impedir as outras de serem
   // assinadas, e quem chama está no meio do join.
   function subscribeDesiredPublications(): void {
+    // Follow-up 1: a transmissão que a pessoa clicou para assistir antes de ela
+    // chegar, se já está na sala, entra em `watchedShareSidsRef` ANTES da lista
+    // abaixo e é assinada nesta mesma passada. Só ACRESCENTA uma tela ao
+    // conjunto — a lista continua levando todo mic — e tem o próprio `try`, para
+    // que um erro aqui nunca impeça a passada de assinar os microfones.
+    consumePendingWatchFromRoom()
     let publications: RemoteTrackPublication[]
     try {
       publications = publicationsToSubscribe(
@@ -890,7 +920,71 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     setScreenShareSubscribed(participant, true)
   }
 
+  // Follow-up 1: o AO VIVO da lista de canais. Ver `watchScreenShareWhenAvailable`
+  // no valor do contexto e `PendingWatch` em `lib/stream-subscription.ts`.
+  function watchScreenShareWhenAvailable(identity: string, channelId: Id<'channels'>): void {
+    const participant =
+      room.state === ConnectionState.Disconnected
+        ? undefined
+        : room.remoteParticipants.get(identity)
+    if (participant && screenSharePublicationOf(participant)) {
+      watchScreenShare(identity)
+      return
+    }
+    // Ainda não chegou à sala (ou o mesmo clique está entrando na call agora).
+    // Uma intenção nova substitui a anterior: é um uso só, do último clique.
+    pendingWatchRef.current = createPendingWatch(identity, channelId, Date.now())
+  }
+
+  // A intenção diante da sala inteira (passada pós-conexão e `Reconnected`).
+  // Nunca lança: quem chama é a passada que assina os microfones.
+  function consumePendingWatchFromRoom(): void {
+    if (pendingWatchRef.current === null) return
+    try {
+      const result = consumePendingWatchInRoom(
+        pendingWatchRef.current,
+        room.remoteParticipants.values(),
+        Date.now()
+      )
+      pendingWatchRef.current = result.pending
+      if (result.watchSid !== null) {
+        setWatchedShareSids(withWatched(watchedShareSidsRef.current, result.watchSid))
+      }
+    } catch (err) {
+      pendingWatchRef.current = null
+      console.error('[voice] falha ao aplicar o "assistir quando chegar"', err)
+    }
+  }
+
+  // A intenção diante de UMA publicação nova (`TrackPublished`). Devolve se ela
+  // foi usada agora. Nunca lança.
+  function consumePendingWatchFromPublication(
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant
+  ): boolean {
+    if (pendingWatchRef.current === null) return false
+    try {
+      const result = consumePendingWatch(
+        pendingWatchRef.current,
+        publication,
+        participant,
+        Date.now()
+      )
+      pendingWatchRef.current = result.pending
+      if (result.watchSid === null) return false
+      setWatchedShareSids(withWatched(watchedShareSidsRef.current, result.watchSid))
+      return true
+    } catch (err) {
+      pendingWatchRef.current = null
+      console.error('[voice] falha ao aplicar o "assistir quando chegar"', err)
+      return false
+    }
+  }
+
   function stopWatchingScreenShare(identity: string): void {
+    // "Parar de assistir" também desfaz um "assistir quando chegar" da mesma
+    // pessoa que ainda não foi usado.
+    if (pendingWatchRef.current?.identity === identity) pendingWatchRef.current = null
     const participant = room.remoteParticipants.get(identity)
     if (!participant) return
     const video = screenSharePublicationOf(participant)
@@ -1476,6 +1570,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ): void {
+      // Follow-up 1: o vídeo da tela que alguém clicou para assistir (AO VIVO
+      // da lista de canais) antes de ele chegar. Consumido ANTES da decisão
+      // abaixo, que então o assina; a decisão do mic não muda em nada.
+      const watchedNow = consumePendingWatchFromPublication(publication, participant)
       if (shouldSubscribe(publication, participant, watchedShareSidsRef.current)) {
         try {
           publication.setSubscribed(true)
@@ -1483,6 +1581,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
           console.error('[voice] falha ao assinar a publicação %s', publication.trackSid, err)
         }
       }
+      // Igual a `watchScreenShare`: o som da tela, se por acaso já estava na
+      // sala, entra junto. Só mexe nas fontes de tela (`setScreenShareSubscribed`
+      // pula o mic).
+      if (watchedNow) setScreenShareSubscribed(participant, true)
       // Na reconexão completa os participantes voltam publicação por
       // publicação: a tela assistida volta a contar como assistida aqui.
       refreshWatchedScreenShares()
@@ -1508,8 +1610,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     // nenhuma transmissão assinada, como no Discord. A reconexão automática não
     // passa por aqui (ela emite `Reconnecting`/`Reconnected`, não
     // `Disconnected`), então quem assistia continua assistindo.
+    //
+    // Follow-up 1: o "assistir quando chegar" também cai aqui — menos o da call
+    // que a fila de transições acabou de reivindicar. É o caso do clique no AO
+    // VIVO de OUTRA call: a intenção nasce antes da saída da call atual, e essa
+    // saída emite este mesmo `Disconnected`.
     function handleDisconnected(): void {
       clearWatchedScreenShares()
+      pendingWatchRef.current = keepPendingWatchFor(
+        pendingWatchRef.current,
+        lastEnqueuedTargetRef.current
+      )
     }
 
     room.on(RoomEvent.TrackPublished, handleTrackPublished)
@@ -1840,6 +1951,12 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (lastEnqueuedTargetRef.current === target) return
     lastEnqueuedTargetRef.current = target
 
+    // Follow-up 1: toda entrada, troca ou saída começa aqui, e o "assistir
+    // quando chegar" não atravessa para outra call. Só sobrevive o que foi
+    // clicado PARA esta (o AO VIVO de uma call em que eu não estava guarda a
+    // intenção no mesmo clique que muda o alvo, antes deste efeito rodar).
+    pendingWatchRef.current = keepPendingWatchFor(pendingWatchRef.current, target)
+
     transitionChainRef.current = transitionChainRef.current
       .catch(() => {
         // Um passo anterior já logou seu próprio erro; só garante que a
@@ -2003,6 +2120,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
             // A intenção não pôde ser cumprida — devolve a UI para o estado
             // real (não conectado) em vez de ficar presa "tentando".
             setJoinedVoiceChannelId(null)
+            // Follow-up 1: sem call não há o que assistir. Precisa ser aqui: com
+            // `lastEnqueuedTargetRef` solto logo abaixo, o efeito do alvo `null`
+            // sai cedo e não passa pela limpeza dele.
+            pendingWatchRef.current = null
             // Libera a reivindicação deste alvo em `lastEnqueuedTargetRef`
             // SE a falha aconteceu antes de `activeChannelRef` ser marcado
             // (o caminho normal, já que ele só é setado depois que
@@ -2047,6 +2168,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     stopScreenShare,
     watchedScreenShares,
     watchScreenShare,
+    watchScreenShareWhenAvailable,
     stopWatchingScreenShare,
     getVadAnalysisTrack
   }

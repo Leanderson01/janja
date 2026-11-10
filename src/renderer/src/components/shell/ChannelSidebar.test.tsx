@@ -91,22 +91,30 @@ function renderVoiceRow(
     deafened: boolean
     sharing: boolean
   }> = {},
-  speaking = false
+  speaking = false,
+  handlers: { onWatchStream?: (userId: string) => void; onRowClick?: () => void } = {}
 ): void {
+  // O `div` com `onClick` faz o papel da linha/canal em volta: o clique no AO
+  // VIVO não pode chegar nele.
   render(
-    <VoiceParticipantRow
-      participant={{
-        userId: 'user_1',
-        displayName: 'Ana',
-        username: 'ana',
-        avatarUrl: null,
-        muted: false,
-        deafened: false,
-        sharing: false,
-        ...overrides
-      }}
-      speaking={speaking}
-    />
+    <TooltipProvider>
+      <div onClick={handlers.onRowClick}>
+        <VoiceParticipantRow
+          participant={{
+            userId: 'user_1',
+            displayName: 'Ana',
+            username: 'ana',
+            avatarUrl: null,
+            muted: false,
+            deafened: false,
+            sharing: false,
+            ...overrides
+          }}
+          speaking={speaking}
+          onWatchStream={handlers.onWatchStream ?? (() => {})}
+        />
+      </div>
+    </TooltipProvider>
   )
 }
 
@@ -213,6 +221,36 @@ describe('VoiceParticipantRow', () => {
   it('falando acende o anel verde no avatar', () => {
     renderVoiceRow({}, true)
     expect(document.querySelector('.ring-success')).not.toBeNull()
+  })
+
+  // Follow-up 1: o AO VIVO leva para a transmissão.
+  it('AO VIVO é um botão "Assistir transmissão de {nome}" que chama o handler com o userId', () => {
+    const onWatchStream = vi.fn()
+    renderVoiceRow({ sharing: true }, false, { onWatchStream })
+    const button = screen.getByRole('button', { name: 'Assistir transmissão de Ana' })
+    expect(button.textContent).toBe('AO VIVO')
+    fireEvent.click(button)
+    expect(onWatchStream).toHaveBeenCalledTimes(1)
+    expect(onWatchStream).toHaveBeenCalledWith('user_1')
+  })
+
+  it('clicar no AO VIVO não chama o clique da linha', () => {
+    const onWatchStream = vi.fn()
+    const onRowClick = vi.fn()
+    renderVoiceRow({ sharing: true }, false, { onWatchStream, onRowClick })
+    fireEvent.click(screen.getByRole('button', { name: 'Assistir transmissão de Ana' }))
+    expect(onWatchStream).toHaveBeenCalledTimes(1)
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it('o rótulo usa o nome de exibição (cai no usuário sem apelido)', () => {
+    renderVoiceRow({ sharing: true, displayName: '' })
+    expect(screen.getByRole('button', { name: 'Assistir transmissão de ana' })).toBeTruthy()
+  })
+
+  it('sem transmissão não há botão de assistir', () => {
+    renderVoiceRow({ sharing: false })
+    expect(screen.queryByRole('button', { name: /Assistir transmissão/ })).toBeNull()
   })
 })
 

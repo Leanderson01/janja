@@ -138,3 +138,92 @@ export function withoutWatched(watched: ReadonlySet<string>, key: string): Reado
   next.delete(key)
   return next
 }
+
+/**
+ * Follow-up 1 da rodada 1: o AO VIVO da lista de canais leva para a
+ * transmissão. O clique pode chegar ANTES da publicação na sala — é o mesmo
+ * clique que entra na call, ou o `sharing` do Convex chegou alguns
+ * milissegundos antes do LiveKit — e "assistir" é guardado pelo `trackSid`, que
+ * ainda não existe para mim.
+ *
+ * Daí uma INTENÇÃO pendente, de UM uso: a primeira publicação do vídeo da tela
+ * DESSA pessoa que aparecer vira um "assistir" pelo sid e a intenção some. Ela
+ * nunca vira "assistir esta pessoa": uma transmissão seguinte espera outro
+ * clique, como sempre (regra de `shouldSubscribe`).
+ *
+ * Três travas para que ela não faça uma transmissão FUTURA chegar sem clique:
+ * - um uso só (consumida, vira `null`);
+ * - prazo curto (`PENDING_WATCH_TTL_MS`, contado do clique): se a pessoa parou
+ *   antes de a publicação chegar, a intenção morre em vez de esperar a próxima;
+ * - a call do clique (`channelId`): trocar para outra call ou sair a descarta
+ *   (`keepPendingWatchFor`).
+ */
+export const PENDING_WATCH_TTL_MS = 10_000
+
+export type PendingWatch = {
+  /** Quem transmite (`users._id`, a identity no LiveKit). */
+  identity: string
+  /** A call em que a transmissão foi clicada. */
+  channelId: string
+  /** Depois deste instante (`Date.now()`) a intenção não vale mais. */
+  expiresAt: number
+}
+
+export function createPendingWatch(identity: string, channelId: string, now: number): PendingWatch {
+  return { identity, channelId, expiresAt: now + PENDING_WATCH_TTL_MS }
+}
+
+/**
+ * O que fazer com a intenção diante de algo que apareceu na sala:
+ * `watchSid` é o sid a assistir agora (ou `null`), `pending` é a intenção que
+ * sobra (`null` quando foi usada ou venceu; a MESMA quando nada mudou).
+ */
+export type PendingWatchResult = { watchSid: string | null; pending: PendingWatch | null }
+
+/** A decisão para UMA publicação remota que acabou de aparecer. */
+export function consumePendingWatch(
+  pending: PendingWatch | null,
+  publication: PublicationLike,
+  participant: { identity: string },
+  now: number
+): PendingWatchResult {
+  if (pending === null || now > pending.expiresAt) return { watchSid: null, pending: null }
+  // Só o VÍDEO da tela conta: o mic é sempre assinado por conta própria, e o
+  // som da tela segue o vídeo assistido (`shouldSubscribe`).
+  if (publication.source !== Track.Source.ScreenShare) return { watchSid: null, pending }
+  if (participant.identity !== pending.identity) return { watchSid: null, pending }
+  return { watchSid: publication.trackSid, pending: null }
+}
+
+/**
+ * A mesma decisão para a sala inteira, na passada pós-conexão (as publicações
+ * de quem já estava na call chegam sem `TrackPublished`).
+ */
+export function consumePendingWatchInRoom<TPublication extends PublicationLike>(
+  pending: PendingWatch | null,
+  participants: Iterable<ParticipantLike<TPublication>>,
+  now: number
+): PendingWatchResult {
+  if (pending === null || now > pending.expiresAt) return { watchSid: null, pending: null }
+  for (const participant of participants) {
+    const video = screenSharePublicationOf(participant)
+    if (video === undefined) continue
+    const result = consumePendingWatch(pending, video, participant, now)
+    if (result.watchSid !== null) return result
+  }
+  return { watchSid: null, pending }
+}
+
+/**
+ * A intenção só atravessa uma mudança de call se for DA call de destino: o
+ * clique no AO VIVO de uma call em que eu não estava guarda a intenção ANTES
+ * de a entrada começar (e da saída da call anterior, que emite `Disconnected`).
+ * Qualquer outra mudança (sair, trocar para outra call) a descarta.
+ */
+export function keepPendingWatchFor(
+  pending: PendingWatch | null,
+  channelId: string | null
+): PendingWatch | null {
+  if (pending === null || channelId === null) return null
+  return pending.channelId === channelId ? pending : null
+}

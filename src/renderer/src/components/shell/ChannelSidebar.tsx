@@ -32,7 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { callStartedAt } from '@/lib/call-timer'
 import { displayNameOf } from '@/lib/display-name'
 import { loadSidebarPreferences, saveSidebarPreferences } from '@/lib/sidebar-preferences'
-import { voiceChannelClickAction } from '@/lib/stage-view'
+import { voiceChannelClickAction, watchStreamAction } from '@/lib/stage-view'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -65,6 +65,11 @@ export function ChannelSidebar(): React.JSX.Element {
     setJoinedVoiceChannelId,
     showStage
   } = useSelection()
+
+  const { watchScreenShareWhenAvailable } = useVoice()
+  // Só para reconhecer a PRÓPRIA transmissão no AO VIVO. Mesma query do cartão
+  // de voz; o Convex compartilha a assinatura por query+args.
+  const me = useQuery(api.users.me, {})
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [createChannelOpen, setCreateChannelOpen] = useState(false)
@@ -154,6 +159,24 @@ export function ChannelSidebar(): React.JSX.Element {
     setJoinedVoiceChannelId(channel._id)
   }
 
+  // Follow-up 1: o AO VIVO de quem transmite leva para a transmissão. Na call em
+  // que estou: abre a tela da call e assiste. Noutra call: entra (como o Discord
+  // faz para assistir), abre a tela da call e assiste assim que a transmissão
+  // chegar — `watchScreenShareWhenAvailable` guarda o clique até a publicação
+  // aparecer na sala. A própria transmissão: só abre a tela da call.
+  //
+  // Ordem: `setJoinedVoiceChannelId` antes de `showStage`. Os dois mexem em
+  // `viewingStage` no mesmo lote do React, e vence o último (ver o provider).
+  function handleWatchStream(channel: Doc<'channels'>, userId: string): void {
+    const action = watchStreamAction({
+      isSelf: me?._id === userId,
+      isJoinedHere: joinedVoiceChannelId === channel._id
+    })
+    if (action === 'join-and-watch') setJoinedVoiceChannelId(channel._id)
+    showStage()
+    if (action !== 'show-stage') watchScreenShareWhenAvailable(userId, channel._id)
+  }
+
   // Zero servidores (estado possível vindo do plano 04-05): não há
   // `serverId` para passar a `listChannels`, então nem tentamos — só um
   // estado vazio simples.
@@ -191,6 +214,7 @@ export function ChannelSidebar(): React.JSX.Element {
       isSelected={channel._id === selectedChannelId}
       isJoined={channel._id === joinedVoiceChannelId}
       onClick={() => handleVoiceChannelClick(channel)}
+      onWatchStream={(userId) => handleWatchStream(channel, userId)}
     />
   )
 
@@ -581,13 +605,16 @@ type VoiceParticipant = {
 }
 
 // Participante de voz aninhado sob o canal. Exportado para teste (não precisa de
-// contexto nenhum; `speaking` entra por prop).
+// contexto nenhum; `speaking` e o clique no AO VIVO entram por prop).
 export function VoiceParticipantRow({
   participant,
-  speaking
+  speaking,
+  onWatchStream
 }: {
   participant: VoiceParticipant
   speaking: boolean
+  /** Clique no AO VIVO, com o `userId` de quem transmite. */
+  onWatchStream: (userId: string) => void
 }): React.JSX.Element {
   const name = displayNameOf({
     displayName: participant.displayName,
@@ -612,11 +639,26 @@ export function VoiceParticipantRow({
         {name}
       </span>
       {/* SHARE-05: `sharing` não depende de `isJoined` — o ponto do indicador é
-          justamente ser visto por quem ainda não entrou no canal. */}
+          justamente ser visto por quem ainda não entrou no canal.
+          Follow-up 1: a etiqueta é o botão que leva para a transmissão. O
+          visual é o mesmo; o clique não sobe para a linha nem para o canal. */}
       {participant.sharing ? (
-        <span className="shrink-0 rounded bg-destructive px-1.5 text-[10px] font-bold text-primary-foreground">
-          AO VIVO
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Assistir transmissão de ${name}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onWatchStream(participant.userId)
+              }}
+              className="shrink-0 cursor-pointer rounded bg-destructive px-1.5 text-[10px] font-bold text-primary-foreground outline-none transition-[filter] hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              AO VIVO
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Assistir transmissão</TooltipContent>
+        </Tooltip>
       ) : null}
       {participant.deafened ? (
         <HeadphoneOff className="size-4 shrink-0" aria-label="Ensurdecido" />
@@ -632,13 +674,15 @@ function VoiceChannelRow({
   participants,
   isSelected,
   isJoined,
-  onClick
+  onClick,
+  onWatchStream
 }: {
   channel: Doc<'channels'>
   participants: (VoiceParticipant & { joinedAt: number })[]
   isSelected: boolean
   isJoined: boolean
   onClick: () => void
+  onWatchStream: (userId: string) => void
 }): React.JSX.Element {
   const { speakingUserIds } = useVoice()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -706,6 +750,7 @@ function VoiceChannelRow({
           key={participant.userId}
           participant={participant}
           speaking={isJoined && speakingUserIds.has(participant.userId)}
+          onWatchStream={onWatchStream}
         />
       ))}
     </div>

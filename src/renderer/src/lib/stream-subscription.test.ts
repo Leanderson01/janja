@@ -2,6 +2,11 @@ import { Track } from 'livekit-client'
 import { describe, expect, it } from 'vitest'
 
 import {
+  consumePendingWatch,
+  consumePendingWatchInRoom,
+  createPendingWatch,
+  keepPendingWatchFor,
+  PENDING_WATCH_TTL_MS,
   publicationsToSubscribe,
   sameMembers,
   screenSharePublicationOf,
@@ -164,5 +169,129 @@ describe('conjuntos', () => {
     expect(sameMembers(new Set(['A', 'B']), new Set(['B', 'A']))).toBe(true)
     expect(sameMembers(new Set(['A']), new Set(['A', 'B']))).toBe(false)
     expect(sameMembers(new Set(['A']), new Set(['B']))).toBe(false)
+  })
+})
+
+// Follow-up 1: "Assistir transmissão" pelo AO VIVO da lista de canais, que pode
+// chegar ANTES da publicação na sala (o clique que entra na call, ou o Convex
+// chegando antes do LiveKit). A intenção é de UM uso: vale para a primeira
+// transmissão da pessoa que aparecer, e só para ela.
+describe('intenção pendente de assistir', () => {
+  const T0 = 1_000_000
+  const CALL = 'ch_voz'
+  const pendingA = createPendingWatch('A', CALL, T0)
+  const screenAudioA = { trackSid: 'TR_screenAudioA1', source: Track.Source.ScreenShareAudio }
+
+  it('nasce com prazo', () => {
+    expect(pendingA).toEqual({
+      identity: 'A',
+      channelId: CALL,
+      expiresAt: T0 + PENDING_WATCH_TTL_MS
+    })
+  })
+
+  it('consome na primeira transmissão (vídeo da tela) da pessoa certa', () => {
+    const a = participant('A', [micA, screenA1])
+    expect(consumePendingWatch(pendingA, screenA1, a, T0 + 10)).toEqual({
+      watchSid: 'TR_screenA1',
+      pending: null
+    })
+  })
+
+  it('ignora a transmissão de outra pessoa', () => {
+    const c = participant('C', [{ trackSid: 'TR_screenC', source: Track.Source.ScreenShare }])
+    const result = consumePendingWatch(
+      pendingA,
+      { trackSid: 'TR_screenC', source: Track.Source.ScreenShare },
+      c,
+      T0 + 10
+    )
+    expect(result.watchSid).toBeNull()
+    expect(result.pending).toBe(pendingA)
+  })
+
+  it('ignora o mic (e o som da tela) da pessoa certa', () => {
+    const a = participant('A', [micA, screenAudioA])
+    for (const publication of [micA, screenAudioA]) {
+      const result = consumePendingWatch(pendingA, publication, a, T0 + 10)
+      expect(result.watchSid).toBeNull()
+      expect(result.pending).toBe(pendingA)
+    }
+  })
+
+  it('depois de consumida não vale para a próxima transmissão da pessoa', () => {
+    const primeira = consumePendingWatch(pendingA, screenA1, participant('A', [screenA1]), T0 + 10)
+    expect(primeira.watchSid).toBe('TR_screenA1')
+
+    // A parou e voltou a transmitir: sid novo, e a intenção já foi usada.
+    const a2 = participant('A', [micA, screenA2, screenAudioA2])
+    const segunda = consumePendingWatch(primeira.pending, screenA2, a2, T0 + 20)
+    expect(segunda).toEqual({ watchSid: null, pending: null })
+
+    // E a regra de assinatura de sempre continua: a nova espera outro clique.
+    const watched = new Set([primeira.watchSid as string])
+    expect(shouldSubscribe(screenA2, a2, watched)).toBe(false)
+    expect(shouldSubscribe(screenAudioA2, a2, watched)).toBe(false)
+  })
+
+  it('vencida, é descartada sem assistir nada', () => {
+    const a = participant('A', [screenA1])
+    expect(consumePendingWatch(pendingA, screenA1, a, T0 + PENDING_WATCH_TTL_MS + 1)).toEqual({
+      watchSid: null,
+      pending: null
+    })
+  })
+
+  it('sem intenção, nada acontece', () => {
+    const a = participant('A', [screenA1])
+    expect(consumePendingWatch(null, screenA1, a, T0)).toEqual({ watchSid: null, pending: null })
+  })
+
+  it('a passada pela sala acha a transmissão da pessoa certa entre várias', () => {
+    const c = participant('C', [{ trackSid: 'TR_screenC', source: Track.Source.ScreenShare }])
+    const a = participant('A', [micA, screenAudioA, screenA1])
+    expect(consumePendingWatchInRoom(pendingA, [c, participant('B', [micB]), a], T0 + 10)).toEqual({
+      watchSid: 'TR_screenA1',
+      pending: null
+    })
+  })
+
+  it('a passada pela sala guarda a intenção enquanto a transmissão não chegou', () => {
+    const result = consumePendingWatchInRoom(
+      pendingA,
+      [participant('A', [micA]), participant('B', [micB])],
+      T0 + 10
+    )
+    expect(result.watchSid).toBeNull()
+    expect(result.pending).toBe(pendingA)
+  })
+
+  it('a passada pela sala descarta a intenção vencida', () => {
+    expect(
+      consumePendingWatchInRoom(
+        pendingA,
+        [participant('A', [screenA1])],
+        T0 + PENDING_WATCH_TTL_MS + 1
+      )
+    ).toEqual({ watchSid: null, pending: null })
+  })
+
+  it('consumir a intenção nunca tira o mic de ninguém da assinatura', () => {
+    const room = [participant('A', [micA, screenA1, screenAudioA1]), participant('B', [micB])]
+    const { watchSid } = consumePendingWatchInRoom(pendingA, room, T0 + 10)
+    const watched = new Set([watchSid as string])
+    expect(sids(publicationsToSubscribe(room, watched))).toEqual([
+      'TR_micA',
+      'TR_micB',
+      'TR_screenA1',
+      'TR_screenAudioA1'
+    ])
+  })
+
+  it('só sobrevive a uma troca de call se for da call de destino', () => {
+    expect(keepPendingWatchFor(pendingA, CALL)).toBe(pendingA)
+    expect(keepPendingWatchFor(pendingA, 'ch_outra')).toBeNull()
+    expect(keepPendingWatchFor(pendingA, null)).toBeNull()
+    expect(keepPendingWatchFor(null, CALL)).toBeNull()
   })
 })

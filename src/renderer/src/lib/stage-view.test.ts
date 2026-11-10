@@ -4,6 +4,7 @@ import {
   resolveMainView,
   viewingStageAfterJoin,
   voiceChannelClickAction,
+  watchStreamAction,
   type MainViewInput
 } from './stage-view'
 
@@ -253,5 +254,20 @@ describe('viewingStageAfterJoin', () => {
       kind: 'stage',
       channelId: VOZ
     })
+  })
+})
+
+describe('clicar no AO VIVO da lista de canais', () => {
+  it('a própria transmissão só abre a tela da call', () => {
+    expect(watchStreamAction({ isSelf: true, isJoinedHere: true })).toBe('show-stage')
+    expect(watchStreamAction({ isSelf: true, isJoinedHere: false })).toBe('show-stage')
+  })
+
+  it('transmissão de outra pessoa na call em que estou → abre e assiste', () => {
+    expect(watchStreamAction({ isSelf: false, isJoinedHere: true })).toBe('watch')
+  })
+
+  it('transmissão de outra pessoa numa call em que NÃO estou → entra, abre e assiste', () => {
+    expect(watchStreamAction({ isSelf: false, isJoinedHere: false })).toBe('join-and-watch')
   })
 })
