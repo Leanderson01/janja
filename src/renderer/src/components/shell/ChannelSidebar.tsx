@@ -32,7 +32,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { callStartedAt } from '@/lib/call-timer'
 import { displayNameOf } from '@/lib/display-name'
 import { loadSidebarPreferences, saveSidebarPreferences } from '@/lib/sidebar-preferences'
-import { voiceChannelClickAction, watchStreamAction } from '@/lib/stage-view'
+import {
+  highlightedChannelId,
+  resolveMainView,
+  voiceChannelClickAction,
+  watchStreamAction
+} from '@/lib/stage-view'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { useVoice } from '@/state/voice-context'
@@ -63,6 +68,7 @@ export function ChannelSidebar(): React.JSX.Element {
     setSelectedChannelId,
     joinedVoiceChannelId,
     setJoinedVoiceChannelId,
+    viewingStage,
     showStage
   } = useSelection()
 
@@ -194,11 +200,24 @@ export function ChannelSidebar(): React.JSX.Element {
   const textChannels = channels?.filter((channel) => channel.type === 'text') ?? []
   const voiceChannels = channels?.filter((channel) => channel.type === 'voice') ?? []
 
+  // O destaque de "aberto" segue o que a área do meio mostra (mesma
+  // `resolveMainView` da `ConversationArea`), não só `selectedChannelId`: com a
+  // tela da call aberta é o canal de voz conectado, e nenhum canal de texto.
+  // O tipo do canal selecionado sai da lista que já está em escopo.
+  const highlightedId = highlightedChannelId(
+    resolveMainView({
+      joinedVoiceChannelId,
+      viewingStage,
+      selectedChannelId,
+      selectedChannelType: channels?.find((c) => c._id === selectedChannelId)?.type ?? null
+    })
+  )
+
   const renderTextRow = (channel: Doc<'channels'>): React.JSX.Element => (
     <TextChannelRow
       key={channel._id}
       channel={channel}
-      isSelected={channel._id === selectedChannelId}
+      isSelected={channel._id === highlightedId}
       unreadCount={unreadByChannel.get(channel._id) ?? 0}
       onClick={() => handleTextChannelClick(channel)}
       markAsRead={markChannelAsRead}
@@ -211,7 +230,7 @@ export function ChannelSidebar(): React.JSX.Element {
       key={channel._id}
       channel={channel}
       participants={participantsByChannel.get(channel._id) ?? []}
-      isSelected={channel._id === selectedChannelId}
+      isSelected={channel._id === highlightedId}
       isJoined={channel._id === joinedVoiceChannelId}
       onClick={() => handleVoiceChannelClick(channel)}
       onWatchStream={(userId) => handleWatchStream(channel, userId)}
@@ -220,11 +239,11 @@ export function ChannelSidebar(): React.JSX.Element {
 
   // Com a seção recolhida continuam visíveis: o canal de texto aberto e os
   // canais de voz com gente (ou o aberto/conectado).
-  const pinnedText = textChannels.filter((channel) => channel._id === selectedChannelId)
+  const pinnedText = textChannels.filter((channel) => channel._id === highlightedId)
   const pinnedVoice = voiceChannels.filter(
     (channel) =>
       (participantsByChannel.get(channel._id)?.length ?? 0) > 0 ||
-      channel._id === selectedChannelId ||
+      channel._id === highlightedId ||
       channel._id === joinedVoiceChannelId
   )
 

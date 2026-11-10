@@ -139,6 +139,13 @@ describe('TextChannelRow', () => {
     expect(row.textContent).not.toContain('3')
   })
 
+  it('canal não lido e NÃO aberto (ex.: tela da call aberta) mostra o não lido', () => {
+    renderRow({ isSelected: false, unreadCount: 2 })
+    const row = screen.getByRole('button', { name: /geral/ })
+    expect(row.getAttribute('data-unread')).toBe('true')
+    expect(row.parentElement?.className).not.toContain('bg-secondary')
+  })
+
   it('canal lido não tem data-unread', () => {
     renderRow({})
     expect(screen.getByRole('button', { name: /geral/ }).getAttribute('data-unread')).toBeNull()

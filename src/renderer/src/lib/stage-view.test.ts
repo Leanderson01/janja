@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  highlightedChannelId,
   resolveMainView,
   viewingStageAfterJoin,
   voiceChannelClickAction,
@@ -269,5 +270,33 @@ describe('clicar no AO VIVO da lista de canais', () => {
 
   it('transmissão de outra pessoa numa call em que NÃO estou → entra, abre e assiste', () => {
     expect(watchStreamAction({ isSelf: false, isJoinedHere: false })).toBe('join-and-watch')
+  })
+})
+
+describe('highlightedChannelId — o que a lista destaca segue a área do meio', () => {
+  it('tela da call → o canal de voz conectado', () => {
+    expect(highlightedChannelId({ kind: 'stage', channelId: VOZ })).toBe(VOZ)
+  })
+
+  it('chat de texto → o canal de texto', () => {
+    expect(highlightedChannelId({ kind: 'text', channelId: TEXTO })).toBe(TEXTO)
+  })
+
+  it('prévia de voz → o canal de voz da prévia', () => {
+    expect(highlightedChannelId({ kind: 'voice-preview', channelId: VOZ_OUTRO })).toBe(VOZ_OUTRO)
+  })
+
+  it('vazio → nada', () => {
+    expect(highlightedChannelId({ kind: 'empty' })).toBeNull()
+  })
+
+  it('em call com texto selecionado e a tela da call aberta, destaca a call e não o texto', () => {
+    const view = resolveMainView({
+      joinedVoiceChannelId: VOZ,
+      viewingStage: true,
+      selectedChannelId: TEXTO,
+      selectedChannelType: 'text'
+    })
+    expect(highlightedChannelId(view)).toBe(VOZ)
   })
 })

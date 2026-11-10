@@ -89,6 +89,18 @@ export function resolveMainView<TChannelId extends string>(
 }
 
 /**
+ * Qual canal a lista de canais destaca como "aberto": o que a área do meio
+ * realmente mostra. Com a tela da call aberta é o canal de voz conectado (e
+ * nenhum canal de texto, que volta a mostrar seu estado de lido/não lido);
+ * no chat é o canal de texto; na prévia é o canal de voz; vazio, nenhum.
+ */
+export function highlightedChannelId<TChannelId extends string>(
+  view: MainView<TChannelId>
+): TChannelId | null {
+  return view.kind === 'empty' ? null : view.channelId
+}
+
+/**
  * Follow-up 1 da rodada 1 (pedido do Leo, teste no Windows): clicar num canal de
  * voz NÃO leva mais para a tela da call, como no Discord.
  *
