@@ -10,14 +10,14 @@
 // cair abaixo da marca e a própria voz cruzá-la) e porque funciona sem rede nenhuma,
 // então ainda diz se o microfone está captando quando o servidor está inalcançável.
 //
-// O medidor de nível REAPROVEITA `createVadMonitor` de `lib/vad.ts` (mesma leitura de
-// `AnalyserNode` que `VoiceSettingsPopover` já usa) em vez de duplicar a leitura de
-// RMS — só configurado com um limiar inatingível (nunca dispara `onSpeakingChange`,
-// só lê `onLevel` a cada frame).
+// O medidor de nível REAPROVEITA `createVadMonitor` de `lib/vad.ts` (a mesma medição
+// e a mesma decisão que `VoiceSettingsPopover` e o VAD da call usam) em vez de
+// duplicá-las — com a sensibilidade salva, para a marca do limiar mostrar o que o
+// detector faria; o `onSpeakingChange` dele não faz nada, só `onLevel` é lido.
 
 import { Room, RoomEvent, isAudioTrack, type RemoteTrack } from 'livekit-client'
 
-import { createVadMonitor, type VadMonitor } from './vad'
+import { createVadMonitor, type VadLevelReading, type VadMonitor } from './vad'
 
 // Mesma constante de `voice-context.tsx` (VOICE-16): cancelamento de eco, supressão
 // de ruído e ganho automático nunca vêm ligados por padrão — sempre explícitos em
@@ -64,15 +64,21 @@ export async function openMicCapture(deviceId?: string): Promise<MicCapture> {
   }
 }
 
-/** Medidor de nível ao vivo sobre a MESMA leitura de `AnalyserNode` de `lib/vad.ts` —
- * threshold acima de qualquer nível RMS real (0-1), nunca cruza, só existe para ler
- * `onLevel` a cada frame. Devolve o mesmo `VadMonitor` de `vad.ts`; `stop()` fecha o
- * `AudioContext` sem vazar. */
+/** Medidor de nível ao vivo sobre a MESMA medição e decisão de `lib/vad.ts`, com a
+ * sensibilidade dada — cada leitura traz o nível (dBFS) e o limiar em vigor (no
+ * automático, o calculado). Devolve o mesmo `VadMonitor` de `vad.ts`: `setThreshold`/
+ * `setAutoSensitivity` ajustam ao vivo e `stop()` fecha o `AudioContext` sem vazar. */
 export function startLevelMeter(
   track: MediaStreamTrack,
-  onLevel: (level: number) => void
+  sensitivity: { autoSensitivity: boolean; thresholdDb: number },
+  onLevel: (reading: VadLevelReading) => void
 ): VadMonitor {
-  return createVadMonitor(track, { threshold: 2, onSpeakingChange: () => {}, onLevel })
+  return createVadMonitor(track, {
+    ...sensitivity,
+    label: 'medidor',
+    onSpeakingChange: () => {},
+    onLevel
+  })
 }
 
 // --- Ida e volta pelo servidor (Task 2) ---

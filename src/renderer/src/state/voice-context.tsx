@@ -158,9 +158,14 @@ export type VoiceContextValue = {
    * Relê `loadVoicePreferences()` e reconfigura o VAD ativo (para, inicia
    * ou só ajusta o limiar) sem reconectar à sala. Chamado pelo painel de
    * configurações (Plano 07-05, Task 3) sempre que o usuário muda o modo
-   * ou arrasta o slider de limiar; não faz nada se não há canal conectado.
+   * ou mexe na sensibilidade; não faz nada se não há canal conectado.
+   *
+   * `{ onlySensitivity: true }` (só o automático ou o slider mudou) ajusta o
+   * monitor VIVO em vez de derrubá-lo e recriá-lo — recriar mutava o
+   * microfone e zerava a estimativa de ruído a cada passo do slider. Sem
+   * monitor de pé, cai no caminho completo.
    */
-  applyVoicePreferences: () => void
+  applyVoicePreferences: (options?: { onlySensitivity?: boolean }) => void
   /**
    * Rodada 1 do visual Discord: MIC MUTADO, dentro e fora da call. Estado de
    * máquina salvo em `localStorage` (`lib/voice-self-state.ts`) — sobrevive ao
@@ -405,7 +410,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // Track de ANÁLISE do VAD: um `clone()` da `MediaStreamTrack` publicada,
   // que NUNCA é publicado (não passa por `setMicrophoneEnabled`,
   // `publishTrack` nem `switchActiveDevice` — só por `createVadMonitor`,
-  // que é Web Audio puro e não liga nada ao `destination`).
+  // que é Web Audio puro e só MEDE: o único caminho até o `destination` é um
+  // ganho ZERO para o worklet de medição ser processado — nada toca).
   //
   // Existe exatamente porque o LiveKit muta fazendo
   // `_mediaStreamTrack.enabled = false` na track publicada
@@ -637,7 +643,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     try {
       vadMonitorRef.current = createVadMonitor(analysisTrack, {
-        threshold: prefs.vadThreshold,
+        autoSensitivity: prefs.vadAutoSensitivity,
+        thresholdDb: prefs.vadThresholdDb,
+        label: 'VAD',
         onSpeakingChange: (speaking) => {
           // Mute manual sempre vence: se o usuário mutou pelo botão do
           // rodapé, o VAD detectar fala não deve reabrir o microfone —
@@ -679,7 +687,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // join o microfone fica aberto por alguns milissegundos entre
   // `setMicrophoneEnabled(true)` e o mute do VAD — mesmo comportamento do
   // Discord, e preferível a ficar mudo por falha de setup.
-  async function applyVoicePreferencesAsync(): Promise<void> {
+  async function applyVoicePreferencesAsync(options?: {
+    onlySensitivity?: boolean
+  }): Promise<void> {
     const prefs = loadVoicePreferences()
 
     // Plano 07-06 (VOICE-11): o processo main só mantém a captura nativa do
@@ -695,6 +705,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     if (prefs.mode !== 'ptt') pttKeyDownRef.current = false
 
     if (activeChannelRef.current === null) return
+
+    // Só a sensibilidade mudou (automático ou slider do painel): o monitor de
+    // pé continua sobre a mesma track — ajusta a decisão ao vivo. Nada de
+    // derrubar/recriar: isso fechava o microfone e jogava fora a estimativa
+    // de ruído a cada passo do slider. O mecanismo de abrir/fechar não muda.
+    const liveMonitor = vadMonitorRef.current
+    if (options?.onlySensitivity && prefs.mode === 'vad' && liveMonitor) {
+      liveMonitor.setAutoSensitivity(prefs.vadAutoSensitivity)
+      liveMonitor.setThreshold(prefs.vadThresholdDb)
+      return
+    }
 
     // Solta monitor e clone da configuração anterior (troca de modo, troca
     // de dispositivo, reaplicação de limiar) e reivindica uma geração nova.
@@ -744,9 +765,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
   // Fachada síncrona: o painel de configurações, o efeito de PTT e o
   // handler de troca de dispositivo chamam sem `await` — a assinatura
-  // `() => void` de `VoiceContextValue` não muda.
-  function applyVoicePreferences(): void {
-    void applyVoicePreferencesAsync().catch((err) =>
+  // continua devolvendo `void`.
+  function applyVoicePreferences(options?: { onlySensitivity?: boolean }): void {
+    void applyVoicePreferencesAsync(options).catch((err) =>
       console.error('[voice] applyVoicePreferences falhou', err)
     )
   }

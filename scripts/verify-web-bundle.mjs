@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Varre o artefato compilado do alvo WEB (`dist-web/`) e afirma quatro coisas
+// (mais uma, a 5, acrescentada com o worklet do VAD em nov/2026)
 // que NENHUMA etapa anterior consegue afirmar. A justificativa e a mesma de
 // `scripts/verify-renderer-runtime.mjs`, e vale repetir por extenso: build
 // verde nao prova nada.
@@ -211,6 +212,38 @@ if (cssFiles.length === 0) {
         `(ref. minificada: 51083), com ${CSS_MARKERS.join(', ')}`
     )
   }
+}
+
+// Afirmacao 5 — o AudioWorklet do VAD saiu como ARQUIVO, e nenhum script
+// virou `data:` (nov/2026). `audioWorklet.addModule()` e regido pela CSP
+// `script-src 'self'`, que bloqueia `data:`/`blob:`. O worklet do VAD tem
+// ~3,9 KB — abaixo do `assetsInlineLimit` padrao de 4 KB do Vite, que o alvo
+// web NAO zera (so o Electron zera). Sem o `?url&no-inline` do import em
+// `src/renderer/src/lib/vad.ts` ele viraria `data:` e o VAD cairia SEMPRE no
+// fallback do AnalyserNode, sem erro de aplicacao — so um aviso no console.
+const VAD_WORKLET_PREFIX = 'vad-level-processor'
+const INLINE_SCRIPT_MARKERS = ['data:application/javascript', 'data:text/javascript']
+const vadWorklet = jsFiles.filter((f) => rel(f).includes(VAD_WORKLET_PREFIX))
+const inlinedScripts = jsFiles.filter((f) => {
+  const content = readFileSync(f, 'utf8')
+  return INLINE_SCRIPT_MARKERS.some((m) => content.includes(m))
+})
+if (vadWorklet.length === 0 || inlinedScripts.length > 0) {
+  failures.push(
+    [
+      '✖ [5] O AudioWorklet do VAD nao saiu como arquivo proprio em dist-web/.',
+      vadWorklet.length === 0 ? `  Nenhum ${VAD_WORKLET_PREFIX}-*.js encontrado.` : '',
+      ...inlinedScripts.map((f) => `  Script inline (data:) em ${rel(f)}`),
+      '  Saida: manter `?url&no-inline` no import do worklet em',
+      '  src/renderer/src/lib/vad.ts. NAO afrouxar a CSP.'
+    ]
+      .filter(Boolean)
+      .join('\n')
+  )
+} else {
+  console.log(
+    `✓ [5] Worklet do VAD como arquivo (${vadWorklet.map(rel).join(', ')}), nenhum data: de script`
+  )
 }
 
 if (failures.length > 0) {

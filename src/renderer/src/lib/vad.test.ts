@@ -25,7 +25,13 @@
 // Quem confiar na promise em vez de reler `state` passa por esse caso sem ver.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-import { createVadMonitor, keepAudioContextRunning } from './vad'
+import workletSource from './vad-level-processor.js?raw'
+import {
+  VAD_LEVEL_PROCESSOR_NAME,
+  createVadMonitor,
+  keepAudioContextRunning,
+  type VadLevelReading
+} from './vad'
 
 // --------------------------------------------------------------------------
 // Duplos
@@ -43,19 +49,57 @@ type ResumeBehavior =
   /** `resume()` lança de forma síncrona (contexto fechado por baixo). */
   | 'throw'
 
+/** Como o `audioWorklet.addModule` do duplo se comporta. */
+type WorkletBehavior =
+  /** Sem `audioWorklet` (contexto não seguro, navegador velho). */
+  | 'absent'
+  /** Carrega. */
+  | 'resolve'
+  /** CSP bloqueou / 404. */
+  | 'reject'
+  /** Fica pendente até o teste mandar (`finishAddModule`). */
+  | 'manual'
+
 class FakeAudioContext {
   static instances: FakeAudioContext[] = []
   static initialState = 'running'
   static resumeBehavior: ResumeBehavior = 'resolve-running'
+  static workletBehavior: WorkletBehavior = 'absent'
 
   state: string
   resumes = 0
   closes = 0
+  addModuleCalls: string[] = []
+  analysers: FakeAnalyser[] = []
+  gains: FakeGain[] = []
+  readonly destination = { role: 'destination' }
+  audioWorklet?: { addModule: (url: string) => Promise<void> }
+  private releaseAddModule: (() => void) | null = null
   private listeners = new Map<string, Set<() => void>>()
 
   constructor() {
     this.state = FakeAudioContext.initialState
     FakeAudioContext.instances.push(this)
+    const behavior = FakeAudioContext.workletBehavior
+    if (behavior !== 'absent') {
+      this.audioWorklet = {
+        addModule: (url: string): Promise<void> => {
+          this.addModuleCalls.push(url)
+          if (behavior === 'reject') return Promise.reject(new Error('CSP bloqueou o worklet'))
+          if (behavior === 'manual') {
+            return new Promise<void>((resolve) => {
+              this.releaseAddModule = resolve
+            })
+          }
+          return Promise.resolve()
+        }
+      }
+    }
+  }
+
+  /** Para o modo 'manual': o `addModule` pendente resolve agora. */
+  finishAddModule(): void {
+    this.releaseAddModule?.()
   }
 
   // --- EventTarget o suficiente para `statechange` ---
@@ -105,12 +149,31 @@ class FakeAudioContext {
   }
 
   // --- Grafo mínimo para `createVadMonitor` ---
-  createMediaStreamSource(): { connect: () => void; disconnect: () => void } {
-    return { connect: () => {}, disconnect: () => {} }
+  source = {
+    connectedTo: [] as unknown[],
+    disconnects: 0,
+    connect: (node: unknown): void => {
+      this.source.connectedTo.push(node)
+    },
+    disconnect: (): void => {
+      this.source.disconnects++
+    }
+  }
+
+  createMediaStreamSource(): FakeAudioContext['source'] {
+    return this.source
   }
 
   createAnalyser(): FakeAnalyser {
-    return new FakeAnalyser()
+    const analyser = new FakeAnalyser()
+    this.analysers.push(analyser)
+    return analyser
+  }
+
+  createGain(): FakeGain {
+    const gain = new FakeGain()
+    this.gains.push(gain)
+    return gain
   }
 }
 
@@ -129,6 +192,49 @@ class FakeAnalyser {
   }
 }
 
+class FakeGain {
+  gain = { value: 1 }
+  connectedTo: unknown[] = []
+  disconnects = 0
+
+  connect(node: unknown): void {
+    this.connectedTo.push(node)
+  }
+
+  disconnect(): void {
+    this.disconnects++
+  }
+}
+
+class FakeAudioWorkletNode {
+  static instances: FakeAudioWorkletNode[] = []
+
+  port: { onmessage: ((event: { data: unknown }) => void) | null } = { onmessage: null }
+  connectedTo: unknown[] = []
+  disconnects = 0
+
+  constructor(
+    public context: FakeAudioContext,
+    public name: string,
+    public options: AudioWorkletNodeOptions
+  ) {
+    FakeAudioWorkletNode.instances.push(this)
+  }
+
+  connect(node: unknown): void {
+    this.connectedTo.push(node)
+  }
+
+  disconnect(): void {
+    this.disconnects++
+  }
+
+  /** O que o worklet real posta a cada bloco de ~10 ms. */
+  postLevel(db: number, t: number): void {
+    this.port.onmessage?.({ data: { type: 'level', db, t } })
+  }
+}
+
 /** Os mesmos tipos que `vad.ts` arma; qualquer um a mais/a menos aparece aqui. */
 const GESTURE_TYPES = ['pointerdown', 'mousedown', 'keydown', 'touchend']
 
@@ -142,14 +248,10 @@ function gestureListenerCount(): number {
   return liveGestureListeners.length
 }
 
-/** Frames de `requestAnimationFrame` sob controle do teste — sem isto o
- * monitor gira sozinho e nada é determinístico. */
-let pendingFrames: FrameRequestCallback[] = []
-
-function runOneFrame(): void {
-  const frames = pendingFrames
-  pendingFrames = []
-  frames.forEach((fn) => fn(0))
+/** Deixa as promises encadeadas (`addModule` -> criação do nó, ou a rejeição
+ * -> fallback) assentarem. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
 function fakeContext(): FakeAudioContext {
@@ -176,19 +278,16 @@ beforeEach(() => {
   FakeAudioContext.instances = []
   FakeAudioContext.initialState = 'running'
   FakeAudioContext.resumeBehavior = 'resolve-running'
+  FakeAudioContext.workletBehavior = 'absent'
   FakeAnalyser.sample = 0
-  pendingFrames = []
+  FakeAudioWorkletNode.instances = []
 
   const g = globalThis as unknown as Record<string, unknown>
   g.MediaStream = class {
     constructor(public tracks: unknown[]) {}
   }
   ;(window as unknown as Record<string, unknown>).AudioContext = FakeAudioContext
-  g.requestAnimationFrame = (fn: FrameRequestCallback): number => {
-    pendingFrames.push(fn)
-    return pendingFrames.length
-  }
-  g.cancelAnimationFrame = (): void => {}
+  g.AudioWorkletNode = FakeAudioWorkletNode
 
   liveGestureListeners = []
   const realAdd = document.addEventListener.bind(document)
@@ -474,12 +573,15 @@ describe('keepAudioContextRunning — rearme no gesto do usuário', () => {
 describe('createVadMonitor', () => {
   const track = { kind: 'audio' } as unknown as MediaStreamTrack
 
+  /** Manual em −50 dB: o mais fácil de raciocinar nos testes de fiação. */
+  const MANUAL = { autoSensitivity: false, thresholdDb: -50 } as const
+
   it('18. o monitor retoma o contexto que nasceu suspenso — a correção está LIGADA', () => {
     // Sem esta asserção, `keepAudioContextRunning` poderia estar perfeito e
     // nunca ser chamado, que é precisamente o estado anterior do arquivo.
     FakeAudioContext.initialState = 'suspended'
 
-    const monitor = createVadMonitor(track, { threshold: 0.05, onSpeakingChange: () => {} })
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
 
     expect(FakeAudioContext.instances[0].resumes).toBe(1)
     monitor.stop()
@@ -489,7 +591,7 @@ describe('createVadMonitor', () => {
     FakeAudioContext.initialState = 'suspended'
     FakeAudioContext.resumeBehavior = 'resolve-stuck'
 
-    const monitor = createVadMonitor(track, { threshold: 0.05, onSpeakingChange: () => {} })
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
     await Promise.resolve()
     await Promise.resolve()
     const ctx = FakeAudioContext.instances[0]
@@ -507,32 +609,309 @@ describe('createVadMonitor', () => {
     expect(ctx.closes).toBe(1)
   })
 
-  it('20. contexto retomado e nível acima do limiar => o microfone abre', () => {
+  it('20. fallback: contexto retomado e nível acima do limiar => o microfone abre', async () => {
     // O elo inteiro, do lado que dá para provar: contexto andando, analisador
     // devolvendo amostra real, limiar cruzado, callback disparado. Com o
     // contexto congelado o buffer seria de zeros e isto nunca aconteceria.
+    vi.useFakeTimers()
     FakeAudioContext.initialState = 'suspended'
-    FakeAnalyser.sample = 0.4
+    FakeAnalyser.sample = 0.4 // ≈ −8 dBFS
     const onSpeakingChange = vi.fn()
 
-    const monitor = createVadMonitor(track, { threshold: 0.05, onSpeakingChange })
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
     expect(FakeAudioContext.instances[0].state).toBe('running')
+    await settle()
 
-    runOneFrame()
+    vi.advanceTimersByTime(20)
 
     expect(onSpeakingChange).toHaveBeenCalledWith(true)
     monitor.stop()
   })
 
-  it('21. silêncio digital (o que um contexto congelado entrega) nunca abre o microfone', () => {
+  it('21. silêncio digital (o que um contexto congelado entrega) nunca abre o microfone', async () => {
+    vi.useFakeTimers()
     FakeAnalyser.sample = 0
     const onSpeakingChange = vi.fn()
 
-    const monitor = createVadMonitor(track, { threshold: 0.05, onSpeakingChange })
-    runOneFrame()
-    runOneFrame()
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    vi.advanceTimersByTime(200)
 
     expect(onSpeakingChange).not.toHaveBeenCalled()
     monitor.stop()
+  })
+
+  it('22. o nome do processador não diverge do registerProcessor do worklet', () => {
+    expect(workletSource).toContain(`registerProcessor('${VAD_LEVEL_PROCESSOR_NAME}'`)
+  })
+
+  it('23. worklet: carregado pela URL do ASSET (nunca data:/blob:), mono, puxado por um ganho ZERO', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+    const ctx = FakeAudioContext.instances[0]
+
+    expect(ctx.addModuleCalls).toHaveLength(1)
+    const url = ctx.addModuleCalls[0]
+    expect(url).toContain('vad-level-processor')
+    // CSP `script-src 'self'`: `data:`/`blob:` seriam bloqueados e o VAD
+    // cairia sempre no fallback sem erro de aplicação.
+    expect(url.startsWith('data:')).toBe(false)
+    expect(url.startsWith('blob:')).toBe(false)
+
+    const node = FakeAudioWorkletNode.instances[0]
+    expect(node.name).toBe(VAD_LEVEL_PROCESSOR_NAME)
+    expect(node.options).toMatchObject({ channelCount: 1, channelCountMode: 'explicit' })
+    expect(ctx.source.connectedTo).toContain(node)
+
+    // Puxado pelo grafo SEM tocar nada: nó -> ganho 0 -> destination.
+    const sink = ctx.gains[0]
+    expect(node.connectedTo).toEqual([sink])
+    expect(sink.gain.value).toBe(0)
+    expect(sink.connectedTo).toEqual([ctx.destination])
+
+    // Nada de AnalyserNode nem timer de fallback no caminho principal.
+    expect(ctx.analysers).toHaveLength(0)
+    monitor.stop()
+  })
+
+  it('24. worklet: abre no primeiro bloco acima do limiar e fecha depois de 600 ms abaixo', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    const node = FakeAudioWorkletNode.instances[0]
+
+    node.postLevel(-30, 10)
+    expect(onSpeakingChange).toHaveBeenCalledTimes(1)
+    expect(onSpeakingChange).toHaveBeenLastCalledWith(true)
+
+    // Pausa de 400 ms: nada muda.
+    for (let t = 20; t <= 410; t += 10) node.postLevel(-80, t)
+    node.postLevel(-30, 420)
+    expect(onSpeakingChange).toHaveBeenCalledTimes(1)
+
+    // Silêncio de verdade: fecha aos 600 ms contínuos, pelo relógio do ÁUDIO
+    // (o `t` dos blocos), não pelo relógio da thread principal.
+    for (let t = 430; t <= 1030; t += 10) node.postLevel(-80, t)
+    expect(onSpeakingChange).toHaveBeenCalledTimes(2)
+    expect(onSpeakingChange).toHaveBeenLastCalledWith(false)
+    monitor.stop()
+  })
+
+  it('25. worklet: mensagem torta é ignorada, não lança nem decide', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    const node = FakeAudioWorkletNode.instances[0]
+
+    expect(() => {
+      node.port.onmessage?.({ data: null })
+      node.port.onmessage?.({ data: { type: 'stats' } })
+      node.port.onmessage?.({ data: { type: 'level', db: '-10', t: 10 } })
+    }).not.toThrow()
+    expect(onSpeakingChange).not.toHaveBeenCalled()
+    monitor.stop()
+  })
+
+  it('26. medidor: no máximo ~30 leituras/s, com o PICO do intervalo e o limiar em vigor', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+    const readings: VadLevelReading[] = []
+
+    const monitor = createVadMonitor(track, {
+      ...MANUAL,
+      onSpeakingChange: () => {},
+      onLevel: (reading) => readings.push(reading)
+    })
+    await settle()
+    const node = FakeAudioWorkletNode.instances[0]
+
+    // 1 s de blocos (100), com um pico curto de −20 dB no meio do 2º intervalo.
+    for (let t = 10; t <= 1000; t += 10) node.postLevel(t === 50 ? -20 : -70, t)
+
+    expect(readings.length).toBeGreaterThanOrEqual(25)
+    expect(readings.length).toBeLessThanOrEqual(35)
+    expect(readings.some((r) => r.levelDb === -20)).toBe(true)
+    expect(readings.every((r) => r.thresholdDb === -50)).toBe(true)
+    monitor.stop()
+  })
+
+  it('27. setThreshold e setAutoSensitivity valem AO VIVO, sem recriar o monitor', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+    const onSpeakingChange = vi.fn()
+    const readings: VadLevelReading[] = []
+
+    const monitor = createVadMonitor(track, {
+      autoSensitivity: false,
+      thresholdDb: -20,
+      onSpeakingChange,
+      onLevel: (reading) => readings.push(reading)
+    })
+    await settle()
+    const node = FakeAudioWorkletNode.instances[0]
+
+    node.postLevel(-30, 10)
+    expect(onSpeakingChange).not.toHaveBeenCalled()
+
+    monitor.setThreshold(-40)
+    node.postLevel(-30, 20)
+    expect(onSpeakingChange).toHaveBeenCalledWith(true)
+
+    // Automático com sala em −80 dB: o limiar calculado vai ao piso de −65.
+    monitor.setAutoSensitivity(true)
+    for (let t = 30; t <= 2000; t += 10) node.postLevel(-80, t)
+    expect(readings.at(-1)?.thresholdDb).toBe(-65)
+    expect(FakeAudioContext.instances).toHaveLength(1)
+    monitor.stop()
+  })
+
+  it('28. worklet bloqueado (addModule rejeita) => fallback AnalyserNode de 512 a cada 20 ms, com aviso', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'reject'
+    FakeAnalyser.sample = 0.4
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    const ctx = FakeAudioContext.instances[0]
+
+    expect(FakeAudioWorkletNode.instances).toHaveLength(0)
+    expect(ctx.analysers).toHaveLength(1)
+    expect(ctx.analysers[0].fftSize).toBe(512)
+    expect(loggedText(logged.warn)).toMatch(/fallback/i)
+    expect(loggedText(logged.warn)).toContain('CSP bloqueou o worklet')
+
+    vi.advanceTimersByTime(19)
+    expect(onSpeakingChange).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(onSpeakingChange).toHaveBeenCalledWith(true)
+    monitor.stop()
+  })
+
+  it('29. sem `audioWorklet` no contexto => fallback também, sem lançar para quem criou', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'absent'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+
+    expect(FakeAudioContext.instances[0].analysers).toHaveLength(1)
+    expect(loggedText(logged.info)).toMatch(/AnalyserNode/)
+    monitor.stop()
+  })
+
+  it('30. worklet carregado mas MUDO com o contexto rodando => troca para o fallback', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'resolve'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+    const ctx = FakeAudioContext.instances[0]
+    const node = FakeAudioWorkletNode.instances[0]
+
+    vi.advanceTimersByTime(1000)
+    expect(ctx.analysers).toHaveLength(0) // uma conferência só não basta
+
+    vi.advanceTimersByTime(1000)
+    expect(ctx.analysers).toHaveLength(1)
+    expect(node.port.onmessage).toBeNull()
+    expect(node.disconnects).toBeGreaterThan(0)
+    monitor.stop()
+  })
+
+  it('31. o vigia não culpa o worklet por um contexto SUSPENSO — isso é do keeper', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'resolve'
+    FakeAudioContext.initialState = 'suspended'
+    FakeAudioContext.resumeBehavior = 'resolve-stuck'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+
+    vi.advanceTimersByTime(5000)
+
+    expect(FakeAudioContext.instances[0].analysers).toHaveLength(0)
+    monitor.stop()
+  })
+
+  it('32. o vigia se aposenta no primeiro bloco: worklet saudável nunca vira fallback', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'resolve'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+    FakeAudioWorkletNode.instances[0].postLevel(-80, 10)
+
+    vi.advanceTimersByTime(10_000)
+
+    expect(FakeAudioContext.instances[0].analysers).toHaveLength(0)
+    monitor.stop()
+  })
+
+  it('33. `stop()` antes de o worklet carregar: nenhum nó nasce, nenhum fallback, contexto fechado', async () => {
+    vi.useFakeTimers()
+    FakeAudioContext.workletBehavior = 'manual'
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    const ctx = FakeAudioContext.instances[0]
+    monitor.stop()
+
+    ctx.finishAddModule()
+    await settle()
+    vi.advanceTimersByTime(5000)
+
+    expect(FakeAudioWorkletNode.instances).toHaveLength(0)
+    expect(ctx.analysers).toHaveLength(0)
+    expect(ctx.closes).toBe(1)
+  })
+
+  it('34. `stop()` desmonta o worklet: bloco que chega depois não decide nada', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+    const onSpeakingChange = vi.fn()
+
+    const monitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange })
+    await settle()
+    const node = FakeAudioWorkletNode.instances[0]
+    const ctx = FakeAudioContext.instances[0]
+
+    monitor.stop()
+
+    expect(node.port.onmessage).toBeNull()
+    expect(node.disconnects).toBeGreaterThan(0)
+    expect(ctx.gains[0].disconnects).toBeGreaterThan(0)
+    node.postLevel(-10, 10)
+    expect(onSpeakingChange).not.toHaveBeenCalled()
+  })
+
+  it('35. diagnóstico: UMA linha de info ao iniciar, com modo, limiar e caminho', async () => {
+    FakeAudioContext.workletBehavior = 'resolve'
+
+    const auto = createVadMonitor(track, {
+      autoSensitivity: true,
+      thresholdDb: -50,
+      onSpeakingChange: () => {}
+    })
+    await settle()
+    const text = loggedText(logged.info)
+    expect(text).toContain('[voice]')
+    expect(text).toMatch(/AudioWorklet/)
+    expect(text).toMatch(/automático/)
+    expect(text).toMatch(/-46 dB/)
+
+    // Nada por bloco.
+    const before = logged.info.length
+    for (let t = 10; t <= 500; t += 10) FakeAudioWorkletNode.instances[0].postLevel(-30, t)
+    expect(logged.info.length).toBe(before)
+    auto.stop()
+
+    logged.info = []
+    const manualMonitor = createVadMonitor(track, { ...MANUAL, onSpeakingChange: () => {} })
+    await settle()
+    expect(loggedText(logged.info)).toMatch(/manual \(limiar -50 dB\)/)
+    manualMonitor.stop()
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Room, Track } from 'livekit-client'
 import { Settings } from 'lucide-react'
 
@@ -17,22 +17,28 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Slider } from '@/components/ui/slider'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useVoice } from '@/state/voice-context'
-import { createVadMonitor, type VadMonitor } from '@/lib/vad'
+import { createVadMonitor, type VadLevelReading, type VadMonitor } from '@/lib/vad'
 import {
   loadScreenSharePreferences,
   saveScreenSharePreferences,
   type ScreenShareQuality
 } from '@/lib/screenshare-preferences'
-import { loadVoicePreferences, saveVoicePreferences, type VoiceMode } from '@/lib/voice-preferences'
+import {
+  loadVoicePreferences,
+  saveVoicePreferences,
+  type VoiceMode,
+  type VoicePreferences
+} from '@/lib/voice-preferences'
 
+import { InputSensitivity } from './InputSensitivity'
 import { MicTestPanel } from './MicTestPanel'
 
 // Painel de configurações de voz (Plano 07-05): modo de transmissão
-// (detecção de voz vs push-to-talk), limiar do VAD com medidor de nível ao
-// vivo, e seleção de microfone/saída de áudio. Toda escolha persiste via
+// (detecção de voz vs push-to-talk), sensibilidade de entrada (automática ou
+// limiar em dB, com medidor de nível ao vivo na mesma escala — modelo do
+// Discord, nov/2026), e seleção de microfone/saída de áudio. Toda escolha persiste via
 // `voice-preferences.ts` (localStorage, estado de MÁQUINA — nunca Convex,
 // 07-RESEARCH.md §7) e aplica em runtime chamando `applyVoicePreferences()`
 // / `room.switchActiveDevice(...)`, nunca reconectando a sala (VOICE-13).
@@ -87,7 +93,12 @@ export function VoiceSettingsPopover({
   const activeInputId = inputDeviceId ?? room.getActiveDevice('audioinput')
   const activeOutputId = outputDeviceId ?? room.getActiveDevice('audiooutput')
 
-  const [level, setLevel] = useState(0)
+  // Última leitura do medidor (nível em dB + limiar em vigor). `null` antes da
+  // primeira — e sempre que o medidor é desmontado.
+  const [reading, setReading] = useState<VadLevelReading | null>(null)
+  // O monitor do medidor, para ajustar a sensibilidade AO VIVO (o slider não
+  // pode recriar um AudioContext a cada passo).
+  const meterMonitorRef = useRef<VadMonitor | null>(null)
 
   // Snapshot das preferências ao ABRIR ("ajustar estado durante o render" —
   // evita o commit extra de um `useEffect` só para sincronizar estado local
@@ -131,10 +142,12 @@ export function VoiceSettingsPopover({
     }
   }, [open])
 
-  // Medidor de nível ao vivo para o usuário calibrar o limiar vendo a
-  // própria voz. Cria SEU PRÓPRIO monitor (threshold acima de qualquer
-  // nível real — nunca dispara `onSpeakingChange`, só lemos `onLevel`),
-  // mas sobre uma fonte VIVA, nunca sobre a track publicada crua.
+  // Medidor de nível ao vivo para o usuário calibrar a sensibilidade vendo a
+  // própria voz. Cria SEU PRÓPRIO monitor (o `onSpeakingChange` dele não faz
+  // nada — só lemos `onLevel`), com a MESMA sensibilidade do VAD: no
+  // automático, a marca do medidor é o limiar que a mesma decisão calcula
+  // sobre o mesmo áudio. Sempre sobre uma fonte VIVA, nunca sobre a track
+  // publicada crua.
   //
   // Ler a track publicada era o mesmo defeito do deadlock do VAD, na UI de
   // configuração: em modo VAD (ou com mute manual) ela fica com
@@ -174,20 +187,25 @@ export function VoiceSettingsPopover({
 
     let monitor: VadMonitor | null = null
     try {
+      // Lida do storage NA HORA (não de `prefs`): mexer no slider não pode
+      // recriar o medidor — quem acompanha a mudança é `meterMonitorRef`.
+      const sensitivity = loadVoicePreferences()
       monitor = createVadMonitor(meterTrack, {
-        // Acima de qualquer nível RMS real (0-1) — este monitor nunca deve
-        // considerar "falando", ele só existe para ler `onLevel`.
-        threshold: 2,
+        autoSensitivity: sensitivity.vadAutoSensitivity,
+        thresholdDb: sensitivity.vadThresholdDb,
+        label: 'medidor',
         onSpeakingChange: () => {},
-        onLevel: setLevel
+        onLevel: setReading
       })
     } catch (err) {
       console.error('[voice] falha ao iniciar medidor de nível do microfone', err)
     }
+    meterMonitorRef.current = monitor
 
     return () => {
+      meterMonitorRef.current = null
       monitor?.stop()
-      setLevel(0)
+      setReading(null)
       // Só o clone criado AQUI é parado. A track de análise do provider
       // nunca — ela pertence ao VoiceProvider e sobrevive ao painel.
       if (ownsTrack) meterTrack.stop()
@@ -200,7 +218,7 @@ export function VoiceSettingsPopover({
   // Plano 07-07 (VOICE-17): toggle de sons de entrada/saída. Não depende de
   // canal conectado nem de `Room` — é lido direto de `voice-sounds.ts` a
   // cada evento, então basta persistir a preferência (mesmo padrão de
-  // `handleModeChange`/`handleThresholdChange` acima, sem `applyVoicePreferences()`
+  // `handleModeChange`/`handleSensitivityChange` abaixo, sem `applyVoicePreferences()`
   // porque nada no `Room`/VAD depende desta preferência).
   function handleSoundsEnabledChange(soundsEnabled: boolean): void {
     const next = saveVoicePreferences({ soundsEnabled })
@@ -222,12 +240,16 @@ export function VoiceSettingsPopover({
     applyVoicePreferences()
   }
 
-  function handleThresholdChange(value: number[]): void {
-    const vadThreshold = value[0]
-    if (vadThreshold === undefined) return
-    const next = saveVoicePreferences({ vadThreshold })
+  // Sensibilidade: persiste, ajusta o medidor desta tela e o VAD da call AO
+  // VIVO (`onlySensitivity`) — sem derrubar o monitor nem fechar o microfone.
+  function handleSensitivityChange(
+    partial: Partial<Pick<VoicePreferences, 'vadAutoSensitivity' | 'vadThresholdDb'>>
+  ): void {
+    const next = saveVoicePreferences(partial)
     setPrefs(next)
-    applyVoicePreferences()
+    meterMonitorRef.current?.setAutoSensitivity(next.vadAutoSensitivity)
+    meterMonitorRef.current?.setThreshold(next.vadThresholdDb)
+    applyVoicePreferences({ onlySensitivity: true })
   }
 
   // VOICE-13: nunca desconectar/reconectar a sala para trocar de
@@ -281,7 +303,10 @@ export function VoiceSettingsPopover({
 
         {/* Plano 07-09: único item que funciona sem canal nenhum conectado
             (VOICE-21) — sempre visível, mesmo fora de uma chamada. */}
-        <MicTestPanel vadThreshold={prefs.vadThreshold} />
+        <MicTestPanel
+          autoSensitivity={prefs.vadAutoSensitivity}
+          thresholdDb={prefs.vadThresholdDb}
+        />
 
         {/* Plano 07-07 (VOICE-17): sempre visível, mesmo padrão do
             `MicTestPanel` acima — é preferência de máquina, não algo que só
@@ -378,7 +403,7 @@ export function VoiceSettingsPopover({
 
         {!hasVoiceIntention && (
           <p className="text-xs text-muted-foreground">
-            Entre em um canal de voz para ajustar modo e limiar ao vivo.
+            Entre em um canal de voz para ajustar modo e sensibilidade ao vivo.
           </p>
         )}
 
@@ -410,26 +435,16 @@ export function VoiceSettingsPopover({
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                Limiar do detector de voz
-              </span>
-              <Slider
-                min={0}
-                max={1}
-                step={0.01}
-                value={[prefs.vadThreshold]}
-                disabled={prefs.mode !== 'vad'}
-                onValueChange={handleThresholdChange}
-                aria-label="Limiar do detector de voz"
-              />
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full bg-primary transition-[width]"
-                  style={{ width: `${Math.min(level, 1) * 100}%` }}
-                />
-              </div>
-            </div>
+            <InputSensitivity
+              autoSensitivity={prefs.vadAutoSensitivity}
+              thresholdDb={prefs.vadThresholdDb}
+              reading={reading}
+              disabled={prefs.mode !== 'vad'}
+              onAutoSensitivityChange={(vadAutoSensitivity) =>
+                handleSensitivityChange({ vadAutoSensitivity })
+              }
+              onThresholdChange={(vadThresholdDb) => handleSensitivityChange({ vadThresholdDb })}
+            />
           </>
         )}
       </PopoverContent>

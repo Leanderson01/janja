@@ -1,14 +1,23 @@
 // Preferências de voz (Plano 07-05): estado de MÁQUINA, não de conta — o
 // mesmo usuário pode ter microfones diferentes em cada computador
 // (07-RESEARCH.md §7, FEATURES.md). Por isso vivem em `localStorage` do
-// renderer, nunca no Convex. `vadThreshold` usa a mesma escala 0-1 do nível
-// RMS calculado por `vad.ts`, comparável diretamente sem conversão.
+// renderer, nunca no Convex.
+//
+// Sensibilidade de entrada (nov/2026), no modelo do Discord: automático por
+// padrão, e um limiar manual em dBFS (−100…0) — a mesma escala de `vad.ts` e do
+// medidor da tela. Substitui o antigo `vadThreshold`, que era RMS LINEAR (0–1)
+// com padrão 0,15 (≈ −16,5 dBFS, voz alta): a faixa útil cabia nos primeiros
+// 10% do slider e fala normal não abria o microfone. Quem tinha o valor antigo
+// salvo cai no automático — `sanitize` descarta o campo velho.
 
 export type VoiceMode = 'vad' | 'ptt'
 
 export type VoicePreferences = {
   mode: VoiceMode
-  vadThreshold: number
+  /** "Determinar automaticamente a sensibilidade de entrada". Padrão ligado. */
+  vadAutoSensitivity: boolean
+  /** Limiar manual de abertura em dBFS (−100…0); só vale com o automático desligado. */
+  vadThresholdDb: number
   /**
    * Plano 07-07 (VOICE-17): toca um som distinto quando alguém entra/sai do
    * canal de voz conectado. Estado de MÁQUINA como o resto deste módulo —
@@ -21,12 +30,17 @@ export type VoicePreferences = {
 
 const STORAGE_KEY = 'janja:voice-preferences'
 
-// 0.15 é um chute de partida documentado, não um valor calibrado — o
-// usuário ajusta pelo slider do painel de configurações (Task 3) vendo o
-// próprio nível de áudio em tempo real.
+/** Faixa do slider de sensibilidade, em dBFS — a escala de `vad.ts`. */
+export const VAD_THRESHOLD_MIN_DB = -100
+export const VAD_THRESHOLD_MAX_DB = 0
+
+// −50 dB é o ponto de partida do slider MANUAL (fala normal com AGC fica em
+// −35…−20 dBFS; uma sala quieta, abaixo de −60). O padrão de verdade é o
+// automático, que calcula o limiar a partir do ruído de fundo.
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   mode: 'vad',
-  vadThreshold: 0.15,
+  vadAutoSensitivity: true,
+  vadThresholdDb: -50,
   soundsEnabled: true
 }
 
@@ -37,19 +51,25 @@ function isVoiceMode(value: unknown): value is VoiceMode {
 function sanitize(raw: unknown): VoicePreferences {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_VOICE_PREFERENCES
 
+  // Só os campos ATUAIS são lidos: o `vadThreshold` linear de antes (e
+  // qualquer outro lixo) não passa daqui, e some do storage no próximo save.
   const candidate = raw as Partial<Record<keyof VoicePreferences, unknown>>
 
   const mode = isVoiceMode(candidate.mode) ? candidate.mode : DEFAULT_VOICE_PREFERENCES.mode
-  const vadThreshold =
-    typeof candidate.vadThreshold === 'number' && Number.isFinite(candidate.vadThreshold)
-      ? Math.min(1, Math.max(0, candidate.vadThreshold))
-      : DEFAULT_VOICE_PREFERENCES.vadThreshold
+  const vadAutoSensitivity =
+    typeof candidate.vadAutoSensitivity === 'boolean'
+      ? candidate.vadAutoSensitivity
+      : DEFAULT_VOICE_PREFERENCES.vadAutoSensitivity
+  const vadThresholdDb =
+    typeof candidate.vadThresholdDb === 'number' && !Number.isNaN(candidate.vadThresholdDb)
+      ? Math.min(VAD_THRESHOLD_MAX_DB, Math.max(VAD_THRESHOLD_MIN_DB, candidate.vadThresholdDb))
+      : DEFAULT_VOICE_PREFERENCES.vadThresholdDb
   const soundsEnabled =
     typeof candidate.soundsEnabled === 'boolean'
       ? candidate.soundsEnabled
       : DEFAULT_VOICE_PREFERENCES.soundsEnabled
 
-  return { mode, vadThreshold, soundsEnabled }
+  return { mode, vadAutoSensitivity, vadThresholdDb, soundsEnabled }
 }
 
 // Nunca lança — `localStorage` ausente/corrompido/indisponível (modo

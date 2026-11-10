@@ -28,6 +28,10 @@ import {
   type LoopbackTestHandle,
   type MicCapture
 } from '@/lib/mic-test'
+import type { VadLevelReading, VadMonitor } from '@/lib/vad'
+import { formatDb } from '@/lib/vad-scale'
+
+import { VadLevelMeter } from './VadLevelMeter'
 
 import { api } from '../../../../../convex/_generated/api'
 
@@ -57,10 +61,14 @@ type ServerTestState =
   | { status: 'error'; message: string }
 
 export function MicTestPanel({
-  vadThreshold,
+  autoSensitivity,
+  thresholdDb,
   disabled
 }: {
-  vadThreshold: number
+  /** Sensibilidade salva — a marca do medidor mostra o limiar que o VAD usaria. */
+  autoSensitivity: boolean
+  /** Limiar manual salvo, em dBFS (mesma escala do slider e do medidor). */
+  thresholdDb: number
   disabled?: boolean
 }): React.JSX.Element {
   const mintMicTestTokens = useAction(api.voiceToken.mintMicTestTokens)
@@ -70,12 +78,22 @@ export function MicTestPanel({
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined)
 
-  const [level, setLevel] = useState(0)
+  const [reading, setReading] = useState<VadLevelReading | null>(null)
 
   const [serverTest, setServerTest] = useState<ServerTestState>({ status: 'idle' })
 
   const captureRef = useRef<MicCapture | null>(null)
+  const meterRef = useRef<VadMonitor | null>(null)
   const loopbackRef = useRef<LoopbackTestHandle | null>(null)
+
+  // A sensibilidade mais recente, para o medidor nascer com ela e acompanhá-la
+  // ao vivo sem reabrir a captura do microfone.
+  const sensitivityRef = useRef({ autoSensitivity, thresholdDb })
+  useEffect(() => {
+    sensitivityRef.current = { autoSensitivity, thresholdDb }
+    meterRef.current?.setAutoSensitivity(autoSensitivity)
+    meterRef.current?.setThreshold(thresholdDb)
+  }, [autoSensitivity, thresholdDb])
 
   // Lista os microfones disponíveis assim que o painel abre — `enumerateDevices` é
   // assíncrono (pode pedir permissão), mesmo padrão de `VoiceSettingsPopover`.
@@ -103,6 +121,10 @@ export function MicTestPanel({
   // Captura o microfone selecionado e liga o medidor de nível assim que o painel
   // abre — nunca exige estar num canal de voz. Reabre a captura sempre que o
   // dispositivo selecionado muda.
+  //
+  // O medidor nasce AQUI, depois que a captura existe. Ele morava num efeito
+  // separado que lia `captureRef` no mesmo commit — antes de `getUserMedia`
+  // resolver —, achava `null` e nunca ligava: o medidor do teste ficava parado.
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -115,6 +137,7 @@ export function MicTestPanel({
           return
         }
         captureRef.current = capture
+        meterRef.current = startLevelMeter(capture.track, sensitivityRef.current, setReading)
       } catch (err) {
         console.error('[mic-test] falha ao abrir o microfone', err)
       }
@@ -124,22 +147,11 @@ export function MicTestPanel({
 
     return () => {
       cancelled = true
+      meterRef.current?.stop()
+      meterRef.current = null
+      setReading(null)
       captureRef.current?.stop()
       captureRef.current = null
-    }
-  }, [open, selectedDeviceId])
-
-  // Liga o medidor de nível sobre a captura ativa — efeito separado do de cima para
-  // não recriar a captura toda vez que só o handler de nível mudaria de identidade.
-  useEffect(() => {
-    if (!open) return
-    const capture = captureRef.current
-    if (!capture) return
-
-    const monitor = startLevelMeter(capture.track, setLevel)
-    return () => {
-      monitor.stop()
-      setLevel(0)
     }
   }, [open, selectedDeviceId])
 
@@ -186,8 +198,8 @@ export function MicTestPanel({
     setServerTest({ status: 'idle' })
   }
 
-  const thresholdPercent = Math.min(vadThreshold, 1) * 100
-  const levelPercent = Math.min(level, 1) * 100
+  // No manual a marca é o valor salvo; no automático, o que o detector calculou.
+  const markDb = autoSensitivity ? (reading?.thresholdDb ?? null) : thresholdDb
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -236,17 +248,12 @@ export function MicTestPanel({
             <span className="text-xs font-medium text-muted-foreground">
               Nível ao vivo — a marca é o limiar do detector de voz
             </span>
-            <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-[width]"
-                style={{ width: `${levelPercent}%` }}
-              />
-              <div
-                className="absolute top-0 h-full w-0.5 bg-destructive"
-                style={{ left: `${thresholdPercent}%` }}
-                aria-label="Limiar do detector de voz"
-              />
-            </div>
+            <VadLevelMeter levelDb={reading?.levelDb ?? -100} thresholdDb={markDb} />
+            <p className="text-xs text-muted-foreground">
+              {markDb === null
+                ? 'Medindo o ruído de fundo…'
+                : `Limiar ${autoSensitivity ? 'automático' : 'manual'}: ${formatDb(markDb)}. Verde: sua voz seria transmitida.`}
+            </p>
           </div>
 
           <div className="flex flex-col items-start gap-2 border-t border-border pt-4">
