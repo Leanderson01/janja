@@ -4,7 +4,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { Copy, MoreVertical, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { UserAvatar } from '@/components/shell/UserAvatar'
+import { SectionErrorBoundary } from '@/components/boundary/SectionErrorBoundary'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -12,19 +12,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { displayNameOf } from '@/lib/display-name'
 import { friendsForTab, type FriendsTab } from '@/lib/friends-tabs'
-import { parseUserTag } from '@/lib/user-tag'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { readableConvexError } from '@/lib/convex-error'
 
 import { api } from '../../../../../convex/_generated/api'
 
+import { AddFriendForm } from './AddFriendForm'
 import { FriendRowView } from './FriendRowView'
 
 // Painel "Início" (Fase 6, plano 06-06): busca/adicionar amigo por
@@ -36,7 +35,6 @@ import { FriendRowView } from './FriendRowView'
 
 type Friend = FunctionReturnType<typeof api.friends.listFriends>[number]
 type IncomingRequest = FunctionReturnType<typeof api.friends.listIncomingFriendRequests>[number]
-type FoundUser = FunctionReturnType<typeof api.users.findUserByUsernameTag>
 
 // Meu próprio identificador USER#123. `username`/`tag` vivem em `users`
 // (Convex), não no perfil WorkOS de `useAuth()` — é por isso que
@@ -220,9 +218,29 @@ function FriendsListTab({ tab }: { tab: 'online' | 'todos' }): React.JSX.Element
   )
 }
 
+function OutgoingRequests(): React.JSX.Element | null {
+  const outgoing = useQuery(api.friends.listOutgoingFriendRequests)
+  if (outgoing === undefined || outgoing.length === 0) return null
+  return (
+    <>
+      <FriendCount label="Enviados" count={outgoing.length} />
+      {outgoing.map((request) => (
+        <FriendRowView
+          key={request.requestId}
+          userId={request.toUserId}
+          displayName={displayNameOf(request)}
+          username={request.username}
+          avatarUrl={request.avatarUrl}
+          online={false}
+          pending="enviado"
+        />
+      ))}
+    </>
+  )
+}
+
 function PendingTab(): React.JSX.Element {
   const incoming = useQuery(api.friends.listIncomingFriendRequests)
-  const outgoing = useQuery(api.friends.listOutgoingFriendRequests)
   const acceptFriendRequest = useMutation(api.friends.acceptFriendRequest)
   const rejectFriendRequest = useMutation(api.friends.rejectFriendRequest)
 
@@ -246,12 +264,8 @@ function PendingTab(): React.JSX.Element {
     }
   }
 
-  if (incoming === undefined || outgoing === undefined) {
+  if (incoming === undefined) {
     return <EmptyState>Carregando...</EmptyState>
-  }
-
-  if (incoming.length === 0 && outgoing.length === 0) {
-    return <EmptyState>Nenhum pedido pendente</EmptyState>
   }
 
   return (
@@ -275,112 +289,24 @@ function PendingTab(): React.JSX.Element {
             ))}
           </>
         ) : null}
-        {outgoing.length > 0 ? (
-          <>
-            <FriendCount label="Enviados" count={outgoing.length} />
-            {outgoing.map((request) => (
-              <FriendRowView
-                key={request.requestId}
-                userId={request.toUserId}
-                displayName={displayNameOf(request)}
-                username={request.username}
-                avatarUrl={request.avatarUrl}
-                online={false}
-                pending="enviado"
-              />
-            ))}
-          </>
-        ) : null}
+        <SectionErrorBoundary message="Não deu para carregar os pedidos enviados.">
+          <OutgoingRequests />
+        </SectionErrorBoundary>
       </div>
     </ScrollArea>
   )
 }
 
-function AddFriendTab(): React.JSX.Element {
-  const [rawInput, setRawInput] = useState('')
-  // `formError` é o ÚNICO feedback que continua inline neste painel, de
-  // propósito: é validação do que o usuário acabou de digitar no campo, e erro
-  // de campo pertence ao campo — num toast ele sumiria enquanto o valor
-  // inválido continua na tela. Resultado de mutation (rede) vai para toast.
-  const [formError, setFormError] = useState<string | null>(null)
-  const [submitted, setSubmitted] = useState<{ username: string; tag: string } | null>(null)
-
-  // Padrão oficial do Convex para pular a query até ter argumentos válidos
-  // — nunca consultar com argumentos vazios/placeholder.
-  const found: FoundUser | undefined = useQuery(
-    api.users.findUserByUsernameTag,
-    submitted ?? 'skip'
-  )
+function AddFriendTab({ myTag }: { myTag: string | null }): React.JSX.Element {
   const sendFriendRequest = useMutation(api.friends.sendFriendRequest)
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
-    event.preventDefault()
-    const parsed = parseUserTag(rawInput)
-    if (!parsed) {
-      setFormError('Formato inválido — use usuario#0001')
-      setSubmitted(null)
-      return
-    }
-    setFormError(null)
-    setSubmitted(parsed)
-  }
-
-  async function handleSendRequest(): Promise<void> {
-    if (!submitted) return
-    const label = `${submitted.username}#${submitted.tag}`
-    try {
-      await sendFriendRequest({ username: submitted.username, tag: submitted.tag })
-      toast.success(`Pedido de amizade enviado para ${label}`)
-      setRawInput('')
-      setSubmitted(null)
-    } catch (err) {
-      toast.error('Não foi possível enviar o pedido', { description: errorMessage(err) })
-    }
+  async function handleSend(username: string, tag: string): Promise<void> {
+    await sendFriendRequest({ username, tag })
   }
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 p-6">
-        <form className="flex gap-2" onSubmit={handleSubmit}>
-          <Input
-            value={rawInput}
-            onChange={(e) => setRawInput(e.target.value)}
-            placeholder="usuario#0001"
-            aria-label="Buscar por USER#123"
-          />
-          <Button type="submit">Buscar</Button>
-        </form>
-
-        {formError ? <p className="text-xs text-destructive">{formError}</p> : null}
-
-        {submitted ? (
-          found === undefined ? (
-            <p className="text-sm text-muted-foreground">Buscando...</p>
-          ) : found === null ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum usuário encontrado com esse USER#123
-            </p>
-          ) : (
-            <div className="flex items-center gap-2 rounded border border-border p-2">
-              <UserAvatar
-                userId={found._id}
-                avatarUrl={found.avatarUrl}
-                name={displayNameOf(found)}
-                size={40}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{found.displayName}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {found.username}#{found.tag}
-                </div>
-              </div>
-              <Button type="button" size="sm" onClick={() => void handleSendRequest()}>
-                Enviar pedido de amizade
-              </Button>
-            </div>
-          )
-        ) : null}
-      </div>
+      <AddFriendForm onSend={handleSend} myTag={myTag} />
     </ScrollArea>
   )
 }
@@ -444,7 +370,9 @@ export function FriendsPanel(): React.JSX.Element {
           <FriendsListTab tab={activeTab} />
         ) : null}
         {activeTab === 'pendente' ? <PendingTab /> : null}
-        {activeTab === 'adicionar' ? <AddFriendTab /> : null}
+        {activeTab === 'adicionar' ? (
+          <AddFriendTab myTag={me ? `${me.username}#${me.tag}` : null} />
+        ) : null}
       </div>
     </div>
   )

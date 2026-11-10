@@ -25,7 +25,9 @@ describe('FriendRowView', () => {
     expect(onMessage).toHaveBeenCalledOnce()
   })
   it('pedido enviado não tem botão de cancelar', () => {
-    wrap(<FriendRowView userId="u1" displayName="VM" username="vm" online={false} pending="enviado" />)
+    wrap(
+      <FriendRowView userId="u1" displayName="VM" username="vm" online={false} pending="enviado" />
+    )
     expect(screen.getByText('Pedido de amizade enviado')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Cancelar/ })).toBeNull()
   })
