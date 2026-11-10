@@ -55,6 +55,19 @@ Entrar desmutado continua funcionando mesmo com o backend antigo.
 - [ ] Na grade, enquanto A transmite e B não clicou, o aviso diz "Clique em "Assistir transmissão" para ver a tela".
 - [ ] DevTools de B, depois de entrar e depois da queda de Wi-Fi: nenhum erro `[voice] falha ao assinar`, e nenhum estalo na voz dos outros quando a conexão volta.
 
+### Depois do primeiro teste (entrar sem palco, AO VIVO, sons)
+- [ ] Com um chat aberto, clicar num canal de voz: você entra (som de entrada), o meio continua no chat. Clicar de novo no mesmo canal abre a tela da call; "canal / servidor" no cartão também abre.
+- [ ] Trocar de call: na tela da call de X, clicar em Y continua na tela da call (agora a de Y); lendo um chat, continua no chat.
+- [ ] AO VIVO de alguém da sua call: abre a tela da call com vídeo e som do jogo; a voz de todos continua.
+- [ ] AO VIVO de alguém em outra call (ou estando fora de call): você entra, abre a tela da call e o vídeo chega sozinho em poucos segundos; **ninguém fica mudo**.
+- [ ] Depois disso, a pessoa para e volta a transmitir: a nova **não** abre sozinha.
+- [ ] Uma terceira pessoa que não clicou em nada não recebe vídeo nem som da transmissão.
+- [ ] AO VIVO na sua própria transmissão só abre a tela da call.
+- [ ] Começar a compartilhar: todos ouvem a subida curta, inclusive quem compartilha; parar: a descida. Entrar numa call com alguém já transmitindo: sem som de transmissão. Sair transmitindo: só o som de saída.
+- [ ] Ensurdecer: tom grave descendo, sem o de mutar junto; desensurdecer: subindo; clicar no mic ensurdecido: tom de desensurdecer; fora da call também toca.
+- [ ] Com "sons" desligado, nada disso toca; ensurdecido, você não ouve os sons de transmissão dos outros.
+- [ ] Os tons novos soam no mesmo volume dos antigos.
+
 ## 3. Conferência visual (janja ao lado do Discord, mesma resolução)
 
 Região por região do spec §5.2–§5.12. Conferir posição, tamanho, cor e estados: hover, aberto, não lido, falando, mutado, ao vivo.
@@ -78,13 +91,11 @@ Região por região do spec §5.2–§5.12. Conferir posição, tamanho, cor e e
   - em tela cheia, os menus aparecem;
   - "Compartilhar tela" em tela cheia mostra o seletor;
   - na transmissão, a barra fica acima da faixa de pessoas.
-- [ ] Voltar (←) para a call em que você está mostra o palco, não uma prévia.
 - [ ] Início, Amigos (Online / Todos / Pendente) e DM.
 - [ ] Seletor de tela, teste de microfone, popover de voz e diálogos.
 
 ## 4. Decisões para você confirmar
 
-- Ensurdecer não toca som (regra antiga do projeto). O Discord tem um som próprio.
 - Quem transmite reconectar por completo encerra o "assistir" de quem via.
 - Menu de membro: o mesmo menu no clique esquerdo e no direito.
 - Quadro ao vivo: o clique esquerdo assiste.

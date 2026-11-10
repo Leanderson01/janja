@@ -190,7 +190,13 @@ pronta para quando o apelido existir.
 - **Cronômetro verde** ao lado do canal de voz em que você está, contando desde que
   a primeira pessoa da call atual entrou (o menor `_creationTime` entre as linhas de
   `voiceStates` do canal), em `h:mm:ss`.
-- Clique no canal de voz continua entrando na call e abrindo a tela da call.
+- Clique num canal de voz em que você não está: entra na call e a área do meio continua
+  no chat de texto em que você estava (pedido do Leo em 2026-11-09, depois do primeiro
+  teste). A tela da call abre ao clicar de novo no canal em que você já está, no
+  "canal / servidor" do cartão "Voz conectada" ou no **AO VIVO** de quem transmite.
+- O **AO VIVO** ao lado de quem compartilha é um botão "Assistir transmissão de {nome}":
+  abre a tela da call e assiste àquela transmissão; se você não está naquela call, entra
+  nela primeiro, como o Discord.
 
 ### 5.5 Painel do usuário
 
