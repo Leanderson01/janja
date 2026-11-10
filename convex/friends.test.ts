@@ -498,3 +498,24 @@ describe('friends.removeFriendship', () => {
     expect(await asBruno2.query(anyApi.friends.listFriends, {})).toHaveLength(0)
   })
 })
+
+describe('friends.listOutgoingFriendRequests', () => {
+  test('lista só os pedidos que eu enviei, não os recebidos', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+    await t.run(async (ctx) => {
+      await ctx.db.insert('friendRequests', { fromUserId: anaId, toUserId: brunoId, createdAt: 1 })
+      await ctx.db.insert('friendRequests', { fromUserId: carlaId, toUserId: anaId, createdAt: 2 })
+    })
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const result = await asAna.query(anyApi.friends.listOutgoingFriendRequests, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].toUserId).toBe(brunoId)
+    expect(result[0].username).toBe('bruno')
+    expect(result[0].displayName).toBe('bruno')
+  })
+})

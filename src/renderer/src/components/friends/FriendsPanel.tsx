@@ -1,20 +1,31 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import type { FunctionReturnType } from 'convex/server'
-import { Check, Copy, MessageCircle, UserMinus, X } from 'lucide-react'
+import { Copy, MoreVertical, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/shell/UserAvatar'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { displayNameOf } from '@/lib/display-name'
+import { friendsForTab, type FriendsTab } from '@/lib/friends-tabs'
 import { parseUserTag } from '@/lib/user-tag'
 import { cn } from '@/lib/utils'
 import { useSelection } from '@/state/selection-context'
 import { readableConvexError } from '@/lib/convex-error'
 
 import { api } from '../../../../../convex/_generated/api'
+
+import { FriendRowView } from './FriendRowView'
 
 // Painel "Início" (Fase 6, plano 06-06): busca/adicionar amigo por
 // USER#123, pedidos recebidos e lista de amigos com presença — tudo sobre
@@ -26,10 +37,6 @@ import { api } from '../../../../../convex/_generated/api'
 type Friend = FunctionReturnType<typeof api.friends.listFriends>[number]
 type IncomingRequest = FunctionReturnType<typeof api.friends.listIncomingFriendRequests>[number]
 type FoundUser = FunctionReturnType<typeof api.users.findUserByUsernameTag>
-
-function initialsFor(username: string): string {
-  return username.slice(0, 2).toUpperCase()
-}
 
 // Meu próprio identificador USER#123. `username`/`tag` vivem em `users`
 // (Convex), não no perfil WorkOS de `useAuth()` — é por isso que
@@ -95,110 +102,62 @@ function errorMessage(err: unknown): string {
   return readableConvexError(err)
 }
 
-function FriendRow({
-  friend,
-  onRemove,
-  onMessage
-}: {
-  friend: Friend
-  onRemove: (friend: Friend) => void
-  onMessage: (friend: Friend) => void
-}): React.JSX.Element {
+function FriendCount({ label, count }: { label: string; count: number }): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent/50">
-      <div className="relative shrink-0">
-        <Avatar>
-          {friend.avatarUrl ? <AvatarImage src={friend.avatarUrl} alt={friend.username} /> : null}
-          <AvatarFallback>{initialsFor(friend.username)}</AvatarFallback>
-        </Avatar>
-        {/* Mesmo token de presença da lista de membros: online é `--success`,
-            offline é `--muted-foreground`. Os dois lugares mostram o mesmo
-            conceito e não podem divergir de cor. */}
-        <AvatarBadge
-          className={cn(friend.online ? 'bg-success' : 'bg-muted-foreground')}
-          aria-label={friend.online ? 'online' : 'offline'}
-        />
-      </div>
-      <span className="min-w-0 flex-1 truncate text-sm">
-        {friend.username}
-        <span className="text-muted-foreground">#{friend.tag}</span>
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Mensagem para ${friend.username}#${friend.tag}`}
-            onClick={() => onMessage(friend)}
-          >
-            <MessageCircle />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Mensagem</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remover ${friend.username}#${friend.tag}`}
-            onClick={() => onRemove(friend)}
-          >
-            <UserMinus />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Remover amigo</TooltipContent>
-      </Tooltip>
-    </div>
+    <h3 className="px-5 pb-2 pt-4 text-xs font-semibold text-muted-foreground">
+      {label} — {count}
+    </h3>
   )
 }
 
-function FriendGroup({
-  title,
-  friends,
-  onRemove,
-  onMessage,
-  dimmed = false
+function EmptyState({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div className="p-6 text-sm text-muted-foreground">{children}</div>
+}
+
+function FriendMenu({
+  label,
+  onRemove
 }: {
-  title: string
-  friends: Friend[]
-  onRemove: (friend: Friend) => void
-  onMessage: (friend: Friend) => void
-  dimmed?: boolean
+  label: string
+  onRemove: () => void
 }): React.JSX.Element {
   return (
-    <div className={cn(dimmed && 'opacity-60')}>
-      <h3 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
-      <div className="flex flex-col gap-0.5">
-        {friends.map((friend) => (
-          <FriendRow
-            key={friend.userId}
-            friend={friend}
-            onRemove={onRemove}
-            onMessage={onMessage}
-          />
-        ))}
-      </div>
-    </div>
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-sm"
+              className="rounded-full"
+              aria-label={`Mais opções de ${label}`}
+            >
+              <MoreVertical />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Mais</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+          Remover amizade
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
-function FriendsTab(): React.JSX.Element {
+function FriendsListTab({ tab }: { tab: 'online' | 'todos' }): React.JSX.Element {
   const friends = useQuery(api.friends.listFriends)
   const removeFriendship = useMutation(api.friends.removeFriendship)
   const getOrCreateDmChannel = useMutation(api.dms.getOrCreateDmChannel)
   const { setSelectedDmChannelId } = useSelection()
 
   // Resultado de operação de rede vira toast (Fase 8.5): o Sonner cuida de
-  // empilhamento, tempo de vida e aria-live, que o parágrafo inline por linha
-  // não tinha — ele aparecia colado numa linha que a própria mutação podia
-  // remover da lista, e nunca sumia sozinho.
+  // empilhamento, tempo de vida e aria-live.
   function handleRemove(friend: Friend): void {
-    const label = `${friend.username}#${friend.tag}`
+    const label = displayNameOf(friend)
     removeFriendship({ friendUserId: friend.userId })
       .then(() => {
         toast.success(`${label} removido dos seus amigos`)
@@ -211,9 +170,7 @@ function FriendsTab(): React.JSX.Element {
   }
 
   // Botão Mensagem (plano 06-07): getOrCreateDmChannel devolve o canal
-  // existente ou cria um novo entre mim e o amigo. `view` já é 'home' neste
-  // ponto (é onde o FriendsPanel vive) — só troca qual conteúdo aparece na
-  // região central, via selectedDmChannelId.
+  // existente ou cria um novo entre mim e o amigo.
   async function handleMessage(friend: Friend): Promise<void> {
     try {
       const dmChannelId = await getOrCreateDmChannel({ friendUserId: friend.userId })
@@ -224,103 +181,53 @@ function FriendsTab(): React.JSX.Element {
   }
 
   if (friends === undefined) {
-    return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>
+    return <EmptyState>Carregando...</EmptyState>
   }
 
   if (friends.length === 0) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">
-        Nenhum amigo ainda — use a aba Adicionar para buscar por USER#123
-      </div>
+      <EmptyState>
+        Nenhum amigo ainda — use a aba Adicionar amigo para buscar por USER#123
+      </EmptyState>
     )
   }
 
-  const onlineFriends = friends.filter((f) => f.online)
-  const offlineFriends = friends.filter((f) => !f.online)
+  const shown = friendsForTab(friends, tab)
+  if (shown.length === 0) {
+    return <EmptyState>Ninguém está online agora</EmptyState>
+  }
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 p-3">
-        {onlineFriends.length > 0 ? (
-          <FriendGroup
-            title={`ONLINE — ${onlineFriends.length}`}
-            friends={onlineFriends}
-            onRemove={handleRemove}
-            onMessage={(friend) => void handleMessage(friend)}
+      <FriendCount label={tab === 'online' ? 'Online' : 'Todos os amigos'} count={shown.length} />
+      <div className="flex flex-col pb-4">
+        {shown.map((friend) => (
+          <FriendRowView
+            key={friend.userId}
+            userId={friend.userId}
+            displayName={displayNameOf(friend)}
+            username={friend.username}
+            avatarUrl={friend.avatarUrl}
+            online={friend.online}
+            onMessage={() => void handleMessage(friend)}
+            menu={
+              <FriendMenu label={displayNameOf(friend)} onRemove={() => handleRemove(friend)} />
+            }
           />
-        ) : null}
-        {offlineFriends.length > 0 ? (
-          <FriendGroup
-            title={`OFFLINE — ${offlineFriends.length}`}
-            friends={offlineFriends}
-            onRemove={handleRemove}
-            onMessage={(friend) => void handleMessage(friend)}
-            dimmed
-          />
-        ) : null}
+        ))}
       </div>
     </ScrollArea>
   )
 }
 
-function RequestRow({
-  request,
-  onAccept,
-  onReject
-}: {
-  request: IncomingRequest
-  onAccept: (request: IncomingRequest) => void
-  onReject: (request: IncomingRequest) => void
-}): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent/50">
-      <Avatar>
-        {request.avatarUrl ? <AvatarImage src={request.avatarUrl} alt={request.username} /> : null}
-        <AvatarFallback>{initialsFor(request.username)}</AvatarFallback>
-      </Avatar>
-      <span className="min-w-0 flex-1 truncate text-sm">
-        {request.username}
-        <span className="text-muted-foreground">#{request.tag}</span>
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Aceitar pedido de ${request.username}#${request.tag}`}
-            onClick={() => onAccept(request)}
-          >
-            <Check className="text-success" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Aceitar</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Recusar pedido de ${request.username}#${request.tag}`}
-            onClick={() => onReject(request)}
-          >
-            <X className="text-destructive" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Recusar</TooltipContent>
-      </Tooltip>
-    </div>
-  )
-}
-
-function RequestsTab(): React.JSX.Element {
-  const requests = useQuery(api.friends.listIncomingFriendRequests)
+function PendingTab(): React.JSX.Element {
+  const incoming = useQuery(api.friends.listIncomingFriendRequests)
+  const outgoing = useQuery(api.friends.listOutgoingFriendRequests)
   const acceptFriendRequest = useMutation(api.friends.acceptFriendRequest)
   const rejectFriendRequest = useMutation(api.friends.rejectFriendRequest)
 
   async function handleAccept(request: IncomingRequest): Promise<void> {
-    const label = `${request.username}#${request.tag}`
+    const label = displayNameOf(request)
     try {
       await acceptFriendRequest({ requestId: request.requestId })
       toast.success(`Agora você e ${label} são amigos`)
@@ -330,7 +237,7 @@ function RequestsTab(): React.JSX.Element {
   }
 
   async function handleReject(request: IncomingRequest): Promise<void> {
-    const label = `${request.username}#${request.tag}`
+    const label = displayNameOf(request)
     try {
       await rejectFriendRequest({ requestId: request.requestId })
       toast.success(`Pedido de ${label} recusado`)
@@ -339,25 +246,51 @@ function RequestsTab(): React.JSX.Element {
     }
   }
 
-  if (requests === undefined) {
-    return <div className="p-4 text-sm text-muted-foreground">Carregando...</div>
+  if (incoming === undefined || outgoing === undefined) {
+    return <EmptyState>Carregando...</EmptyState>
   }
 
-  if (requests.length === 0) {
-    return <div className="p-4 text-sm text-muted-foreground">Nenhum pedido pendente</div>
+  if (incoming.length === 0 && outgoing.length === 0) {
+    return <EmptyState>Nenhum pedido pendente</EmptyState>
   }
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-0.5 p-3">
-        {requests.map((request) => (
-          <RequestRow
-            key={request.requestId}
-            request={request}
-            onAccept={(r) => void handleAccept(r)}
-            onReject={(r) => void handleReject(r)}
-          />
-        ))}
+      <div className="pb-4">
+        {incoming.length > 0 ? (
+          <>
+            <FriendCount label="Recebidos" count={incoming.length} />
+            {incoming.map((request) => (
+              <FriendRowView
+                key={request.requestId}
+                userId={request.fromUserId}
+                displayName={displayNameOf(request)}
+                username={request.username}
+                avatarUrl={request.avatarUrl}
+                online={false}
+                pending="recebido"
+                onAccept={() => void handleAccept(request)}
+                onReject={() => void handleReject(request)}
+              />
+            ))}
+          </>
+        ) : null}
+        {outgoing.length > 0 ? (
+          <>
+            <FriendCount label="Enviados" count={outgoing.length} />
+            {outgoing.map((request) => (
+              <FriendRowView
+                key={request.requestId}
+                userId={request.toUserId}
+                displayName={displayNameOf(request)}
+                username={request.username}
+                avatarUrl={request.avatarUrl}
+                online={false}
+                pending="enviado"
+              />
+            ))}
+          </>
+        ) : null}
       </div>
     </ScrollArea>
   )
@@ -407,7 +340,7 @@ function AddFriendTab(): React.JSX.Element {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 p-3">
+      <div className="flex flex-col gap-4 p-6">
         <form className="flex gap-2" onSubmit={handleSubmit}>
           <Input
             value={rawInput}
@@ -429,12 +362,12 @@ function AddFriendTab(): React.JSX.Element {
             </p>
           ) : (
             <div className="flex items-center gap-2 rounded border border-border p-2">
-              <Avatar>
-                {found.avatarUrl ? (
-                  <AvatarImage src={found.avatarUrl} alt={found.username} />
-                ) : null}
-                <AvatarFallback>{initialsFor(found.username)}</AvatarFallback>
-              </Avatar>
+              <UserAvatar
+                userId={found._id}
+                avatarUrl={found.avatarUrl}
+                name={displayNameOf(found)}
+                size={40}
+              />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{found.displayName}</div>
                 <div className="truncate text-xs text-muted-foreground">
@@ -452,49 +385,65 @@ function AddFriendTab(): React.JSX.Element {
   )
 }
 
+const TABS: { id: Exclude<FriendsTab, 'adicionar'>; label: string }[] = [
+  { id: 'online', label: 'Online' },
+  { id: 'todos', label: 'Todos' },
+  { id: 'pendente', label: 'Pendente' }
+]
+
 export function FriendsPanel(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<'amigos' | 'pedidos' | 'adicionar'>('amigos')
+  const [activeTab, setActiveTab] = useState<FriendsTab>('online')
   const me = useMyIdentifier()
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-none border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Amigos</h2>
-          {me ? <MyIdentifierBadge username={me.username} tag={me.tag} /> : null}
+      <div className="flex h-12 flex-none items-center gap-3 border-b border-border px-4">
+        <Users className="size-5 text-muted-foreground" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-strong">Amigos</h2>
+        <Separator orientation="vertical" className="mx-1 h-6" />
+        <div role="tablist" aria-label="Amigos" className="flex items-center gap-2">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'rounded-md px-2 py-0.5 text-base font-medium transition-colors',
+                activeTab === tab.id
+                  ? 'bg-secondary text-strong'
+                  : 'text-muted-foreground hover:bg-accent hover:text-strong'
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-
-        <div className="mt-3 flex gap-1">
-          <Button
-            type="button"
-            variant={activeTab === 'amigos' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('amigos')}
-          >
-            Amigos
-          </Button>
-          <Button
-            type="button"
-            variant={activeTab === 'pedidos' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('pedidos')}
-          >
-            Pedidos
-          </Button>
-          <Button
-            type="button"
-            variant={activeTab === 'adicionar' ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('adicionar')}
-          >
-            Adicionar
-          </Button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'adicionar'}
+          onClick={() => setActiveTab('adicionar')}
+          className={cn(
+            'rounded-md px-2 py-0.5 text-base font-medium transition-colors',
+            activeTab === 'adicionar'
+              ? 'text-primary'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90'
+          )}
+        >
+          Adicionar amigo
+        </button>
+        <div className="ml-auto">
+          {me ? <MyIdentifierBadge username={me.username} tag={me.tag} /> : null}
         </div>
       </div>
 
       <div className="min-h-0 flex-1">
-        {activeTab === 'amigos' ? <FriendsTab /> : null}
-        {activeTab === 'pedidos' ? <RequestsTab /> : null}
+        {activeTab === 'online' || activeTab === 'todos' ? (
+          <FriendsListTab tab={activeTab} />
+        ) : null}
+        {activeTab === 'pendente' ? <PendingTab /> : null}
         {activeTab === 'adicionar' ? <AddFriendTab /> : null}
       </div>
     </div>

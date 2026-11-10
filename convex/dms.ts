@@ -3,6 +3,7 @@ import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
+import { isOnline } from './members'
 
 type Ctx = QueryCtx | MutationCtx
 
@@ -133,6 +134,7 @@ export const listMyDmChannels = query({
       .withIndex('by_user', (q) => q.eq('userId', me._id))
       .collect()
 
+    const now = Date.now()
     return await Promise.all(
       myMemberships.map(async (membership) => {
         const otherMembers = await ctx.db
@@ -141,6 +143,12 @@ export const listMyDmChannels = query({
           .collect()
         const other = otherMembers.find((m) => m.userId !== me._id)
         const otherUser = other ? await ctx.db.get(other.userId) : null
+        const presence = other
+          ? await ctx.db
+              .query('presence')
+              .withIndex('by_user', (q) => q.eq('userId', other.userId))
+              .unique()
+          : null
 
         return {
           dmChannelId: membership.dmChannelId,
@@ -151,6 +159,7 @@ export const listMyDmChannels = query({
                 tag: otherUser.tag,
                 displayName: otherUser.displayName,
                 avatarUrl: otherUser.avatarUrl,
+                online: isOnline(presence?.lastSeen, now),
               }
             : null,
         }

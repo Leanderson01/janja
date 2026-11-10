@@ -206,6 +206,34 @@ export const listIncomingFriendRequests = query({
   }
 })
 
+// Pedidos que EU enviei e ainda não foram respondidos (aba Pendente → Enviados).
+// Índice `by_from_to` pelo prefixo `fromUserId`, nunca `.filter()`. Sem
+// mutation de cancelar: a tela só mostra o estado.
+export const listOutgoingFriendRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await getCallerUser(ctx)
+    const requests = await ctx.db
+      .query('friendRequests')
+      .withIndex('by_from_to', (q) => q.eq('fromUserId', me._id))
+      .collect()
+
+    return await Promise.all(
+      requests.map(async (request) => {
+        const toUser = await ctx.db.get(request.toUserId)
+        return {
+          requestId: request._id,
+          toUserId: request.toUserId,
+          username: toUser?.username ?? '???',
+          tag: toUser?.tag ?? '????',
+          displayName: toUser?.displayName ?? '???',
+          avatarUrl: toUser?.avatarUrl
+        }
+      })
+    )
+  }
+})
+
 // Remoção de amizade (SOCIAL-06). Autorizada implicitamente pelo par
 // canônico: só quem é `userA` ou `userB` do par calculado a partir do
 // próprio chamador consegue localizar (e portanto apagar) o documento — um

@@ -108,7 +108,7 @@ function ShellBody(): React.JSX.Element {
             ) : selectedDmChannelId === null ? (
               <FriendsPanel />
             ) : (
-              <DmConversationView dmChannelId={selectedDmChannelId} />
+              <DmConversationView key={selectedDmChannelId} dmChannelId={selectedDmChannelId} />
             )}
           </div>
 

@@ -282,6 +282,30 @@ describe('dms.listMyDmChannels', () => {
   })
 })
 
+describe('dms.listMyDmChannels presença', () => {
+  test('otherUser.online é true com presença recente e false sem presença', async () => {
+    const t = convexTest(schema, modules)
+    const anaId = await insertUser(t, 'workos_ana', 'ana', '0001')
+    const brunoId = await insertUser(t, 'workos_bruno', 'bruno', '0002')
+    const carlaId = await insertUser(t, 'workos_carla', 'carla', '0003')
+    const chBruno = await t.run((ctx) => ctx.db.insert('dmChannels', { createdAt: Date.now() }))
+    const chCarla = await t.run((ctx) => ctx.db.insert('dmChannels', { createdAt: Date.now() }))
+    await t.run(async (ctx) => {
+      await ctx.db.insert('dmMembers', { dmChannelId: chBruno, userId: anaId })
+      await ctx.db.insert('dmMembers', { dmChannelId: chBruno, userId: brunoId })
+      await ctx.db.insert('dmMembers', { dmChannelId: chCarla, userId: anaId })
+      await ctx.db.insert('dmMembers', { dmChannelId: chCarla, userId: carlaId })
+      await ctx.db.insert('presence', { userId: brunoId, lastSeen: Date.now() })
+    })
+
+    const asAna = t.withIdentity({ subject: 'workos_ana' })
+    const result = await asAna.query(anyApi.dms.listMyDmChannels, {})
+    const byChannel = new Map(result.map((r: any) => [r.dmChannelId, r.otherUser]))
+    expect((byChannel.get(chBruno) as any).online).toBe(true)
+    expect((byChannel.get(chCarla) as any).online).toBe(false)
+  })
+})
+
 describe('dms.listDmMessages', () => {
   async function setupChannelWithMembers(t: ReturnType<typeof convexTest>) {
     const anaWorkosId = 'workos_ana'

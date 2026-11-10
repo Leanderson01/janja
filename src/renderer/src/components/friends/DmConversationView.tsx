@@ -2,7 +2,7 @@ import { useMutation, usePaginatedQuery, useQuery } from 'convex/react'
 import { toast } from 'sonner'
 
 import { MessageInput } from '@/components/shell/MessageInput'
-import { Button } from '@/components/ui/button'
+import { UserAvatar } from '@/components/shell/UserAvatar'
 import { readableConvexError } from '@/lib/convex-error'
 import { displayNameOf } from '@/lib/display-name'
 
@@ -15,6 +15,8 @@ import { DmMessageList } from './DmMessageList'
 // mensagem, sobre o backend dos planos 06-04/06-05. MessageInput.tsx (Fase
 // 3) é reaproveitado tal como está — já é genérico (`onSend: (content:
 // string) => void`), não amarrado a canal de servidor.
+const PAGE_SIZE = 30
+
 type DmConversationViewProps = {
   dmChannelId: Id<'dmChannels'>
 }
@@ -28,9 +30,10 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
   const { results, status, loadMore } = usePaginatedQuery(
     api.dms.listDmMessages,
     { dmChannelId },
-    { initialNumItems: 30 }
+    { initialNumItems: PAGE_SIZE }
   )
 
+  const me = useQuery(api.users.me)
   const sendDmMessage = useMutation(api.dms.sendDmMessage)
 
   // Mesmo tratamento do canal de servidor (`ConversationArea.tsx`): falha de
@@ -60,44 +63,49 @@ export function DmConversationView({ dmChannelId }: DmConversationViewProps): Re
   // plano 06-05); invertido antes de passar pra DmMessageList, que espera
   // ordem crescente (mesma convenção de MessageList.tsx).
   const messages = [...results].reverse()
+  const name = otherUser ? displayNameOf(otherUser) : 'Usuário desconhecido'
 
   return (
     // `min-w-0` na raiz e no nome: em janela estreita esta coluna é a que
-    // encolhe, e sem ele o `truncate` do nome não corta nada — um filho flex tem
-    // `min-width: auto` e se recusa a ficar menor que o próprio conteúdo.
-    <div className="h-full min-w-0 flex flex-col">
+    // encolhe, e sem ele o `truncate` do nome não corta nada.
+    <div className="h-full min-w-0 flex flex-col [--avatar-ring:var(--background)]">
       <div className="h-12 flex-none flex items-center gap-2 px-4 border-b border-border">
-        <span className="min-w-0 font-semibold text-foreground truncate">
-          {otherUser ? `${otherUser.username}#${otherUser.tag}` : 'Conversa'}
+        {otherUser ? (
+          <UserAvatar
+            userId={otherUser.userId}
+            avatarUrl={otherUser.avatarUrl}
+            name={name}
+            size={24}
+            status={otherUser.online ? 'online' : 'offline'}
+          />
+        ) : null}
+        <span className="min-w-0 font-semibold text-strong truncate" title={name}>
+          {otherUser ? name : 'Conversa'}
         </span>
       </div>
 
-      <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-        {status === 'CanLoadMore' ? (
-          <div className="flex-none flex justify-center py-2">
-            <Button type="button" variant="ghost" size="sm" onClick={() => loadMore(30)}>
-              Carregar mensagens antigas
-            </Button>
+      <div className="flex-1 min-h-0 min-w-0">
+        {status === 'LoadingFirstPage' ? (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            Carregando mensagens...
           </div>
-        ) : null}
-
-        <div className="flex-1 min-h-0 min-w-0">
-          {otherUser ? (
-            <DmMessageList messages={messages} otherUser={otherUser} />
-          ) : (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              Não foi possível carregar esta conversa
-            </div>
-          )}
-        </div>
+        ) : otherUser ? (
+          <DmMessageList
+            messages={messages}
+            otherUser={otherUser}
+            me={me ?? null}
+            canLoadMore={status === 'CanLoadMore'}
+            loadMore={() => loadMore(PAGE_SIZE)}
+            isExhausted={status === 'Exhausted'}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+            Não foi possível carregar esta conversa
+          </div>
+        )}
       </div>
 
-      <MessageInput
-        placeholder={`Conversar com @${
-          otherUser ? displayNameOf(otherUser) : 'Usuário desconhecido'
-        }`}
-        onSend={handleSend}
-      />
+      <MessageInput placeholder={`Conversar com @${name}`} onSend={handleSend} />
     </div>
   )
 }

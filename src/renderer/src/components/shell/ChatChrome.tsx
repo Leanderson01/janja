@@ -36,17 +36,24 @@ export function UnreadDivider(): React.JSX.Element {
 export function ChannelWelcome({
   title,
   subtitle,
-  icon
+  icon,
+  bareIcon = false
 }: {
   title: string
   subtitle: string
   icon: ReactNode
+  /** Sem o círculo de 68px em volta: o ícone já é um avatar (DM). */
+  bareIcon?: boolean
 }): React.JSX.Element {
   return (
     <div className="px-4 pb-4 pt-8">
-      <div className="mb-2 flex size-[68px] items-center justify-center rounded-full bg-secondary text-strong">
-        {icon}
-      </div>
+      {bareIcon ? (
+        <div className="mb-2">{icon}</div>
+      ) : (
+        <div className="mb-2 flex size-[68px] items-center justify-center rounded-full bg-secondary text-strong">
+          {icon}
+        </div>
+      )}
       <h1 className="break-words text-[32px] font-bold leading-10 text-strong">{title}</h1>
       <p className="break-words text-muted-foreground">{subtitle}</p>
     </div>
