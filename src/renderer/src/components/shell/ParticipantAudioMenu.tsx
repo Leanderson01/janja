@@ -236,10 +236,13 @@ export function ParticipantAudioMenu({
 // então o bloco não pode ser envolvido pelo gatilho de `ParticipantAudioMenu`.
 // Mesmo padrão do menu de canal da `ChannelSidebar`: `DropdownMenu` CONTROLADO,
 // aberto pelo `onContextMenu` de quem chama, com uma âncora invisível que cobre
-// o pai posicionado (`relative`) para o menu nascer sobre o bloco.
+// o pai posicionado (`relative`) para o menu nascer sobre o bloco. A âncora não
+// recebe foco, então o foco volta a `focusRef` (o botão do bloco) ao fechar —
+// sem isso ele cairia no `body`.
 export function ParticipantAudioContextMenu({
   open,
   onOpenChange,
+  focusRef,
   username,
   preference,
   onVolumeChange,
@@ -247,6 +250,7 @@ export function ParticipantAudioContextMenu({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  focusRef: React.RefObject<HTMLElement | null>
   username: string
   preference: ParticipantAudioPreference | undefined
   onVolumeChange: (volume: number) => void
@@ -257,7 +261,14 @@ export function ParticipantAudioContextMenu({
       <DropdownMenuTrigger asChild>
         <span aria-hidden="true" className="pointer-events-none absolute inset-0" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="w-60">
+      <DropdownMenuContent
+        align="center"
+        className="w-60"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          focusRef.current?.focus()
+        }}
+      >
         <DropdownMenuLabel className="truncate">{username}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <ParticipantAudioMenuItems

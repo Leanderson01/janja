@@ -1,5 +1,5 @@
 import { MicOff } from 'lucide-react'
-import type { MouseEvent, ReactNode } from 'react'
+import type { MouseEvent, ReactNode, Ref } from 'react'
 
 import { UserAvatar } from '@/components/shell/UserAvatar'
 import { AVATAR_TILE_BG, avatarColorIndex } from '@/lib/avatar-color'
@@ -25,6 +25,7 @@ export function ParticipantTile({
   extras,
   dimmed,
   live,
+  liveButtonRef,
   onContextMenu
 }: {
   userId: string
@@ -38,6 +39,8 @@ export function ParticipantTile({
   dimmed?: boolean
   /** Transmitindo a tela (só para OUTRA pessoa, no canal em que estou). */
   live?: { watching: boolean; onWatch(): void }
+  /** O botão do bloco ao vivo: o menu de áudio devolve o foco a ele ao fechar. */
+  liveButtonRef?: Ref<HTMLButtonElement>
   onContextMenu?(e: MouseEvent): void
 }): React.JSX.Element {
   return (
@@ -74,6 +77,7 @@ export function ParticipantTile({
             AO VIVO
           </span>
           <button
+            ref={liveButtonRef}
             type="button"
             onClick={live.onWatch}
             className="group absolute inset-0 grid place-items-center rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

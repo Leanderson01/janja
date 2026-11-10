@@ -3,14 +3,19 @@ import { describe, expect, it } from 'vitest'
 
 import {
   publicationsToSubscribe,
+  sameMembers,
+  screenSharePublicationOf,
   shouldAutoSubscribe,
   shouldSubscribe,
+  watchedIdentities,
   withWatched,
   withoutWatched
 } from './stream-subscription'
 
-// Publicação e participante falsos: a passada só lê `identity`, `source` e o
-// mapa de publicações, que é exatamente o formato de `room.remoteParticipants`.
+// Publicação e participante falsos: a decisão só lê `identity`, `source`,
+// `trackSid` e o mapa de publicações, que é exatamente o formato de
+// `room.remoteParticipants`. Cada chamada de `participant()` cria um objeto
+// NOVO, como o SDK faz ao recriar os participantes numa reconexão completa.
 type FakePublication = { trackSid: string; source: Track.Source }
 
 function participant(
@@ -19,15 +24,22 @@ function participant(
 ): { identity: string; trackPublications: Map<string, FakePublication> } {
   return {
     identity,
-    trackPublications: new Map(publications.map((pub) => [pub.trackSid, pub]))
+    trackPublications: new Map(publications.map((pub) => [pub.trackSid, { ...pub }]))
   }
 }
 
 const micA = { trackSid: 'TR_micA', source: Track.Source.Microphone }
-const screenA = { trackSid: 'TR_screenA', source: Track.Source.ScreenShare }
-const screenAudioA = { trackSid: 'TR_screenAudioA', source: Track.Source.ScreenShareAudio }
+const screenA1 = { trackSid: 'TR_screenA1', source: Track.Source.ScreenShare }
+const screenAudioA1 = { trackSid: 'TR_screenAudioA1', source: Track.Source.ScreenShareAudio }
+// A segunda transmissão de A na mesma call: o servidor dá sids novos.
+const screenA2 = { trackSid: 'TR_screenA2', source: Track.Source.ScreenShare }
+const screenAudioA2 = { trackSid: 'TR_screenAudioA2', source: Track.Source.ScreenShareAudio }
 const micB = { trackSid: 'TR_micB', source: Track.Source.Microphone }
 const cameraB = { trackSid: 'TR_cameraB', source: Track.Source.Camera }
+
+function sids(publications: FakePublication[]): string[] {
+  return publications.map((pub) => pub.trackSid).sort()
+}
 
 describe('shouldAutoSubscribe', () => {
   it('mic e câmera continuam automáticos', () => {
@@ -43,67 +55,114 @@ describe('shouldAutoSubscribe', () => {
 })
 
 describe('shouldSubscribe', () => {
-  it('tela de quem estou assistindo é assinada, vídeo e som', () => {
-    const watched = new Set(['A'])
-    expect(shouldSubscribe(Track.Source.ScreenShare, 'A', watched)).toBe(true)
-    expect(shouldSubscribe(Track.Source.ScreenShareAudio, 'A', watched)).toBe(true)
+  it('mic é sempre assinado, com ou sem transmissão assistida', () => {
+    const a = participant('A', [micA, screenA1, screenAudioA1])
+    expect(shouldSubscribe(micA, a, new Set())).toBe(true)
+    expect(shouldSubscribe(micA, a, new Set(['TR_screenA1']))).toBe(true)
+    expect(shouldSubscribe(micA, a, new Set(['TR_outra']))).toBe(true)
   })
-  it('tela de quem não estou assistindo não é assinada', () => {
-    const watched = new Set(['A'])
-    expect(shouldSubscribe(Track.Source.ScreenShare, 'B', watched)).toBe(false)
-    expect(shouldSubscribe(Track.Source.ScreenShareAudio, 'B', watched)).toBe(false)
+  it('tela que estou assistindo é assinada, vídeo e som', () => {
+    const a = participant('A', [micA, screenA1, screenAudioA1])
+    const watched = new Set(['TR_screenA1'])
+    expect(shouldSubscribe(screenA1, a, watched)).toBe(true)
+    expect(shouldSubscribe(screenAudioA1, a, watched)).toBe(true)
   })
-  it('mic é assinado com ou sem transmissão assistida', () => {
-    expect(shouldSubscribe(Track.Source.Microphone, 'A', new Set())).toBe(true)
-    expect(shouldSubscribe(Track.Source.Microphone, 'A', new Set(['A']))).toBe(true)
+  it('tela que ninguém clicou não é assinada, nem o som', () => {
+    const a = participant('A', [micA, screenA1, screenAudioA1])
+    expect(shouldSubscribe(screenA1, a, new Set())).toBe(false)
+    expect(shouldSubscribe(screenAudioA1, a, new Set())).toBe(false)
+  })
+  it('som da tela sem o vídeo no ar não é assinado', () => {
+    const a = participant('A', [micA, screenAudioA1])
+    expect(shouldSubscribe(screenAudioA1, a, new Set(['TR_screenA1']))).toBe(false)
+  })
+})
+
+describe('A para e volta a transmitir', () => {
+  it('B não recebe a transmissão nova sem clicar de novo', () => {
+    // B clicou na primeira transmissão de A; A parou e começou outra.
+    const watched = new Set(['TR_screenA1'])
+    const a = participant('A', [micA, screenA2, screenAudioA2])
+    expect(shouldSubscribe(screenA2, a, watched)).toBe(false)
+    expect(shouldSubscribe(screenAudioA2, a, watched)).toBe(false)
+    expect(sids(publicationsToSubscribe([a], watched))).toEqual(['TR_micA'])
+    expect(watchedIdentities([a], watched).size).toBe(0)
+  })
+})
+
+describe('reconexão completa de B', () => {
+  it('quem B assistia continua assistido, vídeo e som', () => {
+    const watched = new Set(['TR_screenA1'])
+    // O SDK recria os participantes do zero; os sids são de A no servidor.
+    const recreated = [participant('A', [micA, screenA1, screenAudioA1]), participant('B', [micB])]
+    expect(sids(publicationsToSubscribe(recreated, watched))).toEqual([
+      'TR_micA',
+      'TR_micB',
+      'TR_screenA1',
+      'TR_screenAudioA1'
+    ])
+    expect([...watchedIdentities(recreated, watched)]).toEqual(['A'])
   })
 })
 
 describe('publicationsToSubscribe', () => {
   it('sem ninguém assistido, assina todo mic e câmera e nenhuma tela', () => {
     const result = publicationsToSubscribe(
-      [participant('A', [micA, screenA, screenAudioA]), participant('B', [micB, cameraB])],
+      [participant('A', [micA, screenA1, screenAudioA1]), participant('B', [micB, cameraB])],
       new Set()
     )
-    expect(result.map((pub) => pub.trackSid).sort()).toEqual(['TR_cameraB', 'TR_micA', 'TR_micB'])
+    expect(sids(result)).toEqual(['TR_cameraB', 'TR_micA', 'TR_micB'])
   })
-  it('com A assistido, assina também o vídeo e o som da tela de A', () => {
-    const result = publicationsToSubscribe(
-      [participant('A', [micA, screenA, screenAudioA]), participant('B', [micB])],
-      new Set(['A'])
-    )
-    expect(result.map((pub) => pub.trackSid).sort()).toEqual([
-      'TR_micA',
-      'TR_micB',
-      'TR_screenA',
-      'TR_screenAudioA'
+  it('assistir a tela de A não puxa a de outra pessoa', () => {
+    const c = participant('C', [
+      { trackSid: 'TR_micC', source: Track.Source.Microphone },
+      { trackSid: 'TR_screenC', source: Track.Source.ScreenShare },
+      { trackSid: 'TR_screenAudioC', source: Track.Source.ScreenShareAudio }
     ])
-  })
-  it('assistir B não puxa a tela de A', () => {
     const result = publicationsToSubscribe(
-      [participant('A', [micA, screenA, screenAudioA])],
-      new Set(['B'])
+      [participant('A', [micA, screenA1]), c],
+      new Set(['TR_screenA1'])
     )
-    expect(result).toEqual([micA])
+    expect(sids(result)).toEqual(['TR_micA', 'TR_micC', 'TR_screenA1'])
   })
   it('sala vazia não assina nada', () => {
-    expect(publicationsToSubscribe([], new Set(['A']))).toEqual([])
+    expect(publicationsToSubscribe([], new Set(['TR_screenA1']))).toEqual([])
   })
 })
 
-describe('conjunto de transmissões assistidas', () => {
-  it('assistir acrescenta e devolve o mesmo conjunto se já estava', () => {
-    const empty: ReadonlySet<string> = new Set()
-    const watched = withWatched(empty, 'A')
-    expect([...watched]).toEqual(['A'])
-    expect(empty.size).toBe(0)
-    expect(withWatched(watched, 'A')).toBe(watched)
+describe('watchedIdentities e screenSharePublicationOf', () => {
+  it('só quem tem a transmissão assistida no ar aparece', () => {
+    const a = participant('A', [micA, screenA1])
+    const b = participant('B', [micB])
+    expect([...watchedIdentities([a, b], new Set(['TR_screenA1']))]).toEqual(['A'])
+    expect(watchedIdentities([a, b], new Set()).size).toBe(0)
   })
-  it('parar de assistir tira e devolve o mesmo conjunto se não estava', () => {
-    const watched: ReadonlySet<string> = new Set(['A', 'B'])
-    const next = withoutWatched(watched, 'A')
-    expect([...next]).toEqual(['B'])
-    expect(watched.has('A')).toBe(true)
-    expect(withoutWatched(next, 'A')).toBe(next)
+  it('acha o vídeo da tela e ignora o som', () => {
+    expect(screenSharePublicationOf(participant('A', [screenAudioA1, screenA1]))?.trackSid).toBe(
+      'TR_screenA1'
+    )
+    expect(screenSharePublicationOf(participant('A', [micA, screenAudioA1]))).toBeUndefined()
+  })
+})
+
+describe('conjuntos', () => {
+  it('acrescentar devolve o mesmo conjunto se já estava', () => {
+    const empty: ReadonlySet<string> = new Set()
+    const watched = withWatched(empty, 'TR_screenA1')
+    expect([...watched]).toEqual(['TR_screenA1'])
+    expect(empty.size).toBe(0)
+    expect(withWatched(watched, 'TR_screenA1')).toBe(watched)
+  })
+  it('tirar devolve o mesmo conjunto se não estava', () => {
+    const watched: ReadonlySet<string> = new Set(['TR_screenA1', 'TR_screenC'])
+    const next = withoutWatched(watched, 'TR_screenA1')
+    expect([...next]).toEqual(['TR_screenC'])
+    expect(watched.has('TR_screenA1')).toBe(true)
+    expect(withoutWatched(next, 'TR_screenA1')).toBe(next)
+  })
+  it('sameMembers compara membros, não identidade', () => {
+    expect(sameMembers(new Set(['A', 'B']), new Set(['B', 'A']))).toBe(true)
+    expect(sameMembers(new Set(['A']), new Set(['A', 'B']))).toBe(false)
+    expect(sameMembers(new Set(['A']), new Set(['B']))).toBe(false)
   })
 })

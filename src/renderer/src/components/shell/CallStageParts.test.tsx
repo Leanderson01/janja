@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 import '@/test/jsdom-setup'
 
-import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -20,6 +29,7 @@ import { useIdle } from '@/hooks/use-idle'
 import { shouldShowCallControls } from '@/lib/call-grid'
 
 import { CallControlsView } from './CallControls'
+import { ParticipantAudioContextMenu } from './ParticipantAudioMenu'
 import { ParticipantTile } from './ParticipantTile'
 
 afterEach(() => {
@@ -131,6 +141,44 @@ describe('ParticipantTile', () => {
     )
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Assistir transmissão' }))
     expect(onContextMenu).toHaveBeenCalledOnce()
+  })
+})
+
+describe('ParticipantAudioContextMenu', () => {
+  it('ao fechar, devolve o foco ao botão do bloco ao vivo', async () => {
+    function Harness(): React.JSX.Element {
+      const buttonRef = useRef<HTMLButtonElement>(null)
+      const [open, setOpen] = useState(false)
+      return (
+        <div className="relative" onContextMenu={() => setOpen(true)}>
+          <ParticipantTile
+            userId="u1"
+            name="VM"
+            muted={false}
+            speaking={false}
+            live={{ watching: false, onWatch: vi.fn() }}
+            liveButtonRef={buttonRef}
+          />
+          <ParticipantAudioContextMenu
+            open={open}
+            onOpenChange={setOpen}
+            focusRef={buttonRef}
+            username="VM"
+            preference={undefined}
+            onVolumeChange={vi.fn()}
+            onToggleSilenced={vi.fn()}
+          />
+        </div>
+      )
+    }
+    render(<Harness />)
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Assistir transmissão' }))
+    expect(await screen.findByRole('menu')).toBeTruthy()
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Assistir transmissão' })
+    )
   })
 })
 

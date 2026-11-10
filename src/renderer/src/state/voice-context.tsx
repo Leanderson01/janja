@@ -53,8 +53,11 @@ import {
 import { loadVoicePreferences, type VoicePreferences } from '../lib/voice-preferences'
 import {
   publicationsToSubscribe,
+  sameMembers,
+  screenSharePublicationOf,
   shouldAutoSubscribe,
   shouldSubscribe,
+  watchedIdentities,
   withWatched,
   withoutWatched
 } from '../lib/stream-subscription'
@@ -260,19 +263,22 @@ export type VoiceContextValue = {
   stopScreenShare: () => Promise<void>
   /**
    * Tarefa 13 da rodada 1 do visual Discord: identities (= `users._id`) das
-   * pessoas cuja transmissão de tela EU escolhi assistir nesta call. Só a tela
-   * dessas pessoas (vídeo E som do compartilhamento) é assinada; o resto da sala
+   * pessoas cuja transmissão de tela NO AR eu escolhi assistir. Só a tela
+   * assistida (vídeo E som do compartilhamento) é assinada; o resto da sala
    * (microfones, câmera) continua automático — ver `lib/stream-subscription.ts`.
    *
-   * Sobrevive a quedas de rede curtas (a reconexão reassina) e zera em toda
-   * desconexão e em toda entrada nova. Ficar no conjunto não quer dizer que o
+   * O clique vale para UMA transmissão: se a pessoa para e volta a transmitir
+   * (ou sai e volta), ela sai deste conjunto e a transmissão nova espera outro
+   * clique. Sobrevive às minhas quedas de rede (a reconexão reassina) e zera em
+   * toda desconexão e em toda entrada nova. Estar aqui não quer dizer que o
    * vídeo já chegou: quem diz isso é `screenShareTracks`.
    */
   watchedScreenShares: ReadonlySet<string>
   /**
-   * "Assistir transmissão": passa a assinar a tela e o som da tela de
-   * `identity`, inclusive o que ela publicar depois (o som do jogo chega numa
-   * publicação separada). Fora de call, ou para mim mesmo, não faz nada — a
+   * "Assistir transmissão": passa a assinar a transmissão que `identity` tem
+   * no ar AGORA — o vídeo e o som (o som do jogo chega numa publicação
+   * separada, e entra sozinho quando chegar). Sem transmissão no ar ainda
+   * visível para o `Room`, fora de call, ou para mim mesmo, não faz nada — a
    * própria tela aparece sem clique, pela track local. Não lança.
    */
   watchScreenShare: (identity: string) => void
@@ -339,11 +345,17 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // pura e testada.
   const [screenShareTracks, setScreenShareTracks] = useState<ScreenShareTrack[]>([])
 
-  // Ver `watchedScreenShares` no valor do contexto. Estado para a UI (o bloco
-  // AO VIVO sabe se já assisto) e espelho síncrono para os listeners do `Room`,
-  // registrados uma vez só (deps `[room]`) — uma closure sobre o estado leria o
-  // conjunto da montagem para sempre. Os dois são escritos juntos, sempre por
-  // `commitWatchedScreenShares`.
+  // Tarefa 13: as transmissões que eu escolhi assistir, pelo `trackSid` do
+  // VÍDEO de cada uma — a regra (e por que sid e não pessoa) mora em
+  // `shouldSubscribe`, `lib/stream-subscription.ts`. É a fonte de verdade,
+  // lida pelos listeners do `Room` (registrados uma vez só, deps `[room]`, por
+  // isso ref e não estado) e escrita só por `setWatchedShareSids`.
+  const watchedShareSidsRef = useRef<ReadonlySet<string>>(new Set())
+
+  // Ver `watchedScreenShares` no valor do contexto: as PESSOAS que assisto
+  // agora, derivadas de `watchedShareSidsRef` e das publicações da sala por
+  // `refreshWatchedScreenShares`. Estado porque o bloco AO VIVO renderiza a
+  // partir dele; o espelho evita re-render quando o conjunto não mudou.
   const [watchedScreenShares, setWatchedScreenSharesState] = useState<ReadonlySet<string>>(
     () => new Set()
   )
@@ -787,15 +799,24 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     await screenShare.startAudio(room)
   }
 
-  function commitWatchedScreenShares(next: ReadonlySet<string>): void {
-    if (next === watchedScreenSharesRef.current) return
+  // Recalcula quem eu assisto agora (ver `watchedScreenShares`). Chamada a cada
+  // mudança que pode mexer nisso: clique, publicação ou despublicação na sala,
+  // saída de participante, reconexão e desconexão.
+  function refreshWatchedScreenShares(): void {
+    const next = watchedIdentities(room.remoteParticipants.values(), watchedShareSidsRef.current)
+    if (sameMembers(next, watchedScreenSharesRef.current)) return
     watchedScreenSharesRef.current = next
     setWatchedScreenSharesState(next)
   }
 
+  function setWatchedShareSids(next: ReadonlySet<string>): void {
+    watchedShareSidsRef.current = next
+    refreshWatchedScreenShares()
+  }
+
   function clearWatchedScreenShares(): void {
-    if (watchedScreenSharesRef.current.size === 0) return
-    commitWatchedScreenShares(new Set())
+    if (watchedShareSidsRef.current.size > 0) watchedShareSidsRef.current = new Set()
+    refreshWatchedScreenShares()
   }
 
   // Tarefa 13: a sala conecta com `autoSubscribe: false`, e ESTA é a passada que
@@ -816,7 +837,7 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     try {
       publications = publicationsToSubscribe(
         room.remoteParticipants.values(),
-        watchedScreenSharesRef.current
+        watchedShareSidsRef.current
       )
     } catch (err) {
       console.error('[voice] falha ao listar as publicações da sala para assinar', err)
@@ -833,9 +854,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
   // Liga ou desliga a assinatura da TELA (vídeo e som) de uma pessoa, sem tocar
   // no microfone dela.
-  function setScreenShareSubscribed(identity: string, subscribed: boolean): void {
-    const participant = room.remoteParticipants.get(identity)
-    if (!participant) return
+  function setScreenShareSubscribed(participant: RemoteParticipant, subscribed: boolean): void {
+    const identity = participant.identity
     participant.trackPublications.forEach((publication) => {
       if (shouldAutoSubscribe(publication.source)) return
       try {
@@ -853,16 +873,29 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
   function watchScreenShare(identity: string): void {
     // Fora de call não há o que assinar, e um "assistindo" guardado agora
-    // vazaria para a próxima entrada. A própria tela aparece pela track local.
+    // vazaria para a próxima entrada. A própria tela aparece pela track local
+    // (e `room.remoteParticipants` não tem a mim mesmo).
     if (room.state === ConnectionState.Disconnected) return
-    if (identity === room.localParticipant.identity) return
-    commitWatchedScreenShares(withWatched(watchedScreenSharesRef.current, identity))
-    setScreenShareSubscribed(identity, true)
+    const participant = room.remoteParticipants.get(identity)
+    const video = participant ? screenSharePublicationOf(participant) : undefined
+    if (!participant || !video) {
+      // O AO VIVO vem do Convex e pode chegar alguns milissegundos antes da
+      // publicação no `Room`. O bloco continua em "Assistir transmissão", e o
+      // próximo clique pega a transmissão — guardar o clique pela pessoa é o
+      // que faria a transmissão SEGUINTE dela entrar sem clique.
+      console.warn('[voice] assistir: %s ainda não tem transmissão na sala', identity)
+      return
+    }
+    setWatchedShareSids(withWatched(watchedShareSidsRef.current, video.trackSid))
+    setScreenShareSubscribed(participant, true)
   }
 
   function stopWatchingScreenShare(identity: string): void {
-    commitWatchedScreenShares(withoutWatched(watchedScreenSharesRef.current, identity))
-    setScreenShareSubscribed(identity, false)
+    const participant = room.remoteParticipants.get(identity)
+    if (!participant) return
+    const video = screenSharePublicationOf(participant)
+    if (video) setWatchedShareSids(withoutWatched(watchedShareSidsRef.current, video.trackSid))
+    setScreenShareSubscribed(participant, false)
   }
 
   async function stopScreenShare(): Promise<void> {
@@ -1428,8 +1461,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   // |------------------------------|---------------------------------------------|
   // | passada depois do connect    | quem já estava na sala ao entrar (o SDK não |
   // |                              | emite `TrackPublished` para essas)          |
-  // | TrackPublished               | quem entra depois, mic republicado, a tela  |
-  // |                              | e o som da tela de quem eu já assisto       |
+  // | TrackPublished               | quem entra depois, mic republicado, o som   |
+  // |                              | da tela que eu já assisto                   |
   // | Reconnected (passada)        | queda de rede: na retomada o SDK reenvia o  |
   // |                              | que foi pedido; na reconexão completa os    |
   // |                              | participantes são recriados do zero         |
@@ -1443,20 +1476,32 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       publication: RemoteTrackPublication,
       participant: RemoteParticipant
     ): void {
-      if (
-        !shouldSubscribe(publication.source, participant.identity, watchedScreenSharesRef.current)
-      ) {
-        return
+      if (shouldSubscribe(publication, participant, watchedShareSidsRef.current)) {
+        try {
+          publication.setSubscribed(true)
+        } catch (err) {
+          console.error('[voice] falha ao assinar a publicação %s', publication.trackSid, err)
+        }
       }
-      try {
-        publication.setSubscribed(true)
-      } catch (err) {
-        console.error('[voice] falha ao assinar a publicação %s', publication.trackSid, err)
-      }
+      // Na reconexão completa os participantes voltam publicação por
+      // publicação: a tela assistida volta a contar como assistida aqui.
+      refreshWatchedScreenShares()
     }
 
     function handleReconnected(): void {
       subscribeDesiredPublications()
+      refreshWatchedScreenShares()
+    }
+
+    // A transmissão acabou (ou a pessoa saiu): o bloco dela deixa de dizer que
+    // eu assisto. Nada a cancelar — o sid antigo nunca volta, e a próxima
+    // transmissão da mesma pessoa tem outro.
+    function handleTrackUnpublished(): void {
+      refreshWatchedScreenShares()
+    }
+
+    function handleParticipantDisconnected(): void {
+      refreshWatchedScreenShares()
     }
 
     // Sair ou cair da call encerra o "assistindo": a próxima entrada começa sem
@@ -1468,6 +1513,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     }
 
     room.on(RoomEvent.TrackPublished, handleTrackPublished)
+    room.on(RoomEvent.TrackUnpublished, handleTrackUnpublished)
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
     room.on(RoomEvent.Reconnected, handleReconnected)
     room.on(RoomEvent.Disconnected, handleDisconnected)
 
@@ -1478,6 +1525,8 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
     return () => {
       room.off(RoomEvent.TrackPublished, handleTrackPublished)
+      room.off(RoomEvent.TrackUnpublished, handleTrackUnpublished)
+      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
       room.off(RoomEvent.Reconnected, handleReconnected)
       room.off(RoomEvent.Disconnected, handleDisconnected)
     }

@@ -86,6 +86,10 @@ function GridTile({
   live?: { watching: boolean; onWatch(): void }
 }): React.JSX.Element {
   const [liveMenuOpen, setLiveMenuOpen] = useState(false)
+  const liveButtonRef = useRef<HTMLButtonElement>(null)
+  // A transmissão acabou com o menu aberto: o bloco perde o menu ancorado, e um
+  // `true` esquecido aqui abriria o menu sozinho na próxima transmissão.
+  if (!live && liveMenuOpen) setLiveMenuOpen(false)
   const silenced = preference?.silenced ?? false
   const hasMenu = onVolumeChange !== null && onToggleSilenced !== null
 
@@ -100,6 +104,7 @@ function GridTile({
       speaking={participant.isSpeaking}
       dimmed={silenced}
       live={live}
+      liveButtonRef={liveButtonRef}
       onContextMenu={
         live && hasMenu
           ? (event) => {
@@ -132,6 +137,7 @@ function GridTile({
         <ParticipantAudioContextMenu
           open={liveMenuOpen}
           onOpenChange={setLiveMenuOpen}
+          focusRef={liveButtonRef}
           username={participant.displayName}
           preference={preference}
           onVolumeChange={onVolumeChange}
